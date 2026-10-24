@@ -7,7 +7,7 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex min-h-screen">
       <AppSidebar />
-      <main className="min-w-0 flex-1 p-6">
+      <main className="min-w-0 flex-1 p-6 print:p-0">
         {/* The sidebar is part of the static shell; page content waits for the session check. */}
         <Suspense fallback={<p className="text-muted-foreground text-sm">Loading…</p>}>
           <SessionGate>{children}</SessionGate>

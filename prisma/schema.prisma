@@ -80,6 +80,15 @@ enum PostingStatus {
   REVERSED
 }
 
+enum PaperSize {
+  A4
+  A5
+  /// A4 cut in half: 210 × 148.5 mm.
+  HALF_A4
+  A6
+  CUSTOM
+}
+
 enum CompanyBillKind {
   GOODS_RECEIPT
   /// What was owed when the tenant started using the app; payments can be applied to it.
@@ -193,23 +202,32 @@ enum LedgerEntryType {
 // ───────────────────────────── Platform ─────────────────────────────
 
 model Tenant {
-  id                    String   @id @default(cuid())
+  id                    String    @id @default(cuid())
   name                  String
-  slug                  String   @unique
+  slug                  String    @unique
   address               String?
   phone                 String?
+  /// Logo as a data: URL (PNG/JPEG/WebP, ≤ 200 KB), printed on bills and statements when set.
   logoUrl               String?
-  timezone              String   @default("Asia/Karachi")
-  currency              String   @default("PKR")
+  /// Bill paper (SPEC §11): A5 by default; CUSTOM uses the width/height below.
+  billPaper             PaperSize @default(A5)
+  billPaperWidthMm      Int?
+  billPaperHeightMm     Int?
+  printMarginMm         Int       @default(8)
+  printFontSizePt       Int       @default(10)
+  /// Print two bills on one A4 sheet (each on a half), to save paper.
+  twoBillsPerA4         Boolean   @default(false)
+  timezone              String    @default("Asia/Karachi")
+  currency              String    @default("PKR")
   /// Product base unit used for new products (smallest unit; quantities are stored in it).
-  defaultBaseUnit       String   @default("HALF_DOZEN")
+  defaultBaseUnit       String    @default("HALF_DOZEN")
   /// Unit that rates are quoted in for new products.
-  defaultPriceUnit      String   @default("DOZEN")
-  taxEnabled            Boolean  @default(false)
-  expiryTrackingEnabled Boolean  @default(false)
-  isActive              Boolean  @default(true)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  defaultPriceUnit      String    @default("DOZEN")
+  taxEnabled            Boolean   @default(false)
+  expiryTrackingEnabled Boolean   @default(false)
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   users                User[]
   auditLogs            AuditLog[]
@@ -921,23 +939,26 @@ model StockAdjustment {
 // ───────────────────────────── Sales ─────────────────────────────
 
 model SalesOrder {
-  id                 String           @id @default(cuid())
-  tenantId           String
-  number             Int
-  customerId         String
-  warehouseId        String
-  orderDate          DateTime         @db.Date
-  deliveryDate       DateTime         @db.Date
-  status             SalesOrderStatus @default(BOOKED)
-  source             OrderSource      @default(OFFICE)
+  id                  String           @id @default(cuid())
+  tenantId            String
+  number              Int
+  customerId          String
+  warehouseId         String
+  orderDate           DateTime         @db.Date
+  deliveryDate        DateTime         @db.Date
+  status              SalesOrderStatus @default(BOOKED)
+  source              OrderSource      @default(OFFICE)
+  /// The order would take the customer past their credit limit and was entered by someone who
+  /// cannot allow that; it waits for the owner (dispatch refuses it until approved).
+  needsCreditApproval Boolean          @default(false)
   /// Set when the owner allowed the order past the customer's credit limit.
-  creditOverrideById String?
-  creditOverrideAt   DateTime?
-  note               String?
-  requestId          String?
-  createdById        String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  creditOverrideById  String?
+  creditOverrideAt    DateTime?
+  note                String?
+  requestId           String?
+  createdById         String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer  Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
@@ -987,8 +1008,9 @@ model SalesOrderLine {
   @@index([tenantId, companyId])
 }
 
-/// One bill per sales order, possibly spanning several companies. Totals are for the current
-/// revision; every revision (original + each delivery correction) is kept in BillRevision.
+/// One bill per sales order, possibly spanning several companies, created when the order is booked.
+/// Totals are for the current revision; every version (booking, each edit before dispatch, each
+/// delivery correction) is kept in BillRevision. It posts to the customer ledger at dispatch.
 model Bill {
   id              String        @id @default(cuid())
   tenantId        String
@@ -1003,6 +1025,9 @@ model Bill {
   netAmount       Decimal       @db.Decimal(14, 2)
   /// Customer's pending balance just before this bill, snapshotted for printing.
   previousBalance Decimal       @default(0) @db.Decimal(14, 2)
+  /// When the bill was posted to the customer ledger (at dispatch). Null while the order can still
+  /// change: the bill is then a printable draft of the order.
+  postedAt        DateTime?
   status          PostingStatus @default(POSTED)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

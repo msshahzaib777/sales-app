@@ -2,6 +2,9 @@ const NOTICES: Record<string, string> = {
   saved: "Saved.",
   deleted: "Deleted.",
   posted: "Posted.",
+  booked: "Order booked.",
+  cancelled: "Order cancelled. Its stock is free again.",
+  approved: "Approved past the credit limit.",
 };
 
 /** One-line confirmation after a redirect (?notice=saved). */

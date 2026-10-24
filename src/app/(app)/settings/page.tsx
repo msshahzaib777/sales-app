@@ -1,4 +1,4 @@
-import { Bike, Map, UserRound, Users, Warehouse } from "lucide-react";
+import { Bike, Map, Printer, UserRound, Users, Warehouse } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -8,6 +8,12 @@ import { PageHeader } from "@/components/layout/page-header";
 export const metadata: Metadata = { title: "Settings" };
 
 const SECTIONS = [
+  {
+    href: "/settings/printing",
+    title: "Business & printing",
+    description: "Name, logo and address on bills; paper size, margins, font.",
+    icon: Printer,
+  },
   {
     href: "/settings/warehouses",
     title: "Warehouses",

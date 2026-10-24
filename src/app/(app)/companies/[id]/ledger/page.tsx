@@ -67,6 +67,9 @@ async function Ledger({
               New payment
             </LinkButton>
             <PrintButton />
+            <LinkButton href={`/companies/${company.id}/statement?${query}`} variant="outline">
+              Printable statement
+            </LinkButton>
             <Button asChild variant="outline">
               <a href={`/companies/${company.id}/ledger/export?${query}`}>Download Excel</a>
             </Button>

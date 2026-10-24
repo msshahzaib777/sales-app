@@ -15,7 +15,7 @@ import {
   type DiscountTier,
   resolveDiscount,
   sumLineAmounts,
-} from "../src/server/services/pricing";
+} from "../src/lib/pricing";
 
 // Demo tenant: 2 warehouses, 3 companies, 20 products, 30 customers, 4 bikes (CLAUDE.md), plus
 // opening balances, a received purchase per company, one delivered order with bill, payment and a
@@ -825,6 +825,30 @@ async function main() {
       }
 
       // ── Sales orders ──
+      const snapshotLine = (l: {
+        productId: string;
+        companyId: string;
+        quantity: number;
+        rate: Prisma.Decimal;
+        discountType: string;
+        discountValue: Prisma.Decimal;
+        grossAmount: Prisma.Decimal;
+        discountAmount: Prisma.Decimal;
+        taxAmount: Prisma.Decimal;
+        netAmount: Prisma.Decimal;
+      }) => ({
+        productId: l.productId,
+        companyId: l.companyId,
+        quantity: l.quantity,
+        rate: l.rate.toFixed(2),
+        discountType: l.discountType,
+        discountValue: l.discountValue.toFixed(2),
+        grossAmount: l.grossAmount.toFixed(2),
+        discountAmount: l.discountAmount.toFixed(2),
+        taxAmount: l.taxAmount.toFixed(2),
+        netAmount: l.netAmount.toFixed(2),
+      });
+
       async function createOrder(options: {
         customerId: string;
         warehouseKey: string;
@@ -863,7 +887,7 @@ async function main() {
             createdById: staffUser.id,
           },
         });
-        const lines = [];
+        const lines: Awaited<ReturnType<typeof tx.salesOrderLine.create>>[] = [];
         for (const [product, quantity] of chosen) {
           const discount = resolveDiscount(product, product.tiers, quantity);
           const amounts = calculateLineAmounts({
@@ -886,6 +910,42 @@ async function main() {
               },
             }),
           );
+        }
+        if (options.status === "BOOKED") {
+          // One bill per order, created at booking; it posts to the ledger at dispatch.
+          const totals = sumLineAmounts(lines);
+          const bill = await tx.bill.create({
+            data: {
+              tenantId,
+              number: nextNumber("BILL"),
+              salesOrderId: order.id,
+              customerId: options.customerId,
+              billDate: options.deliveryDate,
+              ...totals,
+            },
+          });
+          const companyIds = [...new Set(lines.map((l) => l.companyId))];
+          await tx.billRevision.create({
+            data: {
+              tenantId,
+              billId: bill.id,
+              revision: 1,
+              reason: "Booked",
+              ...totals,
+              lines: lines.map(snapshotLine),
+              companyTotals: companyIds.map((companyId) => {
+                const t = sumLineAmounts(lines.filter((l) => l.companyId === companyId));
+                return {
+                  companyId,
+                  netAmount: t.netAmount.toFixed(2),
+                  quantity: lines
+                    .filter((l) => l.companyId === companyId)
+                    .reduce((q, l) => q + l.quantity, 0),
+                };
+              }),
+              createdById: staffUser.id,
+            },
+          });
         }
         return { order, lines };
       }
@@ -924,30 +984,30 @@ async function main() {
           billDate: day(-2),
           ...totals,
           previousBalance,
+          postedAt: day(-2),
         },
       });
+      const previousByCompany = await tx.ledgerEntry.groupBy({
+        by: ["companyId"],
+        where: { tenantId, partyType: "CUSTOMER", customerId: deliveredCustomer.id },
+        _sum: { debit: true, credit: true },
+      });
+      const previousFor = (companyId: string) => {
+        const g = previousByCompany.find((p) => p.companyId === companyId);
+        return (g?._sum.debit ?? new Prisma.Decimal(0)).sub(g?._sum.credit ?? 0).toFixed(2);
+      };
       await tx.billRevision.create({
         data: {
           tenantId,
           billId: bill.id,
           revision: 1,
-          reason: "Original bill",
+          reason: "Booked",
           ...totals,
-          lines: delivered.lines.map((l) => ({
-            productId: l.productId,
-            companyId: l.companyId,
-            quantity: l.quantity,
-            rate: l.rate.toFixed(2),
-            discountType: l.discountType,
-            discountValue: l.discountValue.toFixed(2),
-            grossAmount: l.grossAmount.toFixed(2),
-            discountAmount: l.discountAmount.toFixed(2),
-            taxAmount: l.taxAmount.toFixed(2),
-            netAmount: l.netAmount.toFixed(2),
-          })),
+          lines: delivered.lines.map(snapshotLine),
           companyTotals: [...byCompany].map(([companyId, t]) => ({
             companyId,
             netAmount: t.netAmount.toFixed(2),
+            previousBalance: previousFor(companyId),
           })),
           createdById,
         },
