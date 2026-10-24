@@ -4,34 +4,18 @@
 # step checks what is already done. The first run installs Node.js, pnpm and PostgreSQL, creates
 # the database, asks whether to load demo data or set up your business, builds the website and
 # starts it. Later runs ask whether to start the website (keeping all data) or to do a fresh
-# installation (delete all data, after typing DELETE), then update and start it.
+# installation (delete all data, after typing DELETE), then update and start it. The website runs in
+# the background; taqseem.bat stops, restarts and updates it.
 #
 # Written for Windows PowerShell 5.1 (built into Windows 10 and 11).
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+. (Join-Path $PSScriptRoot "common.ps1")
 Set-Location $Root
-$SetupDir = Join-Path $Root ".setup"
-New-Item -ItemType Directory -Force -Path $SetupDir | Out-Null
 Start-Transcript -Path (Join-Path $SetupDir "setup-log.txt") -Append | Out-Null
 
-$PnpmVersion = "10.28.0"
-$Port = 3000
-$EnvFile = Join-Path $Root ".env"
-$DbHelper = Join-Path $Root "scripts\windows\db.mjs"
-$PgVersion = "17.10.0-beta.17"
-# The data folder keeps its first name ("SalesApp") so existing installations keep their data.
-$PgRoot = Join-Path $env:LOCALAPPDATA "SalesApp\postgres"
-$PgBin = Join-Path $PgRoot "bin"
-$PgData = Join-Path $env:LOCALAPPDATA "SalesApp\data"
-$SuperFile = Join-Path $env:LOCALAPPDATA "SalesApp\postgres-superuser-password.txt"
-$PgPort = 5432
-
-function Step($text) { Write-Host ""; Write-Host "==> $text" -ForegroundColor Cyan }
-function Ok($text) { Write-Host "    $text" -ForegroundColor Green }
-function Info($text) { Write-Host "    $text" }
 function Fail($text) {
   Write-Host ""
   Write-Host "SETUP STOPPED: $text" -ForegroundColor Red
@@ -44,58 +28,6 @@ function Fail($text) {
 function Run($what, [scriptblock]$command) {
   & $command
   if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit code $LASTEXITCODE). See the messages above." }
-}
-
-function Refresh-Path {
-  $machine = [Environment]::GetEnvironmentVariable("Path", "Machine")
-  $user = [Environment]::GetEnvironmentVariable("Path", "User")
-  $env:Path = "$machine;$user"
-  $npmGlobal = Join-Path $env:APPDATA "npm"
-  if (Test-Path $npmGlobal) { $env:Path = "$env:Path;$npmGlobal" }
-}
-
-function Random-Hex([int]$bytes) {
-  $buffer = New-Object byte[] $bytes
-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
-  return -join ($buffer | ForEach-Object { $_.ToString("x2") })
-}
-
-# True when something accepts connections on this port on this laptop.
-function Test-Port([int]$port) {
-  $client = New-Object System.Net.Sockets.TcpClient
-  try {
-    $async = $client.BeginConnect("127.0.0.1", $port, $null, $null)
-    if (-not $async.AsyncWaitHandle.WaitOne(1000)) { return $false }
-    $client.EndConnect($async)
-    return $true
-  } catch {
-    return $false
-  } finally {
-    $client.Close()
-  }
-}
-
-function Have($command) { return [bool](Get-Command $command -ErrorAction SilentlyContinue) }
-
-function Winget-Install($id, $extra) {
-  $wingetArgs = @("install", "--exact", "--id", $id, "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity")
-  if ($extra) { $wingetArgs += $extra }
-  & winget @wingetArgs | Out-Host
-  return $LASTEXITCODE
-}
-
-# Runs a program and returns its output (stdout and stderr) as text with its exit code. Windows
-# PowerShell 5.1 turns stderr lines into errors, which "Stop" would treat as fatal; warnings from
-# psql or pnpm are not failures, so collect them with "Continue" and judge by the exit code.
-function Capture([scriptblock]$command) {
-  $previous = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  try {
-    $out = & $command 2>&1 | ForEach-Object { "$_" } | Out-String
-    return @{ Out = $out.Trim(); Code = $LASTEXITCODE }
-  } finally {
-    $ErrorActionPreference = $previous
-  }
 }
 
 Write-Host "Taqseem setup" -ForegroundColor White
@@ -123,6 +55,10 @@ if ((Test-Path $EnvFile) -or (Test-Path $PgData)) {
     }
   }
 }
+
+# A website already running in the background is stopped first: the build below replaces its files
+# (and a fresh installation deletes its database). It is started again at the end.
+& (Join-Path $PSScriptRoot "deploy.ps1") stop -Quiet
 
 # -- 1. Windows package manager ----------------------------------------------
 Step "Checking the Windows package manager (winget)"
@@ -175,13 +111,6 @@ Ok "Packages installed"
 # downloaded from the npm registry (the EnterpriseDB download site refuses some connections) into
 # this Windows user's app data, and this script starts it on every run.
 Step "Checking PostgreSQL"
-
-function Find-ServicePsql {
-  $found = Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
-    Sort-Object { [int]($_.Directory.Parent.Name -replace "\D", "") } -Descending |
-    Select-Object -First 1
-  if ($found) { return $found.FullName } else { return $null }
-}
 
 $useService = [bool](Find-ServicePsql) -and -not (Test-Path $PgData)
 if ($useService) {
@@ -246,24 +175,9 @@ if ($useService) {
   }
   $superPassword = (Get-Content $SuperFile -Raw).Trim()
 
-  $pgCtl = Join-Path $PgBin "pg_ctl.exe"
-  $pgLog = Join-Path $PgData "server.log"
-  if (-not (Test-Port $PgPort)) {
-    Info "Starting PostgreSQL..."
-    # Started in the background on purpose: the server keeps running and holds on to whatever
-    # output it was given, so waiting for pg_ctl's output here would never finish.
-    $pgArgs = @("start", "-D", "`"$PgData`"", "-l", "`"$pgLog`"", "-o", "`"-p $PgPort -c listen_addresses=localhost`"")
-    Start-Process -FilePath $pgCtl -ArgumentList $pgArgs -WindowStyle Hidden
-    $ready = $false
-    for ($i = 0; $i -lt 60; $i++) {
-      Start-Sleep -Seconds 1
-      if (Test-Port $PgPort) { $ready = $true; break }
-    }
-    if (-not $ready) {
-      $tail = if (Test-Path $pgLog) { (Get-Content $pgLog -Tail 15) -join "`n" } else { "(no log)" }
-      Fail "PostgreSQL did not start within a minute. Last lines of $pgLog`n$tail"
-    }
-  }
+  if (-not (Test-Port $PgPort)) { Info "Starting PostgreSQL..." }
+  $problem = Start-Database
+  if ($problem) { Fail $problem }
   Ok "PostgreSQL is running (data in $PgData)"
 }
 
@@ -339,14 +253,7 @@ if ($result.Out -eq "0") {
 
 # -- 8. Build (only when the code changed) -----------------------------------
 Step "Building the website"
-$buildId = Join-Path $Root ".next\BUILD_ID"
-$needBuild = -not (Test-Path $buildId)
-if (-not $needBuild) {
-  $built = (Get-Item $buildId).LastWriteTime
-  $newest = Get-ChildItem -Path (Join-Path $Root "src"), (Join-Path $Root "prisma"), (Join-Path $Root "package.json"), (Join-Path $Root "pnpm-lock.yaml") -Recurse -File |
-    Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  if ($newest.LastWriteTime -gt $built) { $needBuild = $true }
-}
+$needBuild = Needs-Build
 if ($needBuild) {
   Info "Building (a minute or two)..."
   Run "Build" { pnpm build }
@@ -367,24 +274,7 @@ $lan = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
   Select-Object -ExpandProperty IPAddress -First 1
 
 # -- 10. Start ---------------------------------------------------------------
-Step "Starting the website"
-Write-Host ""
-Write-Host "    On this laptop:        http://localhost:$Port" -ForegroundColor Green
-if ($lan) { Write-Host "    Other office computers: http://${lan}:$Port (same Wi-Fi or network)" -ForegroundColor Green }
-Write-Host "    Keep this window open while you use the website. Close it to stop the website." -ForegroundColor Yellow
-Write-Host ""
+# In the background, so this window can be closed. taqseem.bat stops, restarts and updates it.
 Stop-Transcript | Out-Null
-
-# Open the browser once the website answers.
-Start-Job -ArgumentList $Port -ScriptBlock {
-  param($port)
-  for ($i = 0; $i -lt 120; $i++) {
-    try {
-      Invoke-WebRequest -Uri "http://localhost:$port/login" -UseBasicParsing -TimeoutSec 2 | Out-Null
-      Start-Process "http://localhost:$port"
-      return
-    } catch { Start-Sleep -Seconds 1 }
-  }
-} | Out-Null
-
-pnpm start --port $Port
+& (Join-Path $PSScriptRoot "deploy.ps1") start
+if ($lan) { Write-Host "    Other office computers: http://${lan}:$Port (same Wi-Fi or network)" -ForegroundColor Green }

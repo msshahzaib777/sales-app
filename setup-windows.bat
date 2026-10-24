@@ -1,6 +1,7 @@
 @echo off
 rem Taqseem: double-click to install everything and start the website on Windows.
-rem Safe to run again: it only does what is missing, then starts the website.
+rem Safe to run again: it only does what is missing, then starts the website in the background.
+rem Afterwards, use taqseem.bat to start, stop or update it.
 title Taqseem
 cd /d "%~dp0"
 

@@ -23,13 +23,26 @@ starts it each time you run the script.
      one-time password; write it down. You choose a new one at first sign-in.
 6. The browser opens at **http://localhost:3000**. Sign in.
 
-Keep the black window open while you use the website. Closing it stops the website.
+The website runs **in the background**: you can close the black window and keep using it.
 
-## Every day
+## Every day: `taqseem.bat`
 
-Double-click `setup-windows.bat` again and press **Enter** at the first question (1 = start the
-website and keep all data). It checks that everything is installed, updates the database if
-needed, and starts the website. It is quick after the first time.
+After the first installation, use **`taqseem.bat`** in the same folder. Double-click it for a menu:
+
+| Type                   | What it does                                                                                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **1** Start            | Starts the website in the background (restarts it if it is running). If the code is newer than the last build, or the database needs changes, it does those first. |
+| **2** Update           | Gets the latest code from GitHub, then the same as Start.                                                                                                          |
+| **3** Stop             | Stops the website. Your data stays.                                                                                                                                |
+| **4** Status           | Running or not, the addresses, the code version, where the logs and backups are.                                                                                   |
+| **5** Start at sign-in | Turns on (or off) starting the website by itself when you sign in to Windows.                                                                                      |
+| **0**                  | Closes the window. The website keeps running.                                                                                                                      |
+
+You can also run it with one word, for example in a shortcut: `taqseem.bat start`,
+`taqseem.bat stop`, `taqseem.bat update`, `taqseem.bat status`.
+
+**Database backups:** before any database change, Start and Update back up the whole database to
+`%LOCALAPPDATA%\SalesApp\backups` (the last 10 are kept). If the backup fails, nothing is changed.
 
 ## Fresh installation (start again with an empty database)
 
@@ -44,15 +57,24 @@ Enter (or typing anything other than DELETE) keeps your data.
 
 ## Other computers in the office
 
-The window shows an address like `http://192.168.1.20:3000`. Open it in a browser on any
-computer on the same Wi-Fi or network. The laptop running the window must stay on.
+Start and Status show an address like `http://192.168.1.20:3000`. Open it in a browser on any
+computer on the same Wi-Fi or network. The laptop running the website must stay on.
 
 ## Updating to a new version
 
-1. Close the black window.
-2. Download the new ZIP and unzip it **over the same folder** (replace files). Keep the `.env`
-   file and the `.setup` folder: they hold the database password and secret key.
-3. Double-click `setup-windows.bat`. It installs new packages, updates the database and rebuilds.
+Double-click `taqseem.bat` and type **2** (Update). It:
+
+1. installs Git the first time (the folder from the ZIP is then linked to GitHub; your `.env`,
+   `.setup` and data are kept). For a private repository, a GitHub sign-in window opens once;
+2. downloads the latest code (if files were changed on this laptop, it lists them and asks before
+   replacing them);
+3. stops the website, installs new packages, backs up the database and applies database changes,
+   rebuilds, and starts the website again.
+
+To use another repository or fork, put its address in `.setup\repo-url.txt`.
+
+**Restoring a backup** (only if an update went wrong): ask for help; the backup is a plain SQL
+file that `psql` loads into an empty database.
 
 ## Good to know
 
@@ -64,7 +86,8 @@ computer on the same Wi-Fi or network. The laptop running the window must stay o
   or use an online database (see the hosting notes in README.md).
 - `%LOCALAPPDATA%\SalesApp\postgres-superuser-password.txt` holds the database administrator
   password the script generated. Keep it private, and include it in backups.
-- `.setup\setup-log.txt` has a log of every run. Send it if something goes wrong.
+- `.setup\setup-log.txt` and `.setup\deploy-log.txt` log every run of the two files, and
+  `.setup\website-log.txt` is the website's own log. Send them if something goes wrong.
 - If PostgreSQL was already installed before, the script asks for its `postgres` password once.
 - If the window says **SETUP STOPPED**, read the message above it, fix the cause (often no
   internet), and double-click the file again. It continues where it stopped.

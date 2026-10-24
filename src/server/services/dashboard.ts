@@ -20,9 +20,15 @@ const DAY_MS = 86_400_000;
 /** Company bills due within this many days count as "due soon". */
 export const DUE_SOON_DAYS = 7;
 
-export async function getDashboard(ctx: ServiceCtx) {
+/**
+ * `date` (default today) picks the day for the day-based figures: orders for the next day, money
+ * collected and spent, company bills due. Trips out, pending approvals, credit limits and low stock
+ * are always as they are now.
+ */
+export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) {
   assertCan(ctx.user.role, "operations.manage");
-  const today = businessToday();
+  const realToday = businessToday();
+  const today = opts.date ?? realToday;
   const tomorrow = new Date(today.getTime() + DAY_MS);
   const showMoney = can(ctx.user.role, "payments.manage");
 
@@ -31,7 +37,7 @@ export async function getDashboard(ctx: ServiceCtx) {
     await Promise.all([
       ctx.db.salesOrder.groupBy({
         by: ["status"],
-        where: { deliveryDate: tomorrow, status: { in: ["BOOKED", "PLANNED"] } },
+        where: { deliveryDate: tomorrow, status: { not: "CANCELLED" } },
         _count: { _all: true },
       }),
       ctx.db.deliveryTrip.findMany({
@@ -56,12 +62,13 @@ export async function getDashboard(ctx: ServiceCtx) {
     ]);
 
   const booked = tomorrowOrders.find((g) => g.status === "BOOKED")?._count._all ?? 0;
-  const planned = tomorrowOrders.find((g) => g.status === "PLANNED")?._count._all ?? 0;
+  const ordersTomorrow = tomorrowOrders.reduce((n, g) => n + g._count._all, 0);
   return {
     today,
+    isToday: today.getTime() === realToday.getTime(),
     work: {
       tomorrow,
-      ordersTomorrow: booked + planned,
+      ordersTomorrow,
       notOnTripTomorrow: booked,
       tripsOut: tripsOut.map((t) => ({
         id: t.id,
@@ -70,7 +77,7 @@ export async function getDashboard(ctx: ServiceCtx) {
         bikeName: t.bike.name,
         driverName: t.driver?.name ?? null,
         ordersPending: t._count.orders,
-        late: t.tripDate < today,
+        late: t.tripDate < realToday,
       })),
       dayEndPending,
       /** Stock adjustments waiting for approval (null when the user can't approve them). */

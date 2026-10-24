@@ -11,8 +11,9 @@ build status is in [`docs/PROGRESS.md`](docs/PROGRESS.md).
 ## Windows laptop: one-click setup
 
 On a Windows laptop with nothing installed, double-click **`setup-windows.bat`**. It installs
-Node.js, pnpm and PostgreSQL, creates the database, builds and starts the website at
-http://localhost:3000. Run it again any day to start the website. See
+Node.js, pnpm and PostgreSQL, creates the database, builds and starts the website in the
+background at http://localhost:3000. After that, **`taqseem.bat`** starts, stops and updates it
+(latest code from GitHub, database backup, migrations, build). See
 [docs/WINDOWS.md](docs/WINDOWS.md).
 
 ## Stack
