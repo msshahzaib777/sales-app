@@ -1,9 +1,10 @@
-# Sales App: one-step setup and start on a Windows laptop with nothing installed.
+# Taqseem: one-step setup and start on a Windows laptop with nothing installed.
 #
 # Run it by double-clicking setup-windows.bat in the project folder. It is safe to run again: each
 # step checks what is already done. The first run installs Node.js, pnpm and PostgreSQL, creates
 # the database, asks whether to load demo data or set up your business, builds the website and
-# starts it. Later runs just update and start it.
+# starts it. Later runs ask whether to start the website (keeping all data) or to do a fresh
+# installation (delete all data, after typing DELETE), then update and start it.
 #
 # Written for Windows PowerShell 5.1 (built into Windows 10 and 11).
 
@@ -18,6 +19,15 @@ Start-Transcript -Path (Join-Path $SetupDir "setup-log.txt") -Append | Out-Null
 
 $PnpmVersion = "10.28.0"
 $Port = 3000
+$EnvFile = Join-Path $Root ".env"
+$DbHelper = Join-Path $Root "scripts\windows\db.mjs"
+$PgVersion = "17.10.0-beta.17"
+# The data folder keeps its first name ("SalesApp") so existing installations keep their data.
+$PgRoot = Join-Path $env:LOCALAPPDATA "SalesApp\postgres"
+$PgBin = Join-Path $PgRoot "bin"
+$PgData = Join-Path $env:LOCALAPPDATA "SalesApp\data"
+$SuperFile = Join-Path $env:LOCALAPPDATA "SalesApp\postgres-superuser-password.txt"
+$PgPort = 5432
 
 function Step($text) { Write-Host ""; Write-Host "==> $text" -ForegroundColor Cyan }
 function Ok($text) { Write-Host "    $text" -ForegroundColor Green }
@@ -88,8 +98,31 @@ function Capture([scriptblock]$command) {
   }
 }
 
-Write-Host "Sales App setup" -ForegroundColor White
+Write-Host "Taqseem setup" -ForegroundColor White
 Write-Host "Project folder: $Root"
+
+# -- 0. Start, or fresh installation -----------------------------------------
+$Fresh = $false
+if ((Test-Path $EnvFile) -or (Test-Path $PgData)) {
+  Write-Host ""
+  Write-Host "Taqseem is already installed on this laptop. What do you want to do?" -ForegroundColor White
+  Write-Host "    1 = Start the website and keep all data (press Enter)"
+  Write-Host "    2 = Fresh installation: DELETE ALL DATA (orders, bills, payments, stock, customers...)"
+  Write-Host "        and start again with an empty database"
+  $choice = Read-Host "    Type 1 or 2"
+  if ($choice -eq "2") {
+    Write-Host ""
+    Write-Host "    Everything in the database will be deleted for good. There is no undo." -ForegroundColor Red
+    Write-Host "    Make a backup first if any of it is real business data." -ForegroundColor Red
+    $confirm = Read-Host "    Type DELETE (in capitals) to delete everything, or press Enter to keep it"
+    if ($confirm -ceq "DELETE") {
+      $Fresh = $true
+      Write-Host "    Fresh installation: the data will be deleted below." -ForegroundColor Yellow
+    } else {
+      Write-Host "    Nothing deleted. Starting the website with your data." -ForegroundColor Green
+    }
+  }
+}
 
 # -- 1. Windows package manager ----------------------------------------------
 Step "Checking the Windows package manager (winget)"
@@ -142,12 +175,6 @@ Ok "Packages installed"
 # downloaded from the npm registry (the EnterpriseDB download site refuses some connections) into
 # this Windows user's app data, and this script starts it on every run.
 Step "Checking PostgreSQL"
-$PgVersion = "17.10.0-beta.17"
-$PgRoot = Join-Path $env:LOCALAPPDATA "SalesApp\postgres"
-$PgBin = Join-Path $PgRoot "bin"
-$PgData = Join-Path $env:LOCALAPPDATA "SalesApp\data"
-$SuperFile = Join-Path $env:LOCALAPPDATA "SalesApp\postgres-superuser-password.txt"
-$PgPort = 5432
 
 function Find-ServicePsql {
   $found = Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
@@ -162,6 +189,22 @@ if ($useService) {
   Ok "Using the PostgreSQL already installed on this laptop"
   $superPassword = $null # asked for below, only if the database still has to be created
 } else {
+  if ($Fresh -and (Test-Path $PgData)) {
+    Info "Deleting the old database..."
+    $pgCtl = Join-Path $PgBin "pg_ctl.exe"
+    if ((Test-Port $PgPort) -and (Test-Path $pgCtl)) {
+      Capture { & $pgCtl stop -D $PgData -m fast } | Out-Null
+      for ($i = 0; $i -lt 30 -and (Test-Port $PgPort); $i++) { Start-Sleep -Seconds 1 }
+    }
+    try {
+      Remove-Item $PgData -Recurse -Force
+    } catch {
+      Fail "Could not delete $PgData (the database may still be running). Restart the laptop and run this again."
+    }
+    Remove-Item $SuperFile -Force -ErrorAction SilentlyContinue
+    Ok "Old database deleted"
+  }
+
   # Microsoft Visual C++ runtime, needed by PostgreSQL's programs.
   $sys = Join-Path $env:WINDIR "System32"
   if (-not ((Test-Path "$sys\vcruntime140.dll") -and (Test-Path "$sys\vcruntime140_1.dll") -and (Test-Path "$sys\msvcp140.dll"))) {
@@ -226,8 +269,10 @@ if ($useService) {
 
 # -- 6. Database and .env ----------------------------------------------------
 Step "Preparing the database"
-$EnvFile = Join-Path $Root ".env"
-$DbHelper = Join-Path $Root "scripts\windows\db.mjs"
+if ($Fresh) {
+  Remove-Item $EnvFile -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $SetupDir "first-login.txt") -Force -ErrorAction SilentlyContinue
+}
 if (-not (Test-Path $EnvFile)) {
   if (-not $superPassword) {
     Write-Host "    Type the password of the existing PostgreSQL's 'postgres' user (set when it was installed)." -ForegroundColor Yellow
@@ -237,6 +282,12 @@ if (-not (Test-Path $EnvFile)) {
   $appPassword = Random-Hex 16
   $env:SALES_PG_SUPER_URL = "postgresql://postgres:$([uri]::EscapeDataString($superPassword))@localhost:$PgPort/postgres"
   $env:SALES_APP_DB_PASSWORD = $appPassword
+  if ($Fresh -and $useService) {
+    # Existing PostgreSQL service: delete only this app's database and user.
+    $result = Capture { node $DbHelper reset }
+    if ($result.Code -ne 0) { Fail "Deleting the old database failed: $($result.Out)" }
+    Ok "Old database deleted"
+  }
   $result = Capture { node $DbHelper ensure }
   $env:SALES_PG_SUPER_URL = $null
   $env:SALES_APP_DB_PASSWORD = $null
@@ -305,7 +356,9 @@ if ($needBuild) {
 }
 
 # -- 9. Other computers in the office ----------------------------------------
-$rule = "Sales App (port $Port)"
+$rule = "Taqseem (port $Port)"
+# The rule had the app's first name before; replace it rather than keep two.
+Get-NetFirewallRule -DisplayName "Sales App (port $Port)" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
   New-NetFirewallRule -DisplayName $rule -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Private | Out-Null
 }

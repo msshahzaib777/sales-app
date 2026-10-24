@@ -5,6 +5,9 @@
 //     SALES_PG_SUPER_URL     superuser connection, e.g. postgresql://postgres:pw@localhost:5432/postgres
 //     SALES_APP_DB_PASSWORD  password for the sales_app role (hex, from the setup script)
 //
+//   node scripts/windows/db.mjs reset    deletes the app database and role (fresh installation)
+//     SALES_PG_SUPER_URL     superuser connection
+//
 //   node scripts/windows/db.mjs tenants  prints how many tenants exist (0 if the table is missing)
 //     SALES_APP_DB_URL       the app's DATABASE_URL
 
@@ -51,6 +54,16 @@ async function ensure() {
   console.log("ok");
 }
 
+async function reset() {
+  await withClient(process.env.SALES_PG_SUPER_URL, async (db) => {
+    const database = await db.query("SELECT 1 FROM pg_database WHERE datname = 'sales_app'");
+    // FORCE closes any connection still open (e.g. a website window left running).
+    if (database.rowCount) await db.query("DROP DATABASE sales_app WITH (FORCE)");
+    await db.query("DROP ROLE IF EXISTS sales_app");
+  });
+  console.log("ok");
+}
+
 async function tenants() {
   await withClient(process.env.SALES_APP_DB_URL, async (db) => {
     const table = await db.query("SELECT to_regclass('public.\"Tenant\"') AS t");
@@ -62,6 +75,7 @@ async function tenants() {
 
 try {
   if (command === "ensure") await ensure();
+  else if (command === "reset") await reset();
   else if (command === "tenants") await tenants();
   else throw new Error(`Unknown command: ${command}`);
 } catch (error) {

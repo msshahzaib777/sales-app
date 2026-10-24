@@ -1,6 +1,7 @@
 @echo off
-rem Sales App: double-click to install everything and start the website on Windows.
+rem Taqseem: double-click to install everything and start the website on Windows.
 rem Safe to run again: it only does what is missing, then starts the website.
+title Taqseem
 cd /d "%~dp0"
 
 rem Installing Node.js and PostgreSQL needs administrator rights: ask once.
