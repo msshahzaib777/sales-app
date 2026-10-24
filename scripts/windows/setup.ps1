@@ -50,6 +50,21 @@ function Random-Hex([int]$bytes) {
   return -join ($buffer | ForEach-Object { $_.ToString("x2") })
 }
 
+# True when something accepts connections on this port on this laptop.
+function Test-Port([int]$port) {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $async = $client.BeginConnect("127.0.0.1", $port, $null, $null)
+    if (-not $async.AsyncWaitHandle.WaitOne(1000)) { return $false }
+    $client.EndConnect($async)
+    return $true
+  } catch {
+    return $false
+  } finally {
+    $client.Close()
+  }
+}
+
 function Have($command) { return [bool](Get-Command $command -ErrorAction SilentlyContinue) }
 
 function Winget-Install($id, $extra) {
@@ -189,11 +204,22 @@ if ($useService) {
   $superPassword = (Get-Content $SuperFile -Raw).Trim()
 
   $pgCtl = Join-Path $PgBin "pg_ctl.exe"
-  $status = Capture { & $pgCtl status -D $PgData }
-  if ($status.Code -ne 0) {
+  $pgLog = Join-Path $PgData "server.log"
+  if (-not (Test-Port $PgPort)) {
     Info "Starting PostgreSQL..."
-    $result = Capture { & $pgCtl start -D $PgData -w -t 60 -l (Join-Path $PgData "server.log") -o "-p $PgPort -c listen_addresses=localhost" }
-    if ($result.Code -ne 0) { Fail "PostgreSQL did not start: $($result.Out). Its log is $PgData\server.log" }
+    # Started in the background on purpose: the server keeps running and holds on to whatever
+    # output it was given, so waiting for pg_ctl's output here would never finish.
+    $pgArgs = @("start", "-D", "`"$PgData`"", "-l", "`"$pgLog`"", "-o", "`"-p $PgPort -c listen_addresses=localhost`"")
+    Start-Process -FilePath $pgCtl -ArgumentList $pgArgs -WindowStyle Hidden
+    $ready = $false
+    for ($i = 0; $i -lt 60; $i++) {
+      Start-Sleep -Seconds 1
+      if (Test-Port $PgPort) { $ready = $true; break }
+    }
+    if (-not $ready) {
+      $tail = if (Test-Path $pgLog) { (Get-Content $pgLog -Tail 15) -join "`n" } else { "(no log)" }
+      Fail "PostgreSQL did not start within a minute. Last lines of $pgLog`n$tail"
+    }
   }
   Ok "PostgreSQL is running (data in $PgData)"
 }

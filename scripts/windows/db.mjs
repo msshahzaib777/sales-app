@@ -12,9 +12,24 @@ import pg from "pg";
 
 const command = process.argv[2];
 
+async function connect(url) {
+  // Right after PostgreSQL starts it may still say "starting up" for a few seconds.
+  for (let attempt = 1; ; attempt++) {
+    const client = new pg.Client({ connectionString: url });
+    try {
+      await client.connect();
+      return client;
+    } catch (error) {
+      await client.end().catch(() => {});
+      const retry = /starting up|ECONNREFUSED|ECONNRESET/i.test(String(error?.message ?? error));
+      if (!retry || attempt >= 20) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
 async function withClient(url, body) {
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
+  const client = await connect(url);
   try {
     return await body(client);
   } finally {
