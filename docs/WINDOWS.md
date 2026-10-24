@@ -1,7 +1,11 @@
 # Run Sales App on a Windows laptop
 
 For a Windows 10 or 11 laptop with nothing installed. One file does everything: it installs
-Node.js, pnpm and PostgreSQL, creates the database, builds the website and starts it.
+Node.js and pnpm, sets up a PostgreSQL database, builds the website and starts it.
+
+PostgreSQL: if it is already installed on the laptop, that one is used. Otherwise the script
+downloads PostgreSQL 17 from the npm registry and keeps it in your Windows user's app data, and
+starts it each time you run the script.
 
 ## First time
 
@@ -40,12 +44,13 @@ computer on the same Wi-Fi or network. The laptop running the window must stay o
 
 ## Good to know
 
-- Your data is in PostgreSQL on this laptop, not in the project folder. Deleting the folder does
-  not delete it; uninstalling PostgreSQL does.
+- Your data is in `%LOCALAPPDATA%\SalesApp\data` (for example
+  `C:\Users\you\AppData\Local\SalesApp\data`), not in the project folder. Deleting the
+  project folder does not delete it. Deleting that `SalesApp` folder does.
 - **Back up regularly:** a laptop can be lost or fail. Before relying on it, set up a daily backup
   or use an online database (see the hosting notes in README.md).
-- `.setup\postgres-superuser-password.txt` holds the database administrator password the script
-  generated. Keep it private.
+- `%LOCALAPPDATA%\SalesApp\postgres-superuser-password.txt` holds the database administrator
+  password the script generated. Keep it private, and include it in backups.
 - `.setup\setup-log.txt` has a log of every run. Send it if something goes wrong.
 - If PostgreSQL was already installed before, the script asks for its `postgres` password once.
 - If the window says **SETUP STOPPED**, read the message above it, fix the cause (often no
