@@ -32,6 +32,16 @@ From the owner's notes after trying Phase 1. Built one item at a time.
    company names wrap onto a second line instead of squeezing the numbers; quantities, rates and
    amounts never wrap. Checked in print at A5 width, full bill and one-company slices.
 
+4. **Minimum payment — done.** The least the customer should pay: the balance left from earlier
+   bills, or what brings the total due back within their credit limit, whichever is more (just the
+   earlier balance when there is no limit; never below zero). `minimumPayment` in `src/lib/sales.ts`.
+   - Printed on the full bill under "Total due". Not on one-company slices, because the credit
+     limit is the customer's, not a company's.
+   - The day-end screen shows it next to the total due, updating with returns, and warns
+     "… short of the minimum payment" when less is collected (a warning only; it doesn't block).
+   - Uses the customer's credit limit at the time of printing, so a reprint follows a changed limit.
+   - Tested in `sales.test.ts` and `sales.int.test.ts`, and in a browser run.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

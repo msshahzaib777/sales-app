@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { billTotals, canTransition, checkCredit, isOpenOrder, priceLine } from "./sales";
+import {
+  billTotals,
+  canTransition,
+  checkCredit,
+  isOpenOrder,
+  minimumPayment,
+  priceLine,
+} from "./sales";
 
 const chips = {
   id: "p1",
@@ -84,5 +91,26 @@ describe("order statuses", () => {
       true,
       false,
     ]);
+  });
+});
+
+describe("minimumPayment", () => {
+  const min = (previous: string, totalDue: string, creditLimit: string | null) =>
+    minimumPayment({ previous, totalDue, creditLimit }).toFixed(2);
+
+  it("is the earlier balance when the total stays within the limit", () => {
+    expect(min("5000", "12000", "20000")).toBe("5000.00");
+  });
+  it("is what brings the total back within the limit when that is more", () => {
+    expect(min("5000", "32000", "20000")).toBe("12000.00");
+  });
+  it("is the earlier balance when there is no credit limit", () => {
+    expect(min("5000", "32000", null)).toBe("5000.00");
+  });
+  it("is the whole total with a zero limit", () => {
+    expect(min("5000", "8000", "0")).toBe("8000.00");
+  });
+  it("is never negative (advance in hand)", () => {
+    expect(min("-3000", "2000", "10000")).toBe("0.00");
   });
 });

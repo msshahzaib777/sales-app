@@ -58,7 +58,14 @@ export async function getDayEndEntry(ctx: ServiceCtx, orderId: string) {
             driver: { select: { name: true } },
           },
         },
-        customer: { select: { name: true, shopName: true, area: { select: { name: true } } } },
+        customer: {
+          select: {
+            name: true,
+            shopName: true,
+            creditLimit: true,
+            area: { select: { name: true } },
+          },
+        },
         bill: { select: { id: true, number: true, netAmount: true, previousBalance: true } },
         lines: {
           include: {

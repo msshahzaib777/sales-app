@@ -281,6 +281,15 @@ describe("bill view", () => {
       ["Golden", "1000.00", "230.00", "1230.00"],
     ]);
     expect(view.lines.map((l) => l.code).sort()).toEqual(["CB01", "GC01"]);
+    // No credit limit: the minimum is what was left over from before.
+    expect(view.minimumPayment.toFixed(2)).toBe("4000.00");
+
+    // A 4,500 limit: 4,678 due, so at least the earlier 4,000 (more than the 178 over).
+    await prisma.customer.update({ where: { id: t.customer.id }, data: { creditLimit: 4500 } });
+    expect((await getBillView(t.ctx, r.id)).minimumPayment.toFixed(2)).toBe("4000.00");
+    // A 500 limit: 4,178 over it, which is more than the earlier balance.
+    await prisma.customer.update({ where: { id: t.customer.id }, data: { creditLimit: 500 } });
+    expect((await getBillView(t.ctx, r.id)).minimumPayment.toFixed(2)).toBe("4178.00");
   });
 });
 

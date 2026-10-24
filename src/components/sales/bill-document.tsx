@@ -22,6 +22,7 @@ export function BillDocument({
   thisBill,
   previous,
   totalDue,
+  minimum,
   showCompany,
 }: {
   view: BillView;
@@ -31,6 +32,8 @@ export function BillDocument({
   thisBill: { toString(): string };
   previous: { toString(): string };
   totalDue: { toString(): string };
+  /** Shown on the full bill only: the credit limit is the customer's, not a company's. */
+  minimum?: { toString(): string };
   showCompany: boolean;
 }) {
   // Money is summed as decimals, never floats (CLAUDE.md rule 5).
@@ -114,6 +117,12 @@ export function BillDocument({
         <dd className="tabular-nums">{formatMoney(previous)}</dd>
         <dt className="border-t border-black font-bold">Total due</dt>
         <dd className="border-t border-black font-bold tabular-nums">{formatMoney(totalDue)}</dd>
+        {minimum ? (
+          <>
+            <dt className="font-semibold">Minimum payment</dt>
+            <dd className="font-semibold tabular-nums">{formatMoney(minimum)}</dd>
+          </>
+        ) : null}
       </dl>
       <footer className="flex justify-between gap-4 pt-[1.5em]">
         <p>Received by: __________________</p>
@@ -137,6 +146,7 @@ export function billDocuments(view: BillView, business: PrintProfile["business"]
             thisBill={view.bill.netAmount}
             previous={view.previous}
             totalDue={view.totalDue}
+            minimum={view.minimumPayment}
             showCompany={view.sections.length > 1}
           />
         ),

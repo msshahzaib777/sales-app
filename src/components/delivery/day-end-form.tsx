@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { type ActionState, fieldError, idleState, submittedValue } from "@/lib/action-state";
 import { deliveredLines, type BookedLine } from "@/lib/delivery";
 import { formatMoney } from "@/lib/format";
+import { minimumPayment } from "@/lib/sales";
 import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
 
 export type DayEndLine = BookedLine & { code: string; name: string; companyName: string };
@@ -35,6 +36,7 @@ export function DayEndForm({
   lines,
   previous,
   billBefore,
+  creditLimit,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   orderId: string;
@@ -42,6 +44,7 @@ export function DayEndForm({
   lines: DayEndLine[];
   previous: string;
   billBefore: string;
+  creditLimit: string | null;
 }) {
   const [state, formAction, pending] = useActionState(action, idleState);
   const withRequestId = useRequestId();
@@ -76,6 +79,8 @@ export function DayEndForm({
     /^\d+(\.\d{1,2})?$/.test(v.trim()) ? new Decimal(v.trim()) : new Decimal(0);
   const collected = money(paid.cash).add(money(paid.cheque)).add(money(paid.online));
   const due = billAfter ? billAfter.add(previous) : null;
+  const minimum = due ? minimumPayment({ previous, totalDue: due, creditLimit }) : null;
+  const short = minimum ? minimum.sub(collected) : null;
 
   const set = (productId: string, field: "returned" | "damaged", value: string) =>
     setQty((prev) => ({
@@ -262,12 +267,21 @@ export function DayEndForm({
         <dd className="text-right font-semibold tabular-nums">
           {due ? formatMoney(due.toFixed(2)) : "—"}
         </dd>
+        <dt>Minimum payment</dt>
+        <dd className="text-right tabular-nums">
+          {minimum ? formatMoney(minimum.toFixed(2)) : "—"}
+        </dd>
         <dt>Collected</dt>
         <dd className="text-right tabular-nums">{formatMoney(collected.toFixed(2))}</dd>
         <dt className="border-t pt-1 font-semibold">Still pending</dt>
         <dd className="border-t pt-1 text-right font-semibold tabular-nums">
           {due ? formatMoney(due.sub(collected).toFixed(2)) : "—"}
         </dd>
+        {short?.gt(0) ? (
+          <dd className="text-destructive col-span-2 text-right text-xs" role="note">
+            {formatMoney(short.toFixed(2))} short of the minimum payment
+          </dd>
+        ) : null}
       </dl>
 
       <div className="flex flex-wrap items-center gap-3">

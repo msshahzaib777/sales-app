@@ -62,6 +62,7 @@ export default async function DayEndPage({
           tripDate={toDateInput(order.trip.tripDate)}
           previous={order.bill!.previousBalance.toFixed(2)}
           billBefore={order.bill!.netAmount.toFixed(2)}
+          creditLimit={order.customer.creditLimit?.toFixed(2) ?? null}
           lines={order.lines.map((l) => ({
             productId: l.productId,
             companyId: l.companyId,

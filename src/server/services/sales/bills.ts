@@ -2,6 +2,8 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 
+import { minimumPayment } from "@/lib/sales";
+
 import { assertCan } from "../../auth/permissions";
 import type { ServiceCtx } from "../master/common";
 import { ServiceError } from "../errors";
@@ -78,6 +80,7 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
     name: productById.get(l.productId)?.name ?? "",
     companyName: companyName.get(l.companyId) ?? "",
   }));
+  const totalDue = previousTotal.add(revision.netAmount);
   const sections = companyTotals
     .map((c) => {
       const previous = previousFor(c.companyId);
@@ -122,7 +125,15 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
     lines,
     sections,
     previous: previousTotal,
-    totalDue: previousTotal.add(revision.netAmount),
+    totalDue,
+    // From the customer's credit limit today, so a reprint follows a changed limit.
+    minimumPayment: D(
+      minimumPayment({
+        previous: previousTotal.toString(),
+        totalDue: totalDue.toString(),
+        creditLimit: order.customer.creditLimit?.toString() ?? null,
+      }).toFixed(2),
+    ),
   };
 }
 
