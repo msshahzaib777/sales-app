@@ -2,6 +2,22 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Dashboard: the chosen day's work — done
+
+The dashboard's work panel now follows the chosen date like the money panel does. Before, a past
+or future day showed 0 trips and 0 pending even when that day's trip had run and been entered,
+because those figures only counted trips out right now. For the chosen day it shows: its trips
+(planned / out / day-end done, each listed), orders delivered (delivered / partly / returned /
+day-end not entered / not sent yet), the amount billed with dozens sent, returned and damaged,
+the next day's orders, and day-end entries still pending on any date. "Full day report" opens
+the daily report for that date. Tested in `delivery.int.test.ts` (a future trip entered early).
+
+Found while running on Windows for the first time:
+- `taqseem.bat` deleted its saved process number when stopping the website failed, and said
+  "Restart the laptop" when the real reason was "access denied" (website started with
+  administrator rights, stop run without). It now keeps the number and says so.
+- The integration test setup could not start `pnpm` on Windows (`pnpm.cmd` needs the shell).
+  All 269 tests now pass on Windows too.
 ## Windows uninstall — done
 
 `uninstall-windows.bat` (`scripts/windows/uninstall.ps1`), after typing DELETE: stops the website

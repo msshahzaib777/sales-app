@@ -800,3 +800,34 @@ describe("daily report", () => {
     expect([staff.money, staff.profit, staff.productsSold[0]!.cost]).toEqual([null, null, null]);
   });
 });
+
+describe("dashboard for a chosen day", () => {
+  it("shows that day's trips, deliveries and bills, also for a future trip already entered", async () => {
+    const future = "2026-11-03";
+    const a = await book(t.ali.id, [[t.chips.id, "2"]], { deliveryDate: future });
+    const b = await book(t.bilal.id, [[t.nimko.id, "1"]], { deliveryDate: future });
+    const tr = await trip([a.id, b.id], { tripDate: future });
+    await dispatchTrip(t.staff, { id: tr.id });
+    // Ali returns 1 dozen and pays cash; Bilal's day-end is not entered yet.
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "12", damaged: "" }],
+      cash: "100",
+    });
+
+    const d = await getDashboard(t.ctx, { date: new Date(`${future}T00:00:00.000Z`) });
+    const w = d.work.day;
+    expect(w.trips.map((x) => [x.number, x.status, x.orders, x.toEnter])).toEqual([
+      [tr.number, "DISPATCHED", 2, 1],
+    ]);
+    expect([w.out, w.orders, w.partly, w.stillOut]).toEqual([1, 2, 1, 1]);
+    expect([w.sent, w.returnedQty]).toEqual([36, 12]);
+    // Ali's bill after the return (1 dz × 196) + Bilal's bill as sent (1 dz × 150).
+    expect(w.billed.toFixed(2)).toBe("346.00");
+    expect(d.money!.collected.cash.amount.toFixed(2)).toBe("100.00");
+
+    // Another day has none of it.
+    const other = await getDashboard(t.ctx, { date: new Date("2026-11-04T00:00:00.000Z") });
+    expect([other.work.day.trips.length, other.work.day.orders]).toEqual([0, 0]);
+  });
+});

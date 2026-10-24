@@ -53,14 +53,12 @@ function Website-Process {
 
 function Stop-Website {
   $stopped = $false
+  $why = ""
   # The hidden window started by Start-Website (and the node process under it).
-  if (Test-Path $PidFile) {
-    $savedPid = (Get-Content $PidFile -Raw).Trim()
-    if ($savedPid -match "^\d+$" -and (Get-Process -Id $savedPid -ErrorAction SilentlyContinue)) {
-      Capture { taskkill /PID $savedPid /T /F } | Out-Null
-      $stopped = $true
-    }
-    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+  $savedPid = if (Test-Path $PidFile) { (Get-Content $PidFile -Raw).Trim() } else { "" }
+  if ($savedPid -match "^\d+$" -and (Get-Process -Id $savedPid -ErrorAction SilentlyContinue)) {
+    $result = Capture { taskkill /PID $savedPid /T /F }
+    if ($result.Code -eq 0) { $stopped = $true } else { $why = $result.Out }
   }
   # Also a website started some other way (e.g. by hand), if it is node.
   $proc = Website-Process
@@ -68,11 +66,18 @@ function Stop-Website {
     if ($proc.ProcessName -ne "node") {
       Fail "Port $Port is used by another program ($($proc.ProcessName), process $($proc.Id)), not the website. Close it, then try again."
     }
-    Capture { taskkill /PID $proc.Id /T /F } | Out-Null
-    $stopped = $true
+    $result = Capture { taskkill /PID $proc.Id /T /F }
+    if ($result.Code -eq 0) { $stopped = $true } else { $why = $result.Out }
   }
   for ($i = 0; $i -lt 20 -and (Test-Port $Port); $i++) { Start-Sleep -Seconds 1 }
-  if (Test-Port $Port) { Fail "The website did not stop. Restart the laptop." }
+  if (Test-Port $Port) {
+    # The saved process number is kept, so the next try can still find the website.
+    if ($why -match "denied") {
+      Fail "Windows refused to stop the website (access denied): it was started with administrator rights. Run taqseem.bat and click Yes when it asks for administrator rights."
+    }
+    Fail "The website did not stop. $why Restart the laptop if it keeps happening."
+  }
+  Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
   return $stopped
 }
 

@@ -79,12 +79,12 @@ async function DashboardView({
       />
       {d.isToday ? null : (
         <p className="text-muted-foreground text-sm" role="status">
-          Orders, money and bills are for {formatDate(d.today)}. Trips out, approvals, credit limits
+          Trips, deliveries, money and bills are for {formatDate(d.today)}. Approvals, credit limits
           and low stock are always as they are now.
         </p>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
-        <TodaysWork work={d.work} isToday={d.isToday} />
+        <TodaysWork work={d.work} date={d.today} isToday={d.isToday} />
         {d.money ? <MoneyToday money={d.money} date={d.isToday ? null : d.today} /> : null}
         <OverLimit customers={d.overLimit} />
         <LowStock stock={d.lowStock} />
@@ -147,11 +147,76 @@ function Stat({
   );
 }
 
-function TodaysWork({ work, isToday }: { work: Dashboard["work"]; isToday: boolean }) {
+const TRIP_STATUS = { PLANNED: "Planned", DISPATCHED: "Out", RECONCILED: "Day-end done" } as Record<
+  string,
+  string
+>;
+
+function TodaysWork({
+  work,
+  date,
+  isToday,
+}: {
+  work: Dashboard["work"];
+  date: Date;
+  isToday: boolean;
+}) {
   const tomorrow = toDateInput(work.tomorrow);
+  const on = toDateInput(date);
+  const d = work.day;
+  const lateOut = work.tripsOut.filter((t) => t.late);
   return (
-    <Panel title={isToday ? "Today's work" : "Work"}>
+    <Panel
+      title={isToday ? "Today's work" : `Work on ${formatDate(date)}`}
+      href={`/reports/daily?date=${on}`}
+      linkLabel="Full day report"
+    >
       <div className="grid gap-2 sm:grid-cols-3">
+        <Stat
+          label="Trips"
+          value={d.trips.length}
+          href={`/delivery?from=${on}&to=${on}`}
+          note={
+            d.trips.length
+              ? [
+                  d.planned && `${d.planned} planned`,
+                  d.out && `${d.out} out`,
+                  d.done && `${d.done} day-end done`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined
+          }
+        />
+        <Stat
+          label="Orders delivered"
+          value={`${d.delivered + d.partly + d.returned} of ${d.orders}`}
+          href={`/orders?from=${on}&to=${on}`}
+          note={
+            d.orders
+              ? [
+                  d.delivered && `${d.delivered} delivered`,
+                  d.partly && `${d.partly} partly`,
+                  d.returned && `${d.returned} returned`,
+                  d.stillOut && `${d.stillOut} day-end not entered`,
+                  d.notDispatched && `${d.notDispatched} not sent yet`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined
+          }
+          alert={d.stillOut > 0 && !isToday && date < new Date()}
+        />
+        <Stat
+          label="Billed"
+          value={formatMoney(d.billed)}
+          href={`/reports/daily?date=${on}`}
+          note={
+            d.sent
+              ? `sent ${formatDozens(d.sent)}${d.returnedQty ? ` · returned ${formatDozens(d.returnedQty)}` : ""}${d.damagedQty ? ` · damaged ${formatDozens(d.damagedQty)}` : ""}`
+              : undefined
+          }
+        />
         <Stat
           label={`Orders for ${isToday ? "tomorrow" : "the next day"} (${formatDate(work.tomorrow)})`}
           value={work.ordersTomorrow}
@@ -166,18 +231,34 @@ function TodaysWork({ work, isToday }: { work: Dashboard["work"]; isToday: boole
           alert={work.notOnTripTomorrow > 0}
         />
         <Stat
-          label="Trips out"
-          value={work.tripsOut.length}
-          href="/delivery?tripStatus=DISPATCHED"
-        />
-        <Stat
-          label="Day-end entries pending"
+          label="Day-end entries pending (all dates)"
           value={work.dayEndPending}
           href="/delivery?tripStatus=DISPATCHED"
-          note={work.dayEndPending > 0 ? "orders still out" : undefined}
-          alert={work.tripsOut.some((t) => t.late)}
+          note={
+            lateOut.length
+              ? `${lateOut.length} trip${lateOut.length === 1 ? "" : "s"} late`
+              : undefined
+          }
+          alert={lateOut.length > 0}
         />
       </div>
+      {d.trips.length > 0 ? (
+        <ul className="space-y-1 text-sm">
+          {d.trips.map((t) => (
+            <li key={t.id} className="flex flex-wrap justify-between gap-2">
+              <Link href={`/delivery/${t.id}`} className="underline underline-offset-4">
+                Trip #{t.number} · {t.bikeName} · {t.driverName ?? "no driver set"}
+              </Link>
+              <span className="text-muted-foreground">
+                {TRIP_STATUS[t.status] ?? t.status} · {t.orders} order{t.orders === 1 ? "" : "s"}
+                {t.toEnter ? ` · ${t.toEnter} to enter` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground text-sm">No trips on {formatDate(date)}.</p>
+      )}
       {work.adjustmentsPending ? (
         <p className="text-sm" role="status">
           <Link
@@ -189,19 +270,22 @@ function TodaysWork({ work, isToday }: { work: Dashboard["work"]; isToday: boole
           </Link>
         </p>
       ) : null}
-      {work.tripsOut.length > 0 ? (
-        <ul className="space-y-1 text-sm">
-          {work.tripsOut.map((t) => (
-            <li key={t.id} className="flex flex-wrap justify-between gap-2">
-              <Link href={`/delivery/${t.id}`} className="underline underline-offset-4">
-                Trip #{t.number} · {t.bikeName} · {t.driverName ?? "no driver set"}
-              </Link>
-              <span className={t.late ? "text-destructive" : "text-muted-foreground"}>
-                {formatDate(t.tripDate)} · {t.ordersPending} to enter
-                {t.late ? " · day-end late" : ""}
-              </span>
-            </li>
-          ))}
+      {work.tripsOut.some((t) => t.tripDate.getTime() !== date.getTime()) ? (
+        <ul className="space-y-1 text-sm" aria-label="Trips of other days still out">
+          <li className="text-muted-foreground text-xs">Other days, day-end not entered:</li>
+          {work.tripsOut
+            .filter((t) => t.tripDate.getTime() !== date.getTime())
+            .map((t) => (
+              <li key={t.id} className="flex flex-wrap justify-between gap-2">
+                <Link href={`/delivery/${t.id}`} className="underline underline-offset-4">
+                  Trip #{t.number} · {t.bikeName} · {t.driverName ?? "no driver set"}
+                </Link>
+                <span className={t.late ? "text-destructive" : "text-muted-foreground"}>
+                  {formatDate(t.tripDate)} · {t.ordersPending} to enter
+                  {t.late ? " · day-end late" : ""}
+                </span>
+              </li>
+            ))}
         </ul>
       ) : null}
     </Panel>
