@@ -21,6 +21,7 @@ export function BillDocument({
   lines,
   thisBill,
   previous,
+  oldBalance,
   totalDue,
   minimum,
   showCompany,
@@ -31,6 +32,8 @@ export function BillDocument({
   lines: Line[];
   thisBill: { toString(): string };
   previous: { toString(): string };
+  /** Part of `previous` from old paper bills; shown on its own line on the full bill. */
+  oldBalance?: { toString(): string };
   totalDue: { toString(): string };
   /** Shown on the full bill only: the credit limit is the customer's, not a company's. */
   minimum?: { toString(): string };
@@ -113,8 +116,21 @@ export function BillDocument({
         ) : null}
         <dt className="font-semibold">This bill</dt>
         <dd className="font-semibold tabular-nums">{formatMoney(thisBill)}</dd>
-        <dt>Previous pending</dt>
-        <dd className="tabular-nums">{formatMoney(previous)}</dd>
+        {oldBalance && !new Decimal(oldBalance.toString()).isZero() ? (
+          <>
+            <dt>Old balance</dt>
+            <dd className="tabular-nums">{formatMoney(oldBalance)}</dd>
+            <dt>Previous pending</dt>
+            <dd className="tabular-nums">
+              {formatMoney(new Decimal(previous.toString()).sub(oldBalance.toString()).toFixed(2))}
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt>Previous pending</dt>
+            <dd className="tabular-nums">{formatMoney(previous)}</dd>
+          </>
+        )}
         <dt className="border-t border-black font-bold">Total due</dt>
         <dd className="border-t border-black font-bold tabular-nums">{formatMoney(totalDue)}</dd>
         {minimum ? (
@@ -145,6 +161,7 @@ export function billDocuments(view: BillView, business: PrintProfile["business"]
             lines={view.lines}
             thisBill={view.bill.netAmount}
             previous={view.previous}
+            oldBalance={view.oldBalance}
             totalDue={view.totalDue}
             minimum={view.minimumPayment}
             showCompany={view.sections.length > 1}

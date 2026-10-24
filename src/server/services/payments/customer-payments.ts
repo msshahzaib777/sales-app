@@ -15,6 +15,7 @@ import {
   type BillDebt,
   checkCompanySplit,
   effectiveDebt,
+  OLD_BALANCE,
 } from "@/lib/payments";
 import { recordIdSchema } from "@/lib/validation/master";
 import { customerPaymentSchema } from "@/lib/validation/payments";
@@ -68,10 +69,12 @@ export async function customerDebt(tx: Reader, customerId: string) {
       }))
       .filter((s) => D(s.outstanding).gt(0)),
   }));
-  const debt = effectiveDebt(
-    new Map([...pending.byCompany].map(([k, v]) => [k, v.toString()])),
-    raw,
+  // The old balance first: it is the oldest debt, and screens list it in this order.
+  const owed = new Map<string, string>(
+    pending.oldBalance.isZero() ? [] : [[OLD_BALANCE, pending.oldBalance.toString()]],
   );
+  for (const [k, v] of pending.byCompany) owed.set(k, v.toString());
+  const debt = effectiveDebt(owed, raw);
   const lastBill = bills.at(-1);
   return {
     pending,
@@ -118,6 +121,11 @@ export async function postCustomerPayment(tx: TenantTx, ctx: ServiceCtx, p: Cust
   if (p.perCompany) {
     const errors = checkCompanySplit(p.amount.toString(), p.perCompany);
     if (errors.length > 0) throw new ServiceError(errors.join(" "));
+    const old = debt.unbilled.get(OLD_BALANCE) ?? D(0);
+    if (D((p.perCompany.get(OLD_BALANCE) ?? 0).toString()).gt(old.toString()))
+      throw new ServiceError(
+        `The old balance is only ${formatMoney(old.toString())}. Put the rest against a company.`,
+      );
     split = allocateByCompany(p.perCompany, debt);
   } else {
     const advanceTo = (p.fallbackCompanies ?? lastBillCompanies).map(
@@ -166,7 +174,7 @@ export async function postCustomerPayment(tx: TenantTx, ctx: ServiceCtx, p: Cust
         tenantId: ctx.user.tenantId,
         partyType: "CUSTOMER",
         customerId: p.customerId,
-        companyId,
+        companyId: companyId === OLD_BALANCE ? null : companyId,
         type: "CUSTOMER_PAYMENT",
         entryDate: p.paymentDate,
         credit: D(share.toString()),
@@ -448,8 +456,8 @@ export async function getCustomerPayment(ctx: ServiceCtx, id: string) {
         a.bill.billDate.getTime() - b.bill.billDate.getTime() || a.bill.number - b.bill.number,
     ),
     shares: shares.map((s) => ({
-      companyId: s.companyId!,
-      companyName: s.company?.name ?? "",
+      companyId: s.companyId ?? OLD_BALANCE,
+      companyName: s.company?.name ?? "Old balance",
       amount: s.credit,
     })),
   };
@@ -476,6 +484,7 @@ export async function paymentContext(ctx: ServiceCtx, customerId: string) {
       flagReason: customer.flagReason,
     },
     pending: pending.total.toFixed(2),
+    oldBalance: pending.oldBalance.toFixed(2),
     companies: companies.map((c) => ({
       id: c.id,
       name: c.name,

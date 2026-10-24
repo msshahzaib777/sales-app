@@ -26,7 +26,13 @@ export const customerPaymentSchema = z
     /** auto = oldest debt first; company = the amounts per company below. */
     allocationMode: z.enum(["auto", "company"]).default("auto"),
     companyAmounts: z
-      .array(z.object({ companyId: idSchema, amount: moneySchema("company amount") }))
+      .array(
+        z.object({
+          // "" = the old balance (see OLD_BALANCE in src/lib/payments.ts).
+          companyId: z.union([idSchema, z.literal("")]),
+          amount: moneySchema("company amount"),
+        }),
+      )
       .max(100)
       .default([]),
   })
@@ -42,3 +48,13 @@ export const customerPaymentSchema = z
   });
 
 export type CustomerPaymentInput = z.infer<typeof customerPaymentSchema>;
+
+/** An unpaid paper bill from before the app (the customer's old balance; no company). */
+export const oldBillSchema = z.object({
+  requestId: requestIdSchema,
+  customerId: idSchema,
+  billDate: dateSchema("bill date"),
+  billNo: optionalText(30),
+  amount: moneySchema("amount").refine((v) => Number(v) > 0, "The amount must be more than zero"),
+  note: optionalText(200),
+});

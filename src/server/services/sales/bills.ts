@@ -66,11 +66,14 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
   const posted = bill.postedAt !== null;
   const live = posted ? null : await customerPending(ctx.db, order.customerId);
   const previousTotal = posted ? bill.previousBalance : live!.total;
+  // The old balance (no company) is the part of "previous" no company accounts for.
+  const frozenCompanies = (bill.previousByCompany as FrozenPrevious | null) ?? [];
+  const oldBalance = live
+    ? live.oldBalance
+    : frozenCompanies.reduce((s, c) => s.sub(c.amount), D(previousTotal));
   const previousFor = (companyId: string) => {
     if (live) return live.byCompany.get(companyId) ?? D(0);
-    const frozen = (bill.previousByCompany as FrozenPrevious | null)?.find(
-      (c) => c.companyId === companyId,
-    );
+    const frozen = frozenCompanies.find((c) => c.companyId === companyId);
     return D(frozen?.amount ?? 0);
   };
 
@@ -125,6 +128,8 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
     lines,
     sections,
     previous: previousTotal,
+    /** Part of `previous` from old paper bills (no company); never in the company sections. */
+    oldBalance,
     totalDue,
     // From the customer's credit limit today, so a reprint follows a changed limit.
     minimumPayment: D(

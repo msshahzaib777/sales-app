@@ -58,6 +58,11 @@ async function Statement({ params, searchParams }: PageProps<"/customers/[id]/st
             Receive payment
           </LinkButton>
         ) : null}
+        {can(ctx.user.role, "payments.manage") ? (
+          <LinkButton href={`/customers/${id}/old-bills`} variant="outline">
+            Old balance
+          </LinkButton>
+        ) : null}
       </PrintToolbar>
       <StatementRangeForm range={range}>
         <div className="space-y-1">

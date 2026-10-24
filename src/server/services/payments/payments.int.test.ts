@@ -16,6 +16,7 @@ import { createStaff } from "../master/staff";
 import { createWarehouse } from "../master/warehouses";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { createSalesOrder } from "../sales/orders";
+import { getBillView } from "../sales/bills";
 import { customerPending } from "../sales/positions";
 import { getCompanyReceivables, getCustomerStatement } from "../statements";
 import {
@@ -29,6 +30,7 @@ import {
   paymentContext,
   reverseCustomerPayment,
 } from "./customer-payments";
+import { createOldBill, listOldBills, removeOldBill } from "./old-bills";
 
 const DAY = "2026-10-25";
 
@@ -295,5 +297,142 @@ describe("ledger views", () => {
     await expect(getCompanyReceivables(t.as("STAFF"), t.crunchy.id, {})).rejects.toThrow(
       ForbiddenError,
     );
+  });
+});
+
+describe("old balance (paper bills, no company)", () => {
+  const oldBill = (amount: string, extra: object = {}, ctx = t.ctx) =>
+    createOldBill(ctx, { customerId: t.ali.id, billDate: "2026-09-01", amount, ...extra });
+
+  it("counts in what the customer owes but in no company's figures", async () => {
+    const requestId = randomUUID();
+    const a = await oldBill("700", { billNo: "B-12", requestId });
+    expect((await oldBill("700", { billNo: "B-12", requestId })).id).toBe(a.id); // retry
+    const entry = await t.ctx.db.ledgerEntry.findFirstOrThrow({
+      where: { referenceType: "CustomerOldBill", referenceId: a.id },
+    });
+    expect([entry.type, entry.companyId, entry.debit.toFixed(2)]).toEqual([
+      "OPENING_BALANCE",
+      null,
+      "700.00",
+    ]);
+    const p = await customerPending(t.ctx.db, t.ali.id);
+    expect([p.total.toFixed(2), p.oldBalance.toFixed(2), p.byCompany.size]).toEqual([
+      "6960.00",
+      "700.00",
+      2,
+    ]);
+    const receivables = await getCompanyReceivables(t.ctx, t.crunchy.id, {});
+    expect(receivables.totals.closing.toFixed(2)).toBe("4960.00"); // 3000 opening + 1960 bill
+
+    const statement = await getCustomerStatement(t.ctx, t.ali.id, {});
+    expect(
+      statement.rows.find((r) => r.description.startsWith("Old bill #B-12"))?.companyName,
+    ).toBe("Old balance");
+    expect(statement.byCompany[0]).toMatchObject({ companyId: "", companyName: "Old balance" });
+    const crunchyOnly = await getCustomerStatement(t.ctx, t.ali.id, { companyId: t.crunchy.id });
+    expect(crunchyOnly.rows.some((r) => r.companyName === "Old balance")).toBe(false);
+
+    // On a new bill: in "previous", shown apart, and in no company's slice.
+    const order = await createSalesOrder(t.ctx, {
+      customerId: t.ali.id,
+      orderDate: "2026-10-26",
+      deliveryDate: "2026-10-27",
+      lines: [{ productId: (await t.ctx.db.product.findFirstOrThrow()).id, quantity: "1" }],
+    });
+    const view = await getBillView(t.ctx, order.id);
+    expect([view.previous.toFixed(2), view.oldBalance.toFixed(2)]).toEqual(["6960.00", "700.00"]);
+    expect(view.sections.map((c) => [c.companyName, c.previous.toFixed(2)])).toEqual([
+      ["Crunchy", "4960.00"],
+    ]);
+  });
+
+  it("is paid before anything else, oldest old bill first", async () => {
+    await oldBill("700", { billDate: "2026-08-01" });
+    await oldBill("300", { billDate: "2026-09-01" });
+    const p = await pay({ amount: "900" });
+    const entries = await t.ctx.db.ledgerEntry.findMany({
+      where: { referenceType: "CustomerPayment", referenceId: p.id },
+    });
+    expect(entries.map((e) => [e.companyId, e.credit.toFixed(2)])).toEqual([[null, "900.00"]]);
+    const list = await listOldBills(t.ctx, t.ali.id);
+    expect(list.rows.map((r) => [r.paid.toFixed(2), r.unpaid.toFixed(2)])).toEqual([
+      ["700.00", "0.00"],
+      ["200.00", "100.00"],
+    ]);
+    expect((await paymentContext(t.ctx, t.ali.id)).oldBalance).toBe("100.00");
+
+    // A bounced cheque brings it back.
+    const cheque = await pay({
+      amount: "100",
+      method: "CHEQUE",
+      chequeNo: "1",
+      bankName: "HBL",
+      chequeDate: "2026-10-26",
+    });
+    expect((await customerPending(t.ctx.db, t.ali.id)).oldBalance.toFixed(2)).toBe("0.00");
+    await bounceCheque(t.ctx, { id: cheque.id, reason: "No funds" });
+    expect((await customerPending(t.ctx.db, t.ali.id)).oldBalance.toFixed(2)).toBe("100.00");
+  });
+
+  it("can be paid in a manual split, but not more than is owed", async () => {
+    await oldBill("700");
+    await expect(
+      pay({
+        amount: "800",
+        allocationMode: "company",
+        companyAmounts: [{ companyId: "", amount: "800" }],
+      }),
+    ).rejects.toThrow("old balance is only");
+    await pay({
+      amount: "800",
+      allocationMode: "company",
+      companyAmounts: [
+        { companyId: "", amount: "500" },
+        { companyId: t.golden.id, amount: "300" },
+      ],
+    });
+    const p = await customerPending(t.ctx.db, t.ali.id);
+    expect([p.oldBalance.toFixed(2), p.byCompany.get(t.golden.id)?.toFixed(2)]).toEqual([
+      "200.00",
+      "1000.00",
+    ]);
+  });
+
+  it("is removed by a reversal, not once payments have used it up", async () => {
+    const a = await oldBill("700");
+    const b = await oldBill("300");
+    await pay({ amount: "500" }); // 500 of the 700 bill paid
+    await expect(removeOldBill(t.ctx, { id: a.id, reason: "Typo" })).rejects.toThrow(
+      "can't be removed",
+    );
+    await removeOldBill(t.ctx, { id: b.id, reason: "Entered twice" });
+    await expect(removeOldBill(t.ctx, { id: b.id, reason: "Again" })).rejects.toThrow(
+      "already removed",
+    );
+    expect((await customerPending(t.ctx.db, t.ali.id)).oldBalance.toFixed(2)).toBe("200.00");
+    expect(
+      await t.ctx.db.auditLog.count({ where: { entityType: "CustomerOldBill", entityId: b.id } }),
+    ).toBe(2);
+  });
+
+  it("is the only kind of customer debt the database lets go without a company", async () => {
+    await expect(
+      t.ctx.db.ledgerEntry.create({
+        data: {
+          tenantId: t.ctx.user.tenantId,
+          partyType: "CUSTOMER",
+          customerId: t.ali.id,
+          type: "SALES_BILL",
+          entryDate: new Date(DAY),
+          debit: 1,
+        },
+      }),
+    ).rejects.toThrow(/LedgerEntry_party_check/);
+  });
+
+  it("is for the owner and accountant only", async () => {
+    await expect(oldBill("100", {}, t.as("STAFF"))).rejects.toThrow(ForbiddenError);
+    await oldBill("100", {}, t.as("ACCOUNTANT"));
   });
 });

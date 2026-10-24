@@ -42,6 +42,27 @@ From the owner's notes after trying Phase 1. Built one item at a time.
    - Uses the customer's credit limit at the time of printing, so a reprint follows a changed limit.
    - Tested in `sales.test.ts` and `sales.int.test.ts`, and in a browser run.
 
+5. **Old balance — done.** Unpaid paper bills from before the app, owed to us and not to any
+   company (table `CustomerOldBill`, migration `customer_old_bills`).
+   - Customer → Old balance (owner and accountant), also linked from the statement: date, optional
+     bill number, unpaid amount, note. A list shows each old bill with how much is paid (payments
+     go to the oldest first). "Remove" (with a reason) posts a reversal; refused once payments have
+     used the bill up.
+   - Each posts a customer `OPENING_BALANCE` ledger entry with **no company**: the approved
+     exception to CLAUDE.md rule 3 (noted there). The `LedgerEntry_party_check` constraint now
+     allows a null company on customer entries only for opening balance, payment, cheque bounce
+     and reversal entries.
+   - Counts in the customer's total (credit limit, pending, minimum payment). Shows as "Old
+     balance" on the printed bill (apart from the company "Previous pending"), on the statement
+     (rows and the by-company summary), on order entry and on the payment screen. Left out of
+     every company figure: bill slices, company receivables, a one-company statement.
+   - Payments: oldest debt first now pays the old balance before anything else (then company
+     opening balances, then bills). "Split by company" has an "Old balance" box; more than is owed
+     there is refused.
+   - The demo seed gives 5 customers an old bill.
+   - Tested in `payments.test.ts` and `payments.int.test.ts` (incl. idempotent retry, bounce,
+     removal rules, DB check, permissions), and in a browser run.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

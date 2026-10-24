@@ -690,11 +690,12 @@ export async function orderEntryContext(
     },
     warehouseId,
     pending: pending.total.toFixed(2),
-    pendingByCompany: [...pending.byCompany]
+    // The old balance (paper bills, no company) first, under companyId "".
+    pendingByCompany: [["", pending.oldBalance] as const, ...pending.byCompany]
       .filter(([, v]) => !v.isZero())
       .map(([companyId, v]) => ({
         companyId,
-        companyName: companyName.get(companyId) ?? "",
+        companyName: companyId ? (companyName.get(companyId) ?? "") : "Old balance",
         amount: v.toFixed(2),
       })),
     openOrders: openOrders.toFixed(2),

@@ -26,7 +26,11 @@ The full requirements are in `docs/SPEC.md`. Read the relevant section before st
    - `LedgerEntry` for money (customer, company and staff balances = sum of entries).
    Posted entries are never edited or deleted; corrections are reversal entries.
 3. **Customer ledger entries always store `companyId`**, so we can show a customer's ledger
-   for all companies or for one company.
+   for all companies or for one company. *Approved exception:* the customer's **old balance**
+   (`CustomerOldBill`, unpaid paper bills from before the app, owed to us and not to a company)
+   posts with `companyId` null, as do payments, bounces and reversals that settle it. It counts in
+   the customer's total, shows as "Old balance", is paid first and is left out of every company
+   figure. A DB CHECK allows null only for those entry types.
 4. **Quantities** are stored as integers in the smallest unit (half dozen). Convert to dozens
    only for display. Keep a `UnitConversion` table so cartons/pieces can be added later.
 5. **Money** uses `Decimal` (Prisma `Decimal @db.Decimal(14,2)`), never JS floats for storage.

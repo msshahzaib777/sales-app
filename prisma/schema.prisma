@@ -269,6 +269,7 @@ model Tenant {
   billRevisions        BillRevision[]
   cheques              Cheque[]
   customerPayments     CustomerPayment[]
+  customerOldBills     CustomerOldBill[]
   paymentAllocations   PaymentAllocation[]
   ledgerEntries        LedgerEntry[]
 }
@@ -566,6 +567,7 @@ model Customer {
   salesOrders   SalesOrder[]
   bills         Bill[]
   payments      CustomerPayment[]
+  oldBills      CustomerOldBill[]
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
@@ -1188,6 +1190,34 @@ model CustomerPayment {
   @@unique([tenantId, requestId])
   @@unique([tenantId, chequeId])
   @@index([tenantId, customerId, paymentDate])
+}
+
+/// An unpaid bill from before the app (paper khata), owed to us and not to any company. Posts a
+/// customer OPENING_BALANCE ledger entry with no companyId (the one exception to CLAUDE.md rule 3);
+/// removing it posts a reversal. Paid before anything else; left out of every company figure.
+model CustomerOldBill {
+  id             String        @id @default(cuid())
+  tenantId       String
+  customerId     String
+  billDate       DateTime      @db.Date
+  /// The number on the paper bill, when there is one.
+  billNo         String?
+  amount         Decimal       @db.Decimal(14, 2)
+  note           String?
+  status         PostingStatus @default(POSTED)
+  reversedAt     DateTime?
+  reversalReason String?
+  requestId      String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, customerId, billDate])
 }
 
 /// Payment → bill → company slice. A payment covering a multi-company bill gets one row per company.
