@@ -2,6 +2,41 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Expenses and stock adjustments — done
+
+Migration `expenses_and_stock_adjustments`.
+
+**Expenses** (SPEC §9; owner and accountant, `expenses.manage`):
+- Tables `ExpenseCategory` and `Expense`. Every tenant starts with Rent, Salary, Petrol, Vehicle
+  maintenance, Utilities, Loading labour, Tolls and Other (added for existing tenants by the
+  migration, for new tenants on creation, and in the seed). Expenses → Categories adds more or
+  switches one off; old expenses keep it.
+- Expenses → Add expense: date, category, amount, paid by (cash / cheque / online), paid to or
+  reference, note, and optionally the warehouse, bike, trip (its bike is filled in) and staff
+  member, for reports such as petrol per bike and trip. Keyboard-first (Enter = next box,
+  Ctrl+Enter = save and add next); idempotent on retry; audited.
+- The list: search as you type, filters (category, paid by, warehouse, bike, status, dates), the
+  total and the total per category, Print / PDF and Download Excel.
+- A posted expense is never edited or deleted: "Reverse" (with a reason) keeps it in the list,
+  marked reversed, out of the totals.
+- The dashboard's money section shows what was spent today.
+- Still open: recurring expenses (rent posting itself monthly) and payroll (salary sheet,
+  advances, incentives, staff ledger) from SPEC §9.
+
+**Stock adjustments** (SPEC §5; Inventory → Adjust stock, also from each product's stock card):
+- Short (fewer on the shelf: counting error, theft or other), Extra found (counting error or
+  other), or Damaged in warehouse (moved from saleable to damaged stock; our loss, not a company
+  claim, but it can still be sent back to the company from damaged stock). Quantities in packets,
+  with the stock before and after shown while typing. "Other" needs a note.
+- Staff adjustments wait for the owner (`stock.approveAdjustment`), who approves or rejects them
+  on Inventory → Adjustments; the dashboard shows how many are waiting. The owner's own apply at
+  once. Only an approved adjustment moves stock (`ADJUSTMENT` movements referencing it, out of
+  the oldest batches first); more than is in stock can't come out. Audited.
+- The seed's pending adjustment was still in half dozens (fixed to 1 dozen = 12 packets) and the
+  seed now adds a few days of expenses.
+- Tested in `expenses.int.test.ts` and `stock-adjustments.int.test.ts`, and in a browser run
+  (accountant entering and reversing expenses; staff requesting damage, owner approving).
+
 ## Change list from the owner (round 1)
 
 From the owner's notes after trying Phase 1. Built one item at a time.

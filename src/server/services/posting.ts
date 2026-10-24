@@ -19,7 +19,8 @@ export type DocumentKey =
   | "SALES_ORDER"
   | "BILL"
   | "CUSTOMER_PAYMENT"
-  | "DELIVERY_TRIP";
+  | "DELIVERY_TRIP"
+  | "EXPENSE";
 
 /**
  * Next number for a document type, e.g. PO #13. The row update locks the counter until the

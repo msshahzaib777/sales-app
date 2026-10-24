@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { PrismaClient } from "@/generated/prisma/client";
+import { DEFAULT_EXPENSE_CATEGORIES } from "@/lib/expenses";
 import { emailSchema } from "@/lib/validation/auth";
 
 import { writeAudit } from "../audit";
@@ -56,6 +57,9 @@ export async function createTenantWithOwner(prisma: PrismaClient, input: unknown
         { tenantId: tenant.id, baseUnit: "PACKET", unit: "HALF_DOZEN", baseUnitsPerUnit: 6 },
         { tenantId: tenant.id, baseUnit: "PACKET", unit: "DOZEN", baseUnitsPerUnit: 12 },
       ],
+    });
+    await tx.expenseCategory.createMany({
+      data: DEFAULT_EXPENSE_CATEGORIES.map((name) => ({ tenantId: tenant.id, name })),
     });
     await writeAudit(tx, owner, {
       action: "CREATE",

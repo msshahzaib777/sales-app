@@ -26,29 +26,34 @@ export async function getDashboard(ctx: ServiceCtx) {
   const tomorrow = new Date(today.getTime() + DAY_MS);
   const showMoney = can(ctx.user.role, "payments.manage");
 
-  const [tomorrowOrders, tripsOut, dayEndPending, overLimit, lowStock, money] = await Promise.all([
-    ctx.db.salesOrder.groupBy({
-      by: ["status"],
-      where: { deliveryDate: tomorrow, status: { in: ["BOOKED", "PLANNED"] } },
-      _count: { _all: true },
-    }),
-    ctx.db.deliveryTrip.findMany({
-      where: { status: "DISPATCHED" },
-      orderBy: [{ tripDate: "asc" }, { number: "asc" }],
-      select: {
-        id: true,
-        number: true,
-        tripDate: true,
-        bike: { select: { name: true } },
-        driver: { select: { name: true } },
-        _count: { select: { orders: { where: { status: "DISPATCHED" } } } },
-      },
-    }),
-    ctx.db.salesOrder.count({ where: { status: "DISPATCHED" } }),
-    customersOverLimit(ctx),
-    listStock(ctx, { low: true, page: 1 }),
-    showMoney ? moneyToday(ctx, today) : Promise.resolve(null),
-  ]);
+  const approver = can(ctx.user.role, "stock.approveAdjustment");
+  const [tomorrowOrders, tripsOut, dayEndPending, overLimit, lowStock, money, adjustmentsPending] =
+    await Promise.all([
+      ctx.db.salesOrder.groupBy({
+        by: ["status"],
+        where: { deliveryDate: tomorrow, status: { in: ["BOOKED", "PLANNED"] } },
+        _count: { _all: true },
+      }),
+      ctx.db.deliveryTrip.findMany({
+        where: { status: "DISPATCHED" },
+        orderBy: [{ tripDate: "asc" }, { number: "asc" }],
+        select: {
+          id: true,
+          number: true,
+          tripDate: true,
+          bike: { select: { name: true } },
+          driver: { select: { name: true } },
+          _count: { select: { orders: { where: { status: "DISPATCHED" } } } },
+        },
+      }),
+      ctx.db.salesOrder.count({ where: { status: "DISPATCHED" } }),
+      customersOverLimit(ctx),
+      listStock(ctx, { low: true, page: 1 }),
+      showMoney ? moneyToday(ctx, today) : Promise.resolve(null),
+      approver
+        ? ctx.db.stockAdjustment.count({ where: { status: "PENDING" } })
+        : Promise.resolve(null),
+    ]);
 
   const booked = tomorrowOrders.find((g) => g.status === "BOOKED")?._count._all ?? 0;
   const planned = tomorrowOrders.find((g) => g.status === "PLANNED")?._count._all ?? 0;
@@ -68,6 +73,8 @@ export async function getDashboard(ctx: ServiceCtx) {
         late: t.tripDate < today,
       })),
       dayEndPending,
+      /** Stock adjustments waiting for approval (null when the user can't approve them). */
+      adjustmentsPending,
     },
     overLimit,
     lowStock: { rows: lowStock.rows.slice(0, 10), total: lowStock.total },
@@ -95,7 +102,7 @@ async function customersOverLimit(ctx: ServiceCtx) {
 }
 
 async function moneyToday(ctx: ServiceCtx, today: Date) {
-  const [collected, cheques, bills] = await Promise.all([
+  const [collected, cheques, bills, expenses] = await Promise.all([
     ctx.db.customerPayment.groupBy({
       by: ["method"],
       where: { paymentDate: today, status: "POSTED" },
@@ -115,6 +122,13 @@ async function moneyToday(ctx: ServiceCtx, today: Date) {
       orderBy: [{ dueDate: "asc" }, { number: "asc" }],
       include: { company: { select: { name: true } } },
     }),
+    can(ctx.user.role, "expenses.manage")
+      ? ctx.db.expense.aggregate({
+          where: { expenseDate: today, status: "POSTED" },
+          _sum: { amount: true },
+          _count: { _all: true },
+        })
+      : Promise.resolve(null),
   ]);
   const paid = await paidByBill(
     ctx.db,
@@ -140,6 +154,9 @@ async function moneyToday(ctx: ServiceCtx, today: Date) {
     collected: { cash: by("CASH"), cheque: by("CHEQUE"), online: by("ONLINE") },
     collectedTotal: collected.reduce((s, g) => s.add(g._sum.amount ?? 0), D(0)),
     chequesToClear: { amount: cheques._sum.amount ?? D(0), count: cheques._count._all },
+    expensesToday: expenses
+      ? { amount: expenses._sum.amount ?? D(0), count: expenses._count._all }
+      : null,
     companyBills: {
       overdue: { rows: overdue, total: sum(overdue) },
       dueSoon: { rows: dueSoon, total: sum(dueSoon) },

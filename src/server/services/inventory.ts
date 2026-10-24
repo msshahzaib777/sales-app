@@ -124,6 +124,7 @@ export async function listStock(ctx: ServiceCtx, f: StockFilters) {
 const REFERENCE_HREF: Record<string, (id: string) => string> = {
   GoodsReceipt: (id) => `/purchases/receipts/${id}`,
   SalesOrder: (id) => `/orders/${id}`,
+  StockAdjustment: () => "/inventory/adjustments",
 };
 
 /**

@@ -6,10 +6,11 @@ import { BackLink, PageHeader } from "@/components/layout/page-header";
 import { PrintButton } from "@/components/layout/print-button";
 import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { Notice } from "@/components/master/notice";
-import { orNotFound } from "@/components/master/page-helpers";
+import { LinkButton, orNotFound } from "@/components/master/page-helpers";
 import { StatementRangeForm } from "@/components/print/range-form";
 import { businessToday, formatDate, toDateInput } from "@/lib/dates";
 import { formatDozens } from "@/lib/units";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { returnDamagedStockAction } from "@/server/inventory-actions";
 import { getStockCard } from "@/server/services/inventory";
@@ -38,7 +39,19 @@ export default async function StockCardPage({
         <PageHeader
           title={`${product.code} ${product.name}`}
           description={`${product.companyName} · ${product.warehouseName}${product.minStockLevel ? ` · minimum ${formatDozens(product.minStockLevel)}` : ""}`}
-          actions={<PrintButton />}
+          actions={
+            <>
+              {can(ctx.user.role, "stock.requestAdjustment") ? (
+                <LinkButton
+                  href={`/inventory/adjustments/new?productId=${product.id}`}
+                  variant="outline"
+                >
+                  Adjust stock
+                </LinkButton>
+              ) : null}
+              <PrintButton />
+            </>
+          }
         />
       </div>
       <p className="text-sm">

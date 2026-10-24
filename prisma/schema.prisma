@@ -154,6 +154,8 @@ enum StockMovementType {
 enum StockAdjustmentReason {
   COUNTING_ERROR
   THEFT
+  /// Damaged in the warehouse: moved from saleable to damaged stock (not a company claim).
+  DAMAGED
   OTHER
 }
 
@@ -275,6 +277,8 @@ model Tenant {
   customerPayments     CustomerPayment[]
   customerOldBills     CustomerOldBill[]
   paymentAllocations   PaymentAllocation[]
+  expenseCategories    ExpenseCategory[]
+  expenses             Expense[]
   ledgerEntries        LedgerEntry[]
 }
 
@@ -362,6 +366,7 @@ model Warehouse {
   stockAdjustments StockAdjustment[]
   salesOrders      SalesOrder[]
   deliveryTrips    DeliveryTrip[]
+  expenses         Expense[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -599,6 +604,7 @@ model Bike {
   warehouse Warehouse?     @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
   driver    Staff?         @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
   trips     DeliveryTrip[]
+  expenses  Expense[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -626,6 +632,7 @@ model Staff {
   bikes         Bike[]
   trips         DeliveryTrip[]
   ledgerEntries LedgerEntry[]
+  expenses      Expense[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -961,6 +968,63 @@ model StockAdjustment {
   @@index([tenantId, status])
 }
 
+// ───────────────────────────── Expenses ─────────────────────────────
+
+/// Rent, salary, petrol, … (SPEC §9); the tenant adds its own. Deactivated, never deleted.
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  expenses Expense[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+/// Money spent by the business. Posted ones are never edited; a mistake is reversed with a reason.
+model Expense {
+  id             String        @id @default(cuid())
+  tenantId       String
+  number         Int
+  expenseDate    DateTime      @db.Date
+  categoryId     String
+  amount         Decimal       @db.Decimal(14, 2)
+  method         PaymentMethod @default(CASH)
+  /// Optional links for reports: petrol per bike and trip, salary per staff member.
+  warehouseId    String?
+  bikeId         String?
+  tripId         String?
+  staffId        String?
+  /// Who was paid (shop, landlord, …), or the cheque / transfer reference.
+  paidTo         String?
+  note           String?
+  status         PostingStatus @default(POSTED)
+  reversedAt     DateTime?
+  reversalReason String?
+  requestId      String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  category  ExpenseCategory @relation(fields: [tenantId, categoryId], references: [tenantId, id], onDelete: Restrict)
+  warehouse Warehouse?      @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  bike      Bike?           @relation(fields: [tenantId, bikeId], references: [tenantId, id], onDelete: Restrict)
+  trip      DeliveryTrip?   @relation(fields: [tenantId, tripId], references: [tenantId, id], onDelete: Restrict)
+  staff     Staff?          @relation(fields: [tenantId, staffId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, expenseDate])
+  @@index([tenantId, categoryId, expenseDate])
+}
+
 // ───────────────────────────── Sales ─────────────────────────────
 
 /// One bike's delivery run on a date (Phase 1: simple assignment; load suggestions come in Phase 2).
@@ -987,6 +1051,7 @@ model DeliveryTrip {
   bike      Bike         @relation(fields: [tenantId, bikeId], references: [tenantId, id], onDelete: Restrict)
   driver    Staff?       @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
   orders    SalesOrder[]
+  expenses  Expense[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, number])
