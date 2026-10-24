@@ -38,7 +38,7 @@ export default async function LoadingSheetPage({
               <p className="text-[1.15em] font-bold">Loading sheet · Trip #{trip.number}</p>
               <p>{formatDate(trip.tripDate)}</p>
               <p>
-                {trip.bike.name} · {trip.driver.name}
+                {trip.bike.name} · Driver: {trip.driver?.name ?? "____________________"}
               </p>
             </>
           }

@@ -28,6 +28,7 @@ import {
   dispatchTrip,
   getTrip,
   removeOrderFromTrip,
+  setTripDriver,
 } from "./trips";
 
 const DAY = "2026-10-25";
@@ -519,5 +520,37 @@ describe("undoing a day-end entry", () => {
     });
     await clearCheque(t.ctx, { id: cheque.id });
     await expect(undoDayEnd(t.ctx, { id: c.id, reason: "late fix" })).rejects.toThrow(/cleared/);
+  });
+});
+
+describe("driver", () => {
+  it("is optional when planning and can be set or changed until day-end is done", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "1"]]);
+    const tr = await trip([a.id], { driverId: "" });
+    expect(tr.driverId).toBeNull();
+    expect((await getTrip(t.staff, tr.id)).driver).toBeNull();
+
+    // Dispatched without a driver, set afterwards, then changed and cleared again.
+    await dispatchTrip(t.staff, { id: tr.id });
+    await setTripDriver(t.staff, { tripId: tr.id, driverId: t.driver.id });
+    expect((await getTrip(t.staff, tr.id)).driver?.name).toBe("Aslam");
+    await setTripDriver(t.staff, { tripId: tr.id, driverId: "" });
+    expect((await getTrip(t.staff, tr.id)).driverId).toBeNull();
+    await setTripDriver(t.staff, { tripId: tr.id, driverId: t.driver.id });
+    expect(
+      await t.ctx.db.auditLog.count({
+        where: { entityType: "DeliveryTrip", entityId: tr.id, action: "UPDATE" },
+      }),
+    ).toBe(3);
+
+    await saveDayEnd(t.staff, { orderId: a.id, lines: [] });
+    await expect(setTripDriver(t.staff, { tripId: tr.id, driverId: "" })).rejects.toThrow(
+      /day-end is done/,
+    );
+  });
+
+  it("must be an active staff member when given", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "1"]]);
+    await expect(trip([a.id], { driverId: "missing" })).rejects.toThrow(/active driver/);
   });
 });

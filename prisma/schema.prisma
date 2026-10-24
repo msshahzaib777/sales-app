@@ -959,7 +959,8 @@ model DeliveryTrip {
   tripDate     DateTime   @db.Date
   warehouseId  String
   bikeId       String
-  driverId     String
+  /// Optional: often chosen only when the trip leaves, or later; can be set until day-end is done.
+  driverId     String?
   status       TripStatus @default(PLANNED)
   dispatchedAt DateTime?
   reconciledAt DateTime?
@@ -972,7 +973,7 @@ model DeliveryTrip {
   tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   warehouse Warehouse    @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
   bike      Bike         @relation(fields: [tenantId, bikeId], references: [tenantId, id], onDelete: Restrict)
-  driver    Staff        @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  driver    Staff?       @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
   orders    SalesOrder[]
 
   @@unique([tenantId, id])

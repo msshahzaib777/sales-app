@@ -19,6 +19,15 @@ From the owner's notes after trying Phase 1. Built one item at a time.
    - audited. Tested in `journals.int.test.ts`, and in a browser run (owner saves; staff get
      "No access").
 
+2. **Driver chosen later — done.**
+   - A trip's driver is optional (migration `trip_driver_optional`). Planning starts with "Not
+     decided yet"; the bike's usual driver is not filled in.
+   - The trip page has a driver picker while the trip is planned or out; it can be set, changed or
+     cleared until day-end is done (audited).
+   - With no driver, the trip list says "Not set" and the loading sheet prints
+     "Driver: ____________________" to fill in by hand.
+   - Tested in `delivery.int.test.ts` and in a browser run.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

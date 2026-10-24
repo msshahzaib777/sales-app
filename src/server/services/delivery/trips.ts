@@ -5,7 +5,12 @@ import type { TripStatus } from "@/generated/prisma/enums";
 import { byRoute, loadByProduct, takeFromBatches } from "@/lib/delivery";
 import { formatDozens } from "@/lib/units";
 import { recordIdSchema } from "@/lib/validation/master";
-import { tripOrderSchema, tripOrdersSchema, tripSchema } from "@/lib/validation/delivery";
+import {
+  tripDriverSchema,
+  tripOrderSchema,
+  tripOrdersSchema,
+  tripSchema,
+} from "@/lib/validation/delivery";
 
 import { writeAudit } from "../../audit";
 import { assertCan } from "../../auth/permissions";
@@ -31,19 +36,20 @@ const D = (v: Prisma.Decimal | number | string) => new Prisma.Decimal(v);
 /** The bike, the driver and the orders for a new trip, all checked. */
 async function checkTripParts(
   tx: TenantTx,
-  input: { tripDate: Date; bikeId: string; driverId: string; orderIds: string[] },
+  input: { tripDate: Date; bikeId: string; driverId: string | null; orderIds: string[] },
   tripWarehouseId?: string,
 ) {
   const [bike, driver, orders] = await Promise.all([
     tx.bike.findUnique({ where: { id: input.bikeId } }),
-    tx.staff.findUnique({ where: { id: input.driverId } }),
+    input.driverId ? tx.staff.findUnique({ where: { id: input.driverId } }) : null,
     tx.salesOrder.findMany({
       where: { id: { in: input.orderIds } },
       select: { id: true, number: true, status: true, deliveryDate: true, warehouseId: true },
     }),
   ]);
   if (!bike || !bike.isActive) throw new ServiceError("Choose an active bike.");
-  if (!driver || !driver.isActive) throw new ServiceError("Choose an active driver.");
+  if (input.driverId && (!driver || !driver.isActive))
+    throw new ServiceError("Choose an active driver.");
   if (orders.length !== input.orderIds.length)
     throw new ServiceError("Some of the ticked orders were not found. Reload the page.");
   for (const o of orders) {
@@ -129,6 +135,34 @@ export async function addOrdersToTrip(ctx: ServiceCtx, input: unknown) {
       entityId: trip.id,
       newValue: { addedOrderIds: data.orderIds },
     });
+  });
+}
+
+/** Sets or changes the driver (or clears it) until the trip's day-end is done. */
+export async function setTripDriver(ctx: ServiceCtx, input: unknown) {
+  assertCan(ctx.user.role, "operations.manage");
+  const data = tripDriverSchema.parse(input);
+  return ctx.db.$transaction(async (tx) => {
+    const trip = found(await tx.deliveryTrip.findUnique({ where: { id: data.tripId } }), "trip");
+    if (trip.status !== "PLANNED" && trip.status !== "DISPATCHED")
+      throw new ServiceError("The driver can no longer change: this trip's day-end is done.");
+    if (data.driverId) {
+      const driver = await tx.staff.findUnique({ where: { id: data.driverId } });
+      if (!driver || !driver.isActive) throw new ServiceError("Choose an active driver.");
+    }
+    if (trip.driverId === data.driverId) return trip;
+    const after = await tx.deliveryTrip.update({
+      where: { id: trip.id },
+      data: { driverId: data.driverId },
+    });
+    await writeAudit(tx, ctx.user, {
+      action: "UPDATE",
+      entityType: "DeliveryTrip",
+      entityId: trip.id,
+      oldValue: { driverId: trip.driverId },
+      newValue: { driverId: data.driverId },
+    });
+    return after;
   });
 }
 

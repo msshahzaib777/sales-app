@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { LoadText, TripStatusBadge } from "@/components/delivery/trip-badge";
+import { TripDriverForm } from "@/components/delivery/trip-driver-form";
 import { AddOrdersForm } from "@/components/delivery/trip-form";
 import { ConfirmAction } from "@/components/form/confirm-action";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
@@ -18,8 +19,9 @@ import {
   cancelTripAction,
   dispatchTripAction,
   removeOrderFromTripAction,
+  setTripDriverAction,
 } from "@/server/delivery-actions";
-import { bookedOrdersFor, getTrip } from "@/server/services/delivery/trips";
+import { bookedOrdersFor, getTrip, tripFormOptions } from "@/server/services/delivery/trips";
 
 export const metadata: Metadata = { title: "Trip" };
 
@@ -30,6 +32,9 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
   const planned = trip.status === "PLANNED";
   const out = trip.status === "DISPATCHED" || trip.status === "RECONCILED";
   const addable = planned ? await bookedOrdersFor(ctx, trip.tripDate, trip.warehouseId) : [];
+  // The driver can be set or changed until day-end is done.
+  const driverEditable = trip.status === "PLANNED" || trip.status === "DISPATCHED";
+  const { staff } = driverEditable ? await tripFormOptions(ctx) : { staff: [] };
   const ids = trip.orders.map((o) => `ids=${o.id}`).join("&");
   const firstOpen = trip.orders.find((o) => o.status === "DISPATCHED");
 
@@ -39,7 +44,7 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
         <BackLink href="/delivery">Delivery</BackLink>
         <PageHeader
           title={`Trip #${trip.number} · ${formatDate(trip.tripDate)}`}
-          description={`${trip.bike.name} · driver ${trip.driver.name}${trip.driver.phone ? ` (${trip.driver.phone})` : ""} · ${trip.warehouse.name}${trip.note ? ` · ${trip.note}` : ""}`}
+          description={`${trip.bike.name} · ${trip.driver ? `driver ${trip.driver.name}${trip.driver.phone ? ` (${trip.driver.phone})` : ""}` : "driver not set"} · ${trip.warehouse.name}${trip.note ? ` · ${trip.note}` : ""}`}
           actions={
             <>
               {trip.orders.length > 0 ? (
@@ -62,6 +67,13 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
         />
       </div>
       <Notice notice={sp.notice} />
+      {driverEditable ? (
+        <TripDriverForm
+          action={setTripDriverAction.bind(null, id)}
+          driverId={trip.driverId}
+          staff={staff}
+        />
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <TripStatusBadge status={trip.status} />

@@ -37,7 +37,7 @@ export default async function DayEndPage({
       <div>
         <BackLink href={`/delivery/${id}`}>
           Trip #{order.trip.number} · {formatDate(order.trip.tripDate)} · {order.trip.bike.name} ·{" "}
-          {order.trip.driver.name}
+          {order.trip.driver?.name ?? "no driver set"}
         </BackLink>
         <PageHeader
           title={`Day-end · order #${order.number}`}

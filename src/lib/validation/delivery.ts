@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   blankAs,
+  blankToUndefined,
   dateSchema,
   dozensSchema,
   idSchema,
@@ -22,7 +23,8 @@ export const tripSchema = z.object({
   requestId: requestIdSchema,
   tripDate: dateSchema("delivery date"),
   bikeId: z.string({ error: "Choose a bike" }).min(1, "Choose a bike").max(40),
-  driverId: z.string({ error: "Choose the driver" }).min(1, "Choose the driver").max(40),
+  /** Optional: often chosen when the trip leaves, or later. */
+  driverId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
   note: optionalText(300),
   orderIds: orderIds.refine((ids) => ids.length > 0, "Tick at least one order"),
 });
@@ -30,6 +32,11 @@ export const tripSchema = z.object({
 export const tripOrdersSchema = z.object({
   tripId: idSchema,
   orderIds: orderIds.refine((ids) => ids.length > 0, "Tick at least one order"),
+});
+
+export const tripDriverSchema = z.object({
+  tripId: idSchema,
+  driverId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
 });
 
 export const tripOrderSchema = z.object({ tripId: idSchema, orderId: idSchema });

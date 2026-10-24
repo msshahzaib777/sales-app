@@ -153,7 +153,7 @@ export function TripForm({
   const withRequestId = useRequestId();
   const [bikeId, setBikeId] = useState(bikes.length === 1 ? bikes[0]!.id : "");
   const bike = bikes.find((b) => b.id === bikeId);
-  const [driverId, setDriverId] = useState(bike?.driverId ?? "");
+  const [driverId, setDriverId] = useState("");
   const visible = bike?.warehouse
     ? orders.filter((o) => o.warehouseId === bike.warehouse!.id)
     : orders;
@@ -169,11 +169,7 @@ export function TripForm({
             value={bikeId}
             autoFocus
             aria-invalid={fieldError(state, "bikeId") ? true : undefined}
-            onChange={(e) => {
-              const next = bikes.find((b) => b.id === e.target.value);
-              setBikeId(e.target.value);
-              if (next?.driverId) setDriverId(next.driverId);
-            }}
+            onChange={(e) => setBikeId(e.target.value)}
           >
             <option value="">Choose a bike</option>
             {bikes.map((b) => (
@@ -187,7 +183,7 @@ export function TripForm({
           ) : null}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="driverId">Driver *</Label>
+          <Label htmlFor="driverId">Driver</Label>
           <NativeSelect
             id="driverId"
             name="driverId"
@@ -195,7 +191,7 @@ export function TripForm({
             onChange={(e) => setDriverId(e.target.value)}
             aria-invalid={fieldError(state, "driverId") ? true : undefined}
           >
-            <option value="">Choose the driver</option>
+            <option value="">Not decided yet</option>
             {staff.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
