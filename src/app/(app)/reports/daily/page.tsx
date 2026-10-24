@@ -419,6 +419,13 @@ function Pending({ pending }: { pending: NonNullable<DailyReport["money"]>["pend
       </p>
       {pending.top.length > 0 ? (
         <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              <th className={th}>Customer</th>
+              <th className={th}>Contact</th>
+              <th className={`${th} ${num}`}>Owes</th>
+            </tr>
+          </thead>
           <tbody>
             {pending.top.map((c) => (
               <tr key={c.customerId}>
@@ -431,6 +438,16 @@ function Pending({ pending }: { pending: NonNullable<DailyReport["money"]>["pend
                   </Link>
                   {c.shopName ? ` · ${c.shopName}` : ""}
                   {c.overLimit ? " · over limit" : ""}
+                </td>
+                <td className={`${td} whitespace-nowrap tabular-nums`}>
+                  {c.phone ? (
+                    <a href={`tel:${c.phone}`} className="print:no-underline">
+                      {c.phone}
+                    </a>
+                  ) : null}
+                  {c.whatsapp && c.whatsapp !== c.phone ? (
+                    <div className="text-[0.85em]">WhatsApp {c.whatsapp}</div>
+                  ) : null}
                 </td>
                 <td className={`${td} ${num}`}>{formatMoney(c.balance)}</td>
               </tr>

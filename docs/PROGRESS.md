@@ -2,6 +2,29 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Business analysis — done
+
+Reports → Business analysis (`/reports/analysis?period=week|month|quarter&date=…`, ◀ ▶ by period,
+Print / PDF, Excel; `businessAnalysis` in `src/server/services/reports/analysis.ts`, period maths
+in `src/lib/analysis.ts`). Every figure is compared with the previous period of the same length.
+- **Overview:** sales, gross profit and margin, net profit (after expenses), payments received,
+  orders delivered, customers who bought; a trend chart of the last 12 weeks / 12 months /
+  8 quarters (sales and gross profit).
+- **Products:** dozens sold and sales against the previous period, profit, returned %, and a
+  trend (rising / declining at ±20%, new, stopped, steady); "in demand" and "declining or
+  stopped" lists.
+- **Companies** (cost roles): sales, cost, gross profit, margin, damage claimed, what we owe now.
+- **Customers** (payment roles): bought against the previous period, paid, average days to pay
+  (from the bills each payment settled), oldest unpaid bill, bounced cheques, balance, trend;
+  "pays late" (over 30 days to pay, a bill unpaid over 30 days, or a bounced cheque), "stopped
+  buying" and "growing" lists.
+- Staff see quantities and sales only. Cost is at the current purchase rate; customers have no
+  credit terms of their own yet, so "late" is a fixed 30 days.
+- Tested in `analysis.test.ts` and `delivery.int.test.ts` (two months: rising and stopped
+  products and customers, company margin, a late payer, staff), and in Edge as owner and staff.
+
+The daily report's "Payment pending" list now shows each customer's phone (and WhatsApp when
+different), also in its Excel file.
 ## Dashboard: the chosen day's work — done
 
 The dashboard's work panel now follows the chosen date like the money panel does. Before, a past

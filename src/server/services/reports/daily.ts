@@ -266,7 +266,14 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
       _sum: { debit: true, credit: true },
     }),
     ctx.db.customer.findMany({
-      select: { id: true, name: true, shopName: true, creditLimit: true },
+      select: {
+        id: true,
+        name: true,
+        shopName: true,
+        phone: true,
+        whatsapp: true,
+        creditLimit: true,
+      },
     }),
   ]);
 
@@ -302,6 +309,8 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
         customerId: g.customerId!,
         name: c.name,
         shopName: c.shopName,
+        phone: c.phone,
+        whatsapp: c.whatsapp,
         balance,
         overLimit: c.creditLimit !== null && balance.gt(c.creditLimit),
       };

@@ -18,6 +18,7 @@ import { bounceCheque, clearCheque } from "../payments/customer-payments";
 import { settleClaim } from "../purchasing/claims";
 import { getDashboard } from "../dashboard";
 import { createCustomerPayment } from "../payments/customer-payments";
+import { businessAnalysis } from "../reports/analysis";
 import { dailyReport } from "../reports/daily";
 import { damageReport } from "../reports/damage";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
@@ -829,5 +830,59 @@ describe("dashboard for a chosen day", () => {
     // Another day has none of it.
     const other = await getDashboard(t.ctx, { date: new Date("2026-11-04T00:00:00.000Z") });
     expect([other.work.day.trips.length, other.work.day.orders]).toEqual([0, 0]);
+  });
+});
+describe("business analysis", () => {
+  const deliver = async (date: string, orders: [string, [string, string][]][]) => {
+    const ids = [];
+    for (const [customerId, lines] of orders)
+      ids.push((await book(customerId, lines, { orderDate: date, deliveryDate: date })).id);
+    const tr = await trip(ids, { tripDate: date });
+    await dispatchTrip(t.staff, { id: tr.id });
+    for (const id of ids) await saveDayEnd(t.staff, { orderId: id, lines: [] });
+  };
+
+  it("compares a month with the one before: products, companies and customers", async () => {
+    // September: Ali 2 dz chips, Bilal 1 dz nimko. October: Ali 5 dz chips, Bilal nothing.
+    await deliver("2026-09-10", [
+      [t.ali.id, [[t.chips.id, "2"]]],
+      [t.bilal.id, [[t.nimko.id, "1"]]],
+    ]);
+    await deliver("2026-10-05", [[t.ali.id, [[t.chips.id, "5"]]]]);
+    const a = await businessAnalysis(t.ctx, "month", new Date("2026-10-15T00:00:00.000Z"));
+
+    expect([a.current.label, a.previous.label]).toEqual(["Oct 2026", "Sep 2026"]);
+    // 5 dz × 196 against 2 × 196 + 150.
+    expect([a.overview.sales.current.toFixed(2), a.overview.sales.previous.toFixed(2)]).toEqual([
+      "980.00",
+      "542.00",
+    ]);
+    expect(a.overview.gross!.current.toFixed(2)).toBe("480.00"); // cost 5 dz × 100
+    expect(a.trend).toHaveLength(12);
+    expect(a.trend.at(-1)!.sales.toFixed(2)).toBe("980.00");
+
+    expect(a.products.rows.map((r) => [r.code, r.qty.current.toNumber(), r.trend])).toEqual([
+      ["CB01", 60, "RISING"],
+      ["GC01", 0, "STOPPED"],
+    ]);
+    expect(a.products.declining.map((r) => r.code)).toEqual(["GC01"]);
+
+    const crunchy = a.companies!.find((c) => c.name === "Crunchy")!;
+    expect([crunchy.gross.current.toFixed(2), crunchy.margin?.toFixed(1)]).toEqual([
+      "480.00",
+      "49.0",
+    ]);
+
+    const byName = new Map(a.customers!.rows.map((r) => [r.name, r]));
+    expect(byName.get("Ali")!.trend).toBe("RISING");
+    expect(byName.get("Bilal")!.trend).toBe("STOPPED");
+    // Bilal's September bill is still unpaid, more than 30 days on.
+    expect(byName.get("Bilal")!.late).toBe(true);
+    expect(a.customers!.stopped.map((r) => r.name)).toEqual(["Bilal"]);
+
+    // Staff: demand and sales only.
+    const staff = await businessAnalysis(t.staff, "month", new Date("2026-10-15T00:00:00.000Z"));
+    expect([staff.companies, staff.customers, staff.overview.gross]).toEqual([null, null, null]);
+    expect(staff.products.rows[0]!.profit).toBeNull();
   });
 });

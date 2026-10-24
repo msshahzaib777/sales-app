@@ -75,7 +75,14 @@ export async function GET(request: Request) {
     rows.push(
       blank,
       [xBold("Customers owe (end of day)")],
-      ...r.money.pending.top.map((c) => [{ value: c.name }, xMoney(c.balance)]),
+      ["Customer", "Shop", "Phone", "WhatsApp", "Owes"].map(xBold),
+      ...r.money.pending.top.map((c) => [
+        { value: c.name },
+        { value: c.shopName ?? "" },
+        { value: c.phone ?? "" },
+        { value: c.whatsapp ?? "" },
+        xMoney(c.balance),
+      ]),
       blank,
       [xBold("Expenses")],
       ...r.money.expenses.byCategory.map((e) => [{ value: e.name }, xMoney(e.amount)]),
