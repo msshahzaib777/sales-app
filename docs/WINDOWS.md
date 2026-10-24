@@ -76,6 +76,21 @@ To use another repository or fork, put its address in `.setup\repo-url.txt`.
 **Restoring a backup** (only if an update went wrong): ask for help; the backup is a plain SQL
 file that `psql` loads into an empty database.
 
+## Remove everything (after testing)
+
+Double-click **`uninstall-windows.bat`** and type **DELETE**. It:
+
+1. stops the website and turns off "start at Windows sign-in";
+2. deletes the database: the app's own PostgreSQL and the whole `%LOCALAPPDATA%\SalesApp` folder
+   (data, PostgreSQL itself, the password file and the backups). If an existing PostgreSQL service
+   was used, it asks for its `postgres` password and deletes only the `sales_app` database and user;
+3. removes the firewall rule;
+4. deletes `.env`, `.setup`, `node_modules`, `.next` and `src\generated` from the project folder.
+
+The code stays; delete the folder yourself if you no longer need it. It also offers to uninstall
+Node.js, pnpm and Git (type YES); say no if other programs on the laptop use them. Its log is in
+`%TEMP%\taqseem-uninstall-log.txt`. Run `setup-windows.bat` to install again from scratch.
+
 ## Good to know
 
 - Your data is in `%LOCALAPPDATA%\SalesApp\data` (for example

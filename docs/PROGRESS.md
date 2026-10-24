@@ -2,6 +2,16 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Windows uninstall — done
+
+`uninstall-windows.bat` (`scripts/windows/uninstall.ps1`), after typing DELETE: stops the website
+and its sign-in task, deletes the database (the app's own PostgreSQL and `%LOCALAPPDATA%\SalesApp`
+with backups, or only the `sales_app` database and user on an existing PostgreSQL service),
+removes the firewall rule, and deletes `.env`, `.setup`, `node_modules`, `.next` and
+`src\generated`. The code stays. Optionally uninstalls Node.js, pnpm and Git. Problems (a file
+held open) are listed at the end instead of stopping half way. Checked on Windows: parses, and
+cancelling changes nothing; the full removal has not been run yet.
+
 ## Daily report — done
 
 Reports → Daily report (`/reports/daily?date=…`, previous / next day, Print / PDF, Excel): the
