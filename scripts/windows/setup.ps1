@@ -111,72 +111,114 @@ if (-not (Have "pnpm") -or ((pnpm --version) -ne $PnpmVersion)) {
 if (-not (Have "pnpm")) { Fail "pnpm did not install." }
 Ok "pnpm $(pnpm --version)"
 
-# -- 4. PostgreSQL -----------------------------------------------------------
+# -- 4. Packages ------------------------------------------------------------
+# First, because the database helper (scripts/windows/db.mjs) uses the app's `pg` driver.
+Step "Installing the website's packages"
+# Before .env exists, `prisma generate` (run by the install) needs some DATABASE_URL; it does not
+# connect. Removed straight after, so the real one in .env is used from then on.
+$placeholderUrl = -not (Test-Path (Join-Path $Root ".env"))
+if ($placeholderUrl) { $env:DATABASE_URL = "postgresql://placeholder@localhost:5432/placeholder" }
+Run "pnpm install" { pnpm install --frozen-lockfile }
+if ($placeholderUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue }
+Ok "Packages installed"
+
+# -- 5. PostgreSQL -----------------------------------------------------------
+# A PostgreSQL already installed as a Windows service is used as it is. Otherwise PostgreSQL 17 is
+# downloaded from the npm registry (the EnterpriseDB download site refuses some connections) into
+# this Windows user's app data, and this script starts it on every run.
 Step "Checking PostgreSQL"
-function Find-Psql {
+$PgVersion = "17.10.0-beta.17"
+$PgRoot = Join-Path $env:LOCALAPPDATA "SalesApp\postgres"
+$PgBin = Join-Path $PgRoot "bin"
+$PgData = Join-Path $env:LOCALAPPDATA "SalesApp\data"
+$SuperFile = Join-Path $env:LOCALAPPDATA "SalesApp\postgres-superuser-password.txt"
+$PgPort = 5432
+
+function Find-ServicePsql {
   $found = Get-ChildItem "C:\Program Files\PostgreSQL\*\bin\psql.exe" -ErrorAction SilentlyContinue |
     Sort-Object { [int]($_.Directory.Parent.Name -replace "\D", "") } -Descending |
     Select-Object -First 1
   if ($found) { return $found.FullName } else { return $null }
 }
-$SuperFile = Join-Path $SetupDir "postgres-superuser-password.txt"
-$psql = Find-Psql
-if (-not $psql) {
-  $superPassword = Random-Hex 12
-  Set-Content -Path $SuperFile -Value $superPassword -NoNewline
-  Info "Installing PostgreSQL (this takes a few minutes)..."
-  $override = "--mode unattended --unattendedmodeui none --disable-components stackbuilder --superpassword $superPassword --serverport 5432"
-  $code = 1
-  foreach ($id in @("PostgreSQL.PostgreSQL.17", "PostgreSQL.PostgreSQL.16")) {
-    $code = Winget-Install $id @("--override", $override)
-    $psql = Find-Psql
-    if ($psql) { break }
-  }
-  if (-not $psql) { Fail "PostgreSQL did not install (winget exit code $code)." }
-}
-Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne "Running" } | Start-Service
-Ok "PostgreSQL at $psql"
 
-if (Test-Path $SuperFile) {
-  $superPassword = Get-Content $SuperFile -Raw
+$useService = [bool](Find-ServicePsql) -and -not (Test-Path $PgData)
+if ($useService) {
+  Get-Service -Name "postgresql*" -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne "Running" } | Start-Service
+  Ok "Using the PostgreSQL already installed on this laptop"
+  $superPassword = $null # asked for below, only if the database still has to be created
 } else {
-  Write-Host "    PostgreSQL was already on this laptop. Type the password of its 'postgres' user." -ForegroundColor Yellow
-  $secure = Read-Host "    postgres password" -AsSecureString
-  $superPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+  # Microsoft Visual C++ runtime, needed by PostgreSQL's programs.
+  $sys = Join-Path $env:WINDIR "System32"
+  if (-not ((Test-Path "$sys\vcruntime140.dll") -and (Test-Path "$sys\vcruntime140_1.dll") -and (Test-Path "$sys\msvcp140.dll"))) {
+    Info "Installing the Microsoft Visual C++ runtime..."
+    $code = Winget-Install "Microsoft.VCRedist.2015+.x64" @("--silent")
+    if (-not (Test-Path "$sys\vcruntime140_1.dll")) {
+      Fail "The Microsoft Visual C++ runtime did not install (winget exit code $code). Install it from https://aka.ms/vs/17/release/vc_redist.x64.exe and run this again."
+    }
+  }
+
+  if (-not (Test-Path (Join-Path $PgBin "pg_ctl.exe"))) {
+    Info "Downloading PostgreSQL 17 (about 40 MB)..."
+    $tmp = Join-Path $env:TEMP "salesapp-postgres"
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+    Run "Downloading PostgreSQL" { npm pack "@embedded-postgres/windows-x64@$PgVersion" --pack-destination $tmp }
+    $tgz = Get-ChildItem $tmp -Filter *.tgz | Select-Object -First 1
+    if (-not $tgz) { Fail "The PostgreSQL download did not arrive." }
+    Run "Unpacking PostgreSQL" { & (Join-Path $env:WINDIR "System32\tar.exe") -xzf $tgz.FullName -C $tmp }
+    New-Item -ItemType Directory -Force -Path (Split-Path $PgRoot) | Out-Null
+    Remove-Item $PgRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Move-Item (Join-Path $tmp "package\native") $PgRoot
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path (Join-Path $PgBin "pg_ctl.exe"))) { Fail "PostgreSQL did not unpack." }
+  }
+
+  if (-not (Test-Path (Join-Path $PgData "PG_VERSION"))) {
+    Info "Creating the database storage..."
+    $superPassword = Random-Hex 12
+    Set-Content -Path $SuperFile -Value $superPassword -NoNewline
+    $pwFile = Join-Path $env:TEMP "salesapp-pw.txt"
+    Set-Content -Path $pwFile -Value $superPassword -NoNewline -Encoding ASCII
+    $result = Capture { & (Join-Path $PgBin "initdb.exe") -D $PgData -U postgres "--pwfile=$pwFile" -A scram-sha-256 -E UTF8 --no-locale }
+    Remove-Item $pwFile -ErrorAction SilentlyContinue
+    if ($result.Code -ne 0) { Fail "Creating the database storage failed: $($result.Out)" }
+  }
+  if (-not (Test-Path $SuperFile)) {
+    Fail "The database administrator password file $SuperFile is missing. Restore it from a backup."
+  }
+  $superPassword = (Get-Content $SuperFile -Raw).Trim()
+
+  $pgCtl = Join-Path $PgBin "pg_ctl.exe"
+  $status = Capture { & $pgCtl status -D $PgData }
+  if ($status.Code -ne 0) {
+    Info "Starting PostgreSQL..."
+    $result = Capture { & $pgCtl start -D $PgData -w -t 60 -l (Join-Path $PgData "server.log") -o "-p $PgPort -c listen_addresses=localhost" }
+    if ($result.Code -ne 0) { Fail "PostgreSQL did not start: $($result.Out). Its log is $PgData\server.log" }
+  }
+  Ok "PostgreSQL is running (data in $PgData)"
 }
 
-# Runs SQL from a temporary file (avoids Windows quoting problems) and returns the output.
-function Sql($sql, $database = "postgres", $user = "postgres", $password = $superPassword) {
-  $file = Join-Path $SetupDir "query.sql"
-  Set-Content -Path $file -Value $sql -Encoding ASCII
-  $env:PGPASSWORD = $password
-  $result = Capture { & $psql -h localhost -p 5432 -U $user -d $database -v ON_ERROR_STOP=1 -t -A -q -f $file }
-  Remove-Item $file -ErrorAction SilentlyContinue
-  $env:PGPASSWORD = $null
-  if ($result.Code -ne 0) { Fail "Database command failed: $($result.Out)" }
-  return $result.Out
-}
-
-# -- 5. Database and .env ----------------------------------------------------
+# -- 6. Database and .env ----------------------------------------------------
 Step "Preparing the database"
 $EnvFile = Join-Path $Root ".env"
+$DbHelper = Join-Path $Root "scripts\windows\db.mjs"
 if (-not (Test-Path $EnvFile)) {
+  if (-not $superPassword) {
+    Write-Host "    Type the password of the existing PostgreSQL's 'postgres' user (set when it was installed)." -ForegroundColor Yellow
+    $secure = Read-Host "    postgres password" -AsSecureString
+    $superPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+  }
   $appPassword = Random-Hex 16
-  Sql @"
-DO `$`$ BEGIN
-  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'sales_app') THEN
-    ALTER ROLE sales_app WITH LOGIN PASSWORD '$appPassword';
-  ELSE
-    CREATE ROLE sales_app WITH LOGIN PASSWORD '$appPassword';
-  END IF;
-END `$`$;
-"@ | Out-Null
-  $exists = Sql "SELECT 1 FROM pg_database WHERE datname = 'sales_app';"
-  if ($exists -ne "1") { Sql "CREATE DATABASE sales_app OWNER sales_app;" | Out-Null }
+  $env:SALES_PG_SUPER_URL = "postgresql://postgres:$([uri]::EscapeDataString($superPassword))@localhost:$PgPort/postgres"
+  $env:SALES_APP_DB_PASSWORD = $appPassword
+  $result = Capture { node $DbHelper ensure }
+  $env:SALES_PG_SUPER_URL = $null
+  $env:SALES_APP_DB_PASSWORD = $null
+  if ($result.Code -ne 0) { Fail "Creating the database failed: $($result.Out)" }
   $authSecret = Random-Hex 32
   @(
     "# Written by scripts/windows/setup.ps1. Keep this file private and keep it when you update."
-    "DATABASE_URL=`"postgresql://sales_app:$appPassword@localhost:5432/sales_app?schema=public`""
+    "DATABASE_URL=`"postgresql://sales_app:$appPassword@localhost:$PgPort/sales_app?schema=public`""
     "AUTH_SECRET=`"$authSecret`""
   ) | Set-Content -Path $EnvFile -Encoding ASCII
   Ok "Database 'sales_app' and .env created"
@@ -184,20 +226,16 @@ END `$`$;
   Ok ".env already exists, keeping it"
 }
 
-# -- 6. Packages, tables -----------------------------------------------------
-Step "Installing the website's packages"
-Run "pnpm install" { pnpm install --frozen-lockfile }
-Ok "Packages installed"
-
 Step "Creating or updating the database tables"
 Run "Database update" { pnpm db:deploy }
 Ok "Database is up to date"
 
 # -- 7. First business -------------------------------------------------------
-$appUrl = (Get-Content $EnvFile | Where-Object { $_ -like "DATABASE_URL=*" }) -replace '^DATABASE_URL="?([^"]*)"?$', '$1'
-$appPass = ([regex]::Match($appUrl, "sales_app:([^@]+)@")).Groups[1].Value
-$tenants = Sql 'SELECT count(*) FROM "Tenant";' "sales_app" "sales_app" $appPass
-if ($tenants -eq "0") {
+$env:SALES_APP_DB_URL = (Get-Content $EnvFile | Where-Object { $_ -like "DATABASE_URL=*" }) -replace '^DATABASE_URL="?([^"]*)"?$', '$1'
+$result = Capture { node $DbHelper tenants }
+$env:SALES_APP_DB_URL = $null
+if ($result.Code -ne 0) { Fail "Reading the database failed: $($result.Out)" }
+if ($result.Out -eq "0") {
   Step "First start: what should the website contain?"
   Write-Host "    1 = Demo data to try things out (sample companies, products, customers)"
   Write-Host "    2 = My real business (empty; you enter your own data)"
