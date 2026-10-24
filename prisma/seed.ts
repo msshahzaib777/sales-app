@@ -9,6 +9,7 @@ import {
   PrismaClient,
 } from "../src/generated/prisma/client";
 import { hashPassword } from "../src/server/auth/password";
+import { DEFAULT_EXPENSE_CATEGORIES } from "../src/lib/expenses";
 import { PACKETS_PER_DOZEN } from "../src/lib/units";
 import {
   calculateLineAmounts,
@@ -439,6 +440,11 @@ async function main() {
           { tenantId, baseUnit: "PACKET", unit: "HALF_DOZEN", baseUnitsPerUnit: 6 },
           { tenantId, baseUnit: "PACKET", unit: "DOZEN", baseUnitsPerUnit: 12 },
         ],
+      });
+
+      // ── Expense categories (SPEC §9) ──
+      await tx.expenseCategory.createMany({
+        data: DEFAULT_EXPENSE_CATEGORIES.map((name) => ({ tenantId, name })),
       });
 
       // ── Warehouses, areas ──
@@ -1302,12 +1308,43 @@ async function main() {
           tenantId,
           productId: products[4]!.id,
           warehouseId: warehouseIds.A!,
-          quantity: -2,
+          quantity: -dz(1),
           reason: "COUNTING_ERROR",
           note: "Physical count 1 dozen short",
           requestedById: staffUser.id,
         },
       });
+
+      // ── Expenses (SPEC §9): petrol per bike for the last few days, rent, labour ──
+      const category = new Map(
+        (await tx.expenseCategory.findMany({ where: { tenantId } })).map((c) => [c.name, c.id]),
+      );
+      const expense = (
+        offset: number,
+        name: string,
+        amount: number,
+        extra: { bikeId?: string; tripId?: string; paidTo?: string; note?: string } = {},
+      ) =>
+        tx.expense.create({
+          data: {
+            tenantId,
+            number: nextNumber("EXPENSE"),
+            expenseDate: day(offset),
+            categoryId: category.get(name)!,
+            amount,
+            createdById,
+            ...extra,
+          },
+        });
+      for (const offset of [-3, -2, -1]) {
+        for (const bike of bikes) {
+          await expense(offset, "Petrol", between(6, 12) * 100, { bikeId: bike.id });
+        }
+      }
+      await expense(-2, "Petrol", 900, { bikeId: bikes[0]!.id, tripId: pastTrip.id });
+      await expense(-20, "Rent", 45000, { paidTo: "Warehouse A landlord" });
+      await expense(-1, "Loading labour", 1500, { note: "Unloading company delivery" });
+      await expense(-1, "Utilities", 6200, { paidTo: "LESCO", note: "Electricity bill" });
 
       await tx.documentSequence.createMany({
         data: [...counters].map(([key, last]) => ({ tenantId, key, nextValue: last + 1 })),

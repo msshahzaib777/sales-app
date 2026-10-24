@@ -45,6 +45,14 @@ export default async function InventoryPage({ searchParams }: PageProps<"/invent
                 Opening stock
               </LinkButton>
             ) : null}
+            {can(ctx.user.role, "stock.requestAdjustment") ? (
+              <>
+                <LinkButton href="/inventory/adjustments" variant="outline">
+                  Adjustments
+                </LinkButton>
+                <LinkButton href="/inventory/adjustments/new">Adjust stock</LinkButton>
+              </>
+            ) : null}
             <PrintButton />
           </>
         }

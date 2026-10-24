@@ -8,6 +8,11 @@ import type { ActionState } from "@/lib/action-state";
 import { runAction } from "./actions";
 import { requireTenantContext } from "./auth/session";
 import { returnDamagedStock, setOpeningStock } from "./services/inventory";
+import {
+  approveAdjustment,
+  rejectAdjustment,
+  requestAdjustment,
+} from "./services/stock-adjustments";
 
 /** Damaged stock sent back to its company (stock only; the credit was the damage claim). */
 export async function returnDamagedStockAction(
@@ -57,4 +62,39 @@ export async function saveOpeningStockAction(
         ? "Nothing changed."
         : `Opening stock saved for ${changed} ${changed === 1 ? "product" : "products"}.`,
   };
+}
+
+/** A stock adjustment: applied at once for the owner, otherwise sent for approval. */
+export async function saveAdjustmentAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let status = "";
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("stock.requestAdjustment");
+    const a = await requestAdjustment(ctx, {
+      requestId: formData.get("requestId"),
+      productId: formData.get("productId"),
+      kind: formData.get("kind"),
+      reason: formData.get("reason"),
+      quantity: formData.get("quantity"),
+      note: formData.get("note"),
+    });
+    status = a.status;
+  }, formData);
+  if (result.status !== "success") return result;
+  revalidatePath("/inventory");
+  redirect(
+    `/inventory/adjustments?notice=${status === "APPROVED" ? "adjustment-saved" : "adjustment-requested"}`,
+  );
+}
+
+export async function decideAdjustmentAction(id: string, approve: boolean): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("stock.approveAdjustment");
+    await (approve ? approveAdjustment : rejectAdjustment)(ctx, { id });
+    return { message: approve ? "Approved: stock updated." : "Rejected: stock unchanged." };
+  });
+  if (result.status === "success") revalidatePath("/inventory");
+  return result;
 }

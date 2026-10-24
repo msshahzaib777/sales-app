@@ -120,6 +120,17 @@ function TodaysWork({ work }: { work: Dashboard["work"] }) {
           alert={work.tripsOut.some((t) => t.late)}
         />
       </div>
+      {work.adjustmentsPending ? (
+        <p className="text-sm" role="status">
+          <Link
+            href="/inventory/adjustments?adjustmentStatus=PENDING"
+            className="text-destructive underline underline-offset-4"
+          >
+            {work.adjustmentsPending} stock adjustment{work.adjustmentsPending === 1 ? "" : "s"}{" "}
+            waiting for your approval
+          </Link>
+        </p>
+      ) : null}
       {work.tripsOut.length > 0 ? (
         <ul className="space-y-1 text-sm">
           {work.tripsOut.map((t) => (
@@ -163,6 +174,16 @@ function MoneyToday({ money }: { money: NonNullable<Dashboard["money"]> }) {
       <p className="text-sm">
         Collected today{" "}
         <strong className="tabular-nums">{formatMoney(money.collectedTotal)}</strong>
+        {money.expensesToday ? (
+          <>
+            {" "}
+            · spent{" "}
+            <Link href="/expenses" className="underline underline-offset-4">
+              <strong className="tabular-nums">{formatMoney(money.expensesToday.amount)}</strong>
+            </Link>{" "}
+            on {money.expensesToday.count} expense{money.expensesToday.count === 1 ? "" : "s"}
+          </>
+        ) : null}
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
         <Stat
