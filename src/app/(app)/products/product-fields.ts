@@ -1,5 +1,5 @@
 import type { FieldDef } from "@/components/master/record-form";
-import { PACKETS_PER_DOZEN } from "@/lib/units";
+import { quantityText } from "@/lib/units";
 
 export const DISCOUNT_TYPE_OPTIONS = [
   { value: "NONE", label: "No discount" },
@@ -7,7 +7,7 @@ export const DISCOUNT_TYPE_OPTIONS = [
   { value: "PERCENT", label: "Percent (%)" },
 ];
 
-const dozens = (halfDozens: number) => String(halfDozens / PACKETS_PER_DOZEN);
+const dozens = (packets: number) => quantityText(packets);
 
 type Defaults = {
   companyId?: string;

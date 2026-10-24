@@ -282,7 +282,7 @@ describe("day-end entry", () => {
       requestId: randomUUID(),
       orderId: a.id,
       lines: [
-        { productId: t.chips.id, returned: "24", damaged: "12" },
+        { productId: t.chips.id, returned: "24pk", damaged: "12pk" },
         { productId: t.nimko.id, returned: "", damaged: "" },
       ],
       cash: "1000",
@@ -358,7 +358,7 @@ describe("day-end entry", () => {
     const refused = {
       requestId,
       orderId: b.id,
-      lines: [{ productId: t.nimko.id, returned: "36", damaged: "0" }],
+      lines: [{ productId: t.nimko.id, returned: "36pk", damaged: "0pk" }],
       chequeAmount: "250",
       chequeNo: "001122",
       bankName: "HBL",
@@ -400,7 +400,7 @@ describe("day-end entry", () => {
     await expect(
       saveDayEnd(t.staff, {
         orderId: a.id,
-        lines: [{ productId: t.chips.id, returned: "96", damaged: "36" }],
+        lines: [{ productId: t.chips.id, returned: "96pk", damaged: "36pk" }],
       }),
     ).rejects.toThrow(/more than the quantity sent/);
     await expect(
@@ -427,7 +427,7 @@ describe("undoing a day-end entry", () => {
     // Entered wrongly: 2 dz chips returned, 1 dz damaged, 1000 cash.
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "24", damaged: "12" }],
+      lines: [{ productId: t.chips.id, returned: "24pk", damaged: "12pk" }],
       cash: "1000",
     });
     return { a, tr };
@@ -493,7 +493,7 @@ describe("undoing a day-end entry", () => {
 
   it("refuses when the damaged stock was sent back, a claim was deducted, or a cheque cleared", async () => {
     const { a } = await entered();
-    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "12", returnDate: DAY });
+    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "12pk", returnDate: DAY });
     await expect(undoDayEnd(t.ctx, { id: a.id, reason: "late fix" })).rejects.toThrow(
       /already been sent back/,
     );
@@ -574,7 +574,7 @@ describe("settling a day-end damage claim", () => {
     await dispatchTrip(t.staff, { id: tr.id });
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "", damaged: "12" }],
+      lines: [{ productId: t.chips.id, returned: "", damaged: "12pk" }],
     });
     return t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
   };
@@ -646,7 +646,7 @@ describe("damage report", () => {
     await dispatchTrip(t.staff, { id: tr.id });
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "", damaged: "5" }],
+      lines: [{ productId: t.chips.id, returned: "", damaged: "5pk" }],
     });
     const range = { from: new Date(`${DAY}T00:00:00.000Z`), to: new Date(`${DAY}T00:00:00.000Z`) };
 
@@ -772,7 +772,7 @@ describe("daily report", () => {
     // 1 dozen comes back; 100 cash.
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "12", damaged: "" }],
+      lines: [{ productId: t.chips.id, returned: "12pk", damaged: "" }],
       cash: "100",
     });
     const day = new Date(`${DAY}T00:00:00.000Z`);
@@ -812,7 +812,7 @@ describe("dashboard for a chosen day", () => {
     // Ali returns 1 dozen and pays cash; Bilal's day-end is not entered yet.
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "12", damaged: "" }],
+      lines: [{ productId: t.chips.id, returned: "12pk", damaged: "" }],
       cash: "100",
     });
 

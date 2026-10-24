@@ -50,7 +50,7 @@ describe("productSchema", () => {
       productSchema.safeParse({ ...product, ...input }).error?.issues.map((i) => i.path.join("."));
     expect(issues({ saleRate: "12.345" })).toEqual(["saleRate"]);
     expect(issues({ saleRate: "-5" })).toEqual(["saleRate"]);
-    expect(issues({ minStockLevel: "1.25" })).toEqual(["minStockLevel"]);
+    expect(issues({ minStockLevel: "1.04" })).toEqual(["minStockLevel"]);
     expect(issues({ discountType: "PERCENT", discountValue: "120", slabs: [] })).toEqual([
       "discountValue",
     ]);

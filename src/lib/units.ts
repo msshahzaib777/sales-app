@@ -47,3 +47,44 @@ export function formatDozensCell(packets: number): string {
     ? formatDozens(packets).replace(" dz", "")
     : formatDozens(packets);
 }
+
+/**
+ * Reads a quantity typed in any of the ways people write it, into packets. A plain number is
+ * dozens; packets only with "pk":
+ *   "12" and "12.5" (dozens), "12dz 4pk", "12 dz 4 pk", "12dz4" and "12 dz 4" (the number after
+ *   dozens is packets), "4pk". Units: dz / doz / dozen / d, pk / pkt / pack / packet / p.
+ * Returns null when it can't be read, or when it is not a whole number of packets.
+ */
+export function parseQuantity(text: string): number | null {
+  const t = text.trim().toLowerCase().replace(/,/g, "");
+  if (t === "") return null;
+  const m = t.match(
+    /^(?:(\d+(?:\.\d+)?)\s*(dz|doz|dozens?|d)(?![a-z])\.?)?\s*(?:(\d+(?:\.\d+)?)\s*(pk|pkts?|packs?|packets?|p)?(?![a-z])\.?)?$/,
+  );
+  if (!m || (m[1] === undefined && m[3] === undefined)) return null;
+  const [, dz, , rest, restUnit] = m;
+  let packets = 0;
+  if (dz !== undefined) packets += Number(dz) * PACKETS_PER_DOZEN;
+  if (rest !== undefined) {
+    // On its own a bare number is dozens; after dozens ("12dz 4") it is packets.
+    const inDozens = !restUnit && dz === undefined;
+    packets += Number(rest) * (inDozens ? PACKETS_PER_DOZEN : 1);
+  }
+  // Floating point: 12.25 dz is 147 packets, not 146.99999.
+  const rounded = Math.round(packets * 1e6) / 1e6;
+  return Number.isInteger(rounded) && rounded <= 99_999_999 ? rounded : null;
+}
+
+/** "= 12 dz 4 pk" under a quantity box, or null while it can't be read. */
+export function quantityHint(text: string): string | null {
+  const packets = parseQuantity(text);
+  return packets === null || packets === 0 ? null : `= ${formatDozens(packets)}`;
+}
+
+/** A packet quantity as text that parseQuantity reads back, e.g. 148 → "12dz 4pk", 144 → "12". */
+export function quantityText(packets: number): string {
+  const dz = Math.trunc(packets / PACKETS_PER_DOZEN);
+  const pk = packets % PACKETS_PER_DOZEN;
+  if (pk === 0) return String(dz);
+  return dz ? `${dz}dz ${pk}pk` : `${pk}pk`;
+}

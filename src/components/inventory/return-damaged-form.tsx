@@ -36,9 +36,8 @@ export function ReturnDamagedForm({
         <TextField
           state={state}
           name="quantity"
-          label="Packets"
-          hint="12 packets = 1 dozen"
-          inputMode="numeric"
+          label="Quantity"
+          hint="Dozens (2, 2.5) or with packets (2dz 5pk, 5pk)"
           required
         />
         <TextField

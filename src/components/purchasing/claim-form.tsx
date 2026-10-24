@@ -90,10 +90,9 @@ export function ClaimForm({
         <TextField
           state={state}
           name="quantity"
-          label="Quantity (packets)"
-          hint="12 packets = 1 dozen"
+          label="Quantity"
+          hint="Dozens (2, 2.5) or with packets (2dz 5pk, 5pk)"
           required
-          inputMode="numeric"
         />
         {showRate ? (
           <TextField

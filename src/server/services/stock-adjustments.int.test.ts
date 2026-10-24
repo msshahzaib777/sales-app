@@ -89,8 +89,8 @@ const adjust = (extra: object, ctx = t.ctx) =>
 describe("stock adjustments", () => {
   it("the owner's own adjustment applies at once, out of the oldest batch", async () => {
     const requestId = randomUUID();
-    const a = await adjust({ kind: "SHORT", reason: "THEFT", quantity: "5", requestId });
-    expect((await adjust({ kind: "SHORT", reason: "THEFT", quantity: "5", requestId })).id).toBe(
+    const a = await adjust({ kind: "SHORT", reason: "THEFT", quantity: "5pk", requestId });
+    expect((await adjust({ kind: "SHORT", reason: "THEFT", quantity: "5pk", requestId })).id).toBe(
       a.id,
     );
     expect(a.status).toBe("APPROVED");
@@ -104,7 +104,7 @@ describe("stock adjustments", () => {
   });
 
   it("a staff request waits for the owner; damage moves saleable to damaged stock", async () => {
-    const r = await adjust({ kind: "DAMAGED", quantity: "12", note: "rain leak" }, t.staff);
+    const r = await adjust({ kind: "DAMAGED", quantity: "12pk", note: "rain leak" }, t.staff);
     expect(r.status).toBe("PENDING");
     expect(await stock()).toEqual({ saleable: 120, damaged: 0 });
     await expect(approveAdjustment(t.staff, { id: r.id })).rejects.toThrow(ForbiddenError);
@@ -112,7 +112,10 @@ describe("stock adjustments", () => {
     expect(await stock()).toEqual({ saleable: 108, damaged: 12 });
     await expect(approveAdjustment(t.ctx, { id: r.id })).rejects.toThrow(/already approved/);
 
-    const extra = await adjust({ kind: "EXTRA", reason: "COUNTING_ERROR", quantity: "3" }, t.staff);
+    const extra = await adjust(
+      { kind: "EXTRA", reason: "COUNTING_ERROR", quantity: "3pk" },
+      t.staff,
+    );
     await rejectAdjustment(t.ctx, { id: extra.id });
     expect(await stock()).toEqual({ saleable: 108, damaged: 12 });
 
@@ -128,17 +131,20 @@ describe("stock adjustments", () => {
   });
 
   it("can't take out more than is in stock, and checks the reason", async () => {
-    const big = await adjust({ kind: "SHORT", reason: "COUNTING_ERROR", quantity: "121" }, t.staff);
+    const big = await adjust(
+      { kind: "SHORT", reason: "COUNTING_ERROR", quantity: "121pk" },
+      t.staff,
+    );
     await expect(approveAdjustment(t.ctx, { id: big.id })).rejects.toThrow(
       /Only 10 dz of Chips is in stock/,
     );
-    await expect(adjust({ kind: "SHORT", quantity: "1" })).rejects.toThrow(/Choose the reason/);
-    await expect(adjust({ kind: "EXTRA", reason: "THEFT", quantity: "1" })).rejects.toThrow(
+    await expect(adjust({ kind: "SHORT", quantity: "1pk" })).rejects.toThrow(/Choose the reason/);
+    await expect(adjust({ kind: "EXTRA", reason: "THEFT", quantity: "1pk" })).rejects.toThrow(
       /Theft/,
     );
-    await expect(adjust({ kind: "SHORT", reason: "OTHER", quantity: "1" })).rejects.toThrow(
+    await expect(adjust({ kind: "SHORT", reason: "OTHER", quantity: "1pk" })).rejects.toThrow(
       /Say what happened/,
     );
-    await expect(adjust({ kind: "SHORT", reason: "THEFT", quantity: "0" })).rejects.toThrow();
+    await expect(adjust({ kind: "SHORT", reason: "THEFT", quantity: "0pk" })).rejects.toThrow();
   });
 });

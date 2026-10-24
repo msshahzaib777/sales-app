@@ -11,7 +11,7 @@ import { deleteRecord, setRecordActive, type ServiceCtx } from "./common";
 import { createCompany, getCompany, listCompanies, updateCompany } from "./companies";
 import { createCustomer, getCustomer, listCustomers, updateCustomer } from "./customers";
 import { createProduct, getProduct, listProducts, updateProduct } from "./products";
-import { createStaff } from "./staff";
+import { createStaff, updateStaff } from "./staff";
 import { createWarehouse, updateWarehouse } from "./warehouses";
 import { createArea } from "./areas";
 
@@ -264,6 +264,33 @@ describe("references and tenant isolation", () => {
     });
     const bike = await createBike(t.ctx, { name: "Bike 1", capacity: "90", driverId: driver.id });
     expect(bike.capacity).toBe(1080);
+  });
+
+  it("the staff form chooses a driver's bike, moves it, and frees it when the role changes", async () => {
+    const staff = (name: string, role: string, bikeId = "") =>
+      createStaff(t.ctx, { name, role, monthlySalary: "30000", bikeId });
+    const bike1 = await createBike(t.ctx, { name: "Bike 1", capacity: "90" });
+    const bike2 = await createBike(t.ctx, { name: "Bike 2", capacity: "90" });
+    const driverOf = async (id: string) =>
+      (await prisma.bike.findUniqueOrThrow({ where: { id } })).driverId;
+
+    const akram = await staff("Akram", "DRIVER", bike1.id);
+    expect(await driverOf(bike1.id)).toBe(akram.id);
+    // Office staff never get a bike, even if one is sent.
+    const kamran = await staff("Kamran", "OFFICE", bike2.id);
+    expect(await driverOf(bike2.id)).toBeNull();
+
+    // Kamran becomes a driver on Bike 1: it moves from Akram to him.
+    const edit = (s: { id: string; name: string }, role: string, bikeId: string) =>
+      updateStaff(t.ctx, s.id, { name: s.name, role, monthlySalary: "30000", bikeId });
+    await edit(kamran, "DRIVER", bike1.id);
+    expect(await driverOf(bike1.id)).toBe(kamran.id);
+    // Akram takes Bike 2; then becomes a loader and Bike 2 is freed (no error).
+    await edit(akram, "DRIVER", bike2.id);
+    expect(await driverOf(bike2.id)).toBe(akram.id);
+    await edit(akram, "LOADER", bike2.id);
+    expect(await driverOf(bike2.id)).toBeNull();
+    await expect(edit(kamran, "DRIVER", "nope")).rejects.toThrow("active bike");
   });
 
   it("cannot read, edit, deactivate or reference another tenant's records", async () => {

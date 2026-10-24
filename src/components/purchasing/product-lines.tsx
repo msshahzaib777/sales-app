@@ -5,6 +5,7 @@ import { useState } from "react";
 import { FieldError } from "@/components/form/form-message";
 import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { Input } from "@/components/ui/input";
+import { formatDozens, PACKETS_PER_DOZEN, parseQuantity } from "@/lib/units";
 import { type ActionState, fieldError } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
 
@@ -43,13 +44,14 @@ export function ProductLines({
     ]),
   );
   const [values, setValues] = useState(initial);
+  // Quantities as typed ("12", "12.5", "12dz 6pk") in packets; rates are per dozen.
+  const packets = (id: string) => parseQuantity(values[id]?.qty ?? "") ?? 0;
   const amount = (id: string) => {
-    const q = Number((values[id]?.qty ?? "").replace(/,/g, ""));
     const r = Number((values[id]?.rate ?? "").replace(/,/g, ""));
-    return Number.isFinite(q) && Number.isFinite(r) ? q * r : 0;
+    return Number.isFinite(r) ? (packets(id) / PACKETS_PER_DOZEN) * r : 0;
   };
   const total = products.reduce((s, p) => s + amount(p.id), 0);
-  const totalQty = products.reduce((s, p) => s + (Number(values[p.id]?.qty) || 0), 0);
+  const totalPackets = products.reduce((s, p) => s + packets(p.id), 0);
 
   return (
     <DataTable>
@@ -134,7 +136,7 @@ export function ProductLines({
           <Td />
           {showOrdered ? <Td /> : null}
           {showOrdered ? <Td /> : null}
-          <Td className="tabular-nums">{totalQty ? `${totalQty} dz` : ""}</Td>
+          <Td className="tabular-nums">{totalPackets ? formatDozens(totalPackets) : ""}</Td>
           {showRate ? <Td /> : null}
           {showRate ? (
             <Td className="text-right tabular-nums">

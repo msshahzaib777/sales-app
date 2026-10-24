@@ -14,7 +14,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
 import { billTotals, checkCredit, priceLine, type PricedLine } from "@/lib/sales";
-import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
+import { formatDozens, PACKETS_PER_HALF_DOZEN, parseQuantity, quantityText } from "@/lib/units";
 import { orderEntryContextAction } from "@/server/sales-actions";
 import type { OrderEntryContext } from "@/server/services/sales/orders";
 
@@ -36,11 +36,10 @@ const SOURCES = [
   { value: "BOOKER_APP", label: "Booker app" },
 ];
 
-/** "3.5" → 42 packets; null if not a whole or half dozen. */
+/** "3.5" or "3dz 6pk" → 42 packets; null unless a positive number of whole or half dozens. */
 function halfDozens(qty: string): number | null {
-  const n = Number(qty.replace(/,/g, ""));
-  if (!qty.trim() || !Number.isFinite(n) || n <= 0 || !Number.isInteger(n * 2)) return null;
-  return n * PACKETS_PER_DOZEN;
+  const packets = parseQuantity(qty);
+  return packets && packets % PACKETS_PER_HALF_DOZEN === 0 ? packets : null;
 }
 
 /**
@@ -162,7 +161,7 @@ export function OrderEntry({
     setLines(
       context.lastOrder.lines
         .filter((l) => productById.has(l.productId))
-        .map((l) => ({ productId: l.productId, qty: String(l.quantity / PACKETS_PER_DOZEN) })),
+        .map((l) => ({ productId: l.productId, qty: quantityText(l.quantity) })),
     );
   };
 
@@ -368,7 +367,9 @@ export function OrderEntry({
                 const short = qty !== null && qty > product.available;
                 const error =
                   fieldError(state, `lines.${i}.quantity`) ??
-                  (line.qty && qty === null ? "Use whole or half dozens" : undefined);
+                  (line.qty && qty === null
+                    ? "Whole or half dozens: 2, 2.5 or 2dz 6pk"
+                    : undefined);
                 return (
                   <tr key={line.productId}>
                     <Td className="font-mono">{product.code}</Td>

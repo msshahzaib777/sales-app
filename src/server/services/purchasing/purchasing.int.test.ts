@@ -212,7 +212,7 @@ describe("damage claims", () => {
       productId: t.p1.id,
       type: "DELIVERY_DAMAGE",
       claimDate: "2026-10-05",
-      quantity: "12",
+      quantity: "12pk",
     });
     expect(D(claim.amount)).toBe("1200.00");
     const { companyBill } = await receive(t.ctx, {
@@ -237,7 +237,7 @@ describe("damage claims", () => {
       productId: t.p1.id,
       type: "OTHER",
       claimDate: "2026-10-05",
-      quantity: "120",
+      quantity: "120pk",
     });
     const { companyBill } = await receive(t.ctx, {
       lines: [{ productId: t.p2.id, quantity: "1" }],
@@ -359,7 +359,7 @@ describe("cancelling a goods receipt", () => {
       productId: t.p2.id,
       type: "OTHER",
       claimDate: "2026-10-02",
-      quantity: "12",
+      quantity: "12pk",
     });
     const receipt = await receive(t.ctx, {
       purchaseOrderId: po.id,
@@ -414,7 +414,7 @@ describe("company ledger", () => {
       productId: t.p1.id,
       type: "DELIVERY_DAMAGE",
       claimDate: "2026-10-02",
-      quantity: "6",
+      quantity: "6pk",
     }); // 600 pending
     await createCompanyPayment(t.ctx, {
       companyId: t.company.id,
@@ -506,7 +506,7 @@ describe("tenant isolation", () => {
         productId: other.p1.id,
         type: "OTHER",
         claimDate: "2026-10-01",
-        quantity: "12",
+        quantity: "12pk",
       }),
     ).rejects.toThrow("product of this company");
     await expect(
