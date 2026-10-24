@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { PaymentMethod } from "@/generated/prisma/enums";
 import {
   type BookedLine,
+  byRoute,
   checkLineResults,
   deliveredLines,
   deliveryStatus,
@@ -333,7 +334,8 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
       });
       return { orderId: order.id, status, tripId: order.tripId, repeated: false };
     },
-    { timeout: 60_000 },
+    // Serializable: day-end payments must not take the same bill as a payment saved at once.
+    { timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
 }
 
@@ -344,14 +346,15 @@ export async function nextOrderToReconcile(ctx: ServiceCtx, tripId: string) {
     where: { tripId, status: "DISPATCHED" },
     select: {
       id: true,
-      customer: { select: { name: true, area: { select: { name: true, sortOrder: true } } } },
+      customer: {
+        select: {
+          name: true,
+          routeSequence: true,
+          area: { select: { name: true, sortOrder: true } },
+        },
+      },
     },
   });
-  orders.sort(
-    (a, b) =>
-      (a.customer.area?.sortOrder ?? 999) - (b.customer.area?.sortOrder ?? 999) ||
-      (a.customer.area?.name ?? "").localeCompare(b.customer.area?.name ?? "") ||
-      a.customer.name.localeCompare(b.customer.name),
-  );
+  orders.sort(byRoute);
   return orders[0]?.id ?? null;
 }

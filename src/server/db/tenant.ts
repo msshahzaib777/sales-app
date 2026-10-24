@@ -57,6 +57,28 @@ export const TENANT_MODELS = [
 
 const tenantModels = new Set<string>(TENANT_MODELS);
 
+/**
+ * Append-only tables (CLAUDE.md rules 2 and 6): rows are only ever added; corrections are new
+ * reversal rows. Database triggers enforce this too (phase1_schema migration); refusing here gives
+ * a clear error before the query is sent.
+ */
+export const APPEND_ONLY_MODELS = [
+  "LedgerEntry",
+  "StockMovement",
+  "BillRevision",
+  "AuditLog",
+  "ProductPriceHistory",
+] as const;
+const appendOnly = new Set<string>(APPEND_ONLY_MODELS);
+const CHANGE_OPS = new Set([
+  "update",
+  "updateMany",
+  "updateManyAndReturn",
+  "upsert",
+  "delete",
+  "deleteMany",
+]);
+
 /** Reads/writes that take a unique `where` (extra filters are allowed alongside the unique key). */
 const UNIQUE_WHERE_OPS = new Set(["findUnique", "findUniqueOrThrow", "update", "delete", "upsert"]);
 /** Operations whose `where` is an ordinary filter. */
@@ -136,6 +158,12 @@ export function scopeArgs(
   if (!tenantModels.has(model)) {
     throw new TenantScopeError(
       `${model} is not registered as a tenant model in src/server/db/tenant.ts`,
+    );
+  }
+
+  if (appendOnly.has(model) && CHANGE_OPS.has(operation)) {
+    throw new TenantScopeError(
+      `${model} is append-only: add a reversal entry instead of ${operation}`,
     );
   }
 

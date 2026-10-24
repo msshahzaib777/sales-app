@@ -109,3 +109,23 @@ describe("scopeArgs", () => {
     expect(() => scopeArgs("Customer", "somethingNew", {}, A)).toThrow(TenantScopeError);
   });
 });
+
+describe("append-only journals", () => {
+  it("only lets journal, revision, price-history and audit rows be added and read", () => {
+    for (const model of [
+      "LedgerEntry",
+      "StockMovement",
+      "BillRevision",
+      "AuditLog",
+      "ProductPriceHistory",
+    ]) {
+      for (const op of ["update", "updateMany", "upsert", "delete", "deleteMany"]) {
+        expect(() => scopeArgs(model, op, { where: { id: "x" }, data: {} }, A)).toThrow(
+          /append-only/,
+        );
+      }
+      expect(() => scopeArgs(model, "create", { data: {} }, A)).not.toThrow();
+      expect(() => scopeArgs(model, "findMany", {}, A)).not.toThrow();
+    }
+  });
+});

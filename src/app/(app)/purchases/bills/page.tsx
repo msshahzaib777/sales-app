@@ -46,13 +46,14 @@ async function Bills({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const { page } = listParamsSchema.parse(sp);
+  const { q, page } = listParamsSchema.parse(sp);
   const show = (BILL_FILTERS as readonly string[]).includes(filterParam(sp, "show") ?? "")
     ? (filterParam(sp, "show") as BillFilter)
     : "open";
   const ctx = await requireTenantContext("payments.manage");
   const [list, companies] = await Promise.all([
     listCompanyBills(ctx, {
+      q,
       filter: show,
       page,
       companyId: filterParam(sp, "companyId"),
@@ -64,9 +65,9 @@ async function Bills({
     <>
       <ListToolbar
         basePath="/purchases/bills"
-        params={{ q: undefined, status: "all" }}
+        params={{ q, status: "all" }}
         showStatus={false}
-        showSearch={false}
+        searchPlaceholder="Bill no. or company"
         dateRange={{ from: filterParam(sp, "from"), to: filterParam(sp, "to"), label: "Billed" }}
         filters={[
           { name: "show", label: "Show", value: show, options: SHOW_OPTIONS, required: true },

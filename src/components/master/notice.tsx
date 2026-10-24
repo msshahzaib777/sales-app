@@ -14,6 +14,7 @@ const NOTICES: Record<string, string> = {
   "payment-reversed": "Payment reversed. The customer owes that amount again.",
   "cheque-cleared": "Cheque marked as cleared.",
   unflagged: "Flag removed.",
+  "damaged-returned": "Damaged stock sent back to the company.",
   "cheque-bounced": "Cheque bounced: the payment is reversed and the customer is flagged.",
 };
 

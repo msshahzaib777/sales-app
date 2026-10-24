@@ -246,3 +246,32 @@ describe("escape hatches are closed", () => {
     expect(ids).toEqual([a.customer.id]);
   });
 });
+
+describe("journals are append-only", () => {
+  it("the database refuses to edit or delete ledger, stock, revision and audit rows", async () => {
+    // Even the raw (platform) client cannot change a posted entry: database triggers refuse it
+    // (Prisma reports the trigger's restrict_violation as a constraint error).
+    await expect(
+      prisma.ledgerEntry.updateMany({ where: { tenantId: a.tenantId }, data: { debit: 1 } }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.ledgerEntry.deleteMany({ where: { tenantId: a.tenantId } }),
+    ).rejects.toThrow();
+    await expect(prisma.auditLog.deleteMany({ where: { tenantId: a.tenantId } })).rejects.toThrow();
+    const movement = await prisma.stockMovement.create({
+      data: {
+        tenantId: a.tenantId,
+        type: "ADJUSTMENT",
+        productId: a.product.id,
+        warehouseId: a.warehouse.id,
+        quantity: 2,
+      },
+    });
+    await expect(
+      prisma.stockMovement.update({ where: { id: movement.id }, data: { quantity: 4 } }),
+    ).rejects.toThrow();
+    await expect(dbA.stockMovement.delete({ where: { id: movement.id } })).rejects.toThrow(
+      TenantScopeError,
+    );
+  });
+});

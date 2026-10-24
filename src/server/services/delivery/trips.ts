@@ -2,7 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import type { TripStatus } from "@/generated/prisma/enums";
-import { loadByProduct, takeFromBatches } from "@/lib/delivery";
+import { byRoute, loadByProduct, takeFromBatches } from "@/lib/delivery";
 import { formatDozens } from "@/lib/units";
 import { recordIdSchema } from "@/lib/validation/master";
 import { tripOrderSchema, tripOrdersSchema, tripSchema } from "@/lib/validation/delivery";
@@ -334,7 +334,8 @@ export async function dispatchTrip(ctx: ServiceCtx, input: unknown) {
       });
       return { orders: orders.length };
     },
-    { timeout: 60_000 },
+    // Serializable: two trips dispatched at once must not both take the same stock.
+    { timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   );
 }
 
@@ -342,9 +343,22 @@ export async function dispatchTrip(ctx: ServiceCtx, input: unknown) {
 
 const TRIP_STATUSES: TripStatus[] = ["PLANNED", "DISPATCHED", "RECONCILED", "CANCELLED"];
 
-export async function listTrips(ctx: ServiceCtx, f: { status?: string; page: number } & DateRange) {
+export async function listTrips(
+  ctx: ServiceCtx,
+  f: { status?: string; q?: string; page: number } & DateRange,
+) {
   assertCan(ctx.user.role, "operations.manage");
   const where: Prisma.DeliveryTripWhereInput = {
+    ...(f.q
+      ? /^\d+$/.test(f.q)
+        ? { number: Number(f.q) }
+        : {
+            OR: [
+              { bike: { name: { contains: f.q, mode: "insensitive" } } },
+              { driver: { name: { contains: f.q, mode: "insensitive" } } },
+            ],
+          }
+      : {}),
     ...(f.status === "open"
       ? { status: { in: ["PLANNED", "DISPATCHED"] } }
       : f.status && TRIP_STATUSES.includes(f.status as TripStatus)
@@ -404,6 +418,7 @@ export async function getTrip(ctx: ServiceCtx, id: string) {
                 shopName: true,
                 address: true,
                 phone: true,
+                routeSequence: true,
                 area: { select: { name: true, sortOrder: true } },
               },
             },
@@ -427,12 +442,7 @@ export async function getTrip(ctx: ServiceCtx, id: string) {
   // Stops: by area (route order), then customer.
   const orders = [...trip.orders]
     .filter((o) => o.status !== "CANCELLED")
-    .sort(
-      (a, b) =>
-        (a.customer.area?.sortOrder ?? 999) - (b.customer.area?.sortOrder ?? 999) ||
-        (a.customer.area?.name ?? "").localeCompare(b.customer.area?.name ?? "") ||
-        a.customer.name.localeCompare(b.customer.name),
-    )
+    .sort(byRoute)
     .map((o) => {
       const collected = { CASH: D(0), CHEQUE: D(0), ONLINE: D(0) };
       for (const p of o.payments) collected[p.method] = collected[p.method].add(p.amount);
@@ -485,7 +495,12 @@ export async function bookedOrdersFor(ctx: ServiceCtx, date: Date, warehouseId?:
     where: { status: "BOOKED", deliveryDate: date, ...(warehouseId ? { warehouseId } : {}) },
     include: {
       customer: {
-        select: { name: true, shopName: true, area: { select: { name: true, sortOrder: true } } },
+        select: {
+          name: true,
+          shopName: true,
+          routeSequence: true,
+          area: { select: { name: true, sortOrder: true } },
+        },
       },
       warehouse: { select: { name: true } },
       bill: { select: { netAmount: true } },
@@ -502,6 +517,7 @@ export async function bookedOrdersFor(ctx: ServiceCtx, date: Date, warehouseId?:
       shopName: o.customer.shopName,
       areaName: o.customer.area?.name ?? null,
       areaSort: o.customer.area?.sortOrder ?? 999,
+      routeSequence: o.customer.routeSequence,
       needsCreditApproval: o.needsCreditApproval,
       quantity: o.lines.reduce((s, l) => s + l.quantity, 0),
       amount: o.bill?.netAmount ?? D(0),
@@ -511,6 +527,7 @@ export async function bookedOrdersFor(ctx: ServiceCtx, date: Date, warehouseId?:
         a.warehouseName.localeCompare(b.warehouseName) ||
         a.areaSort - b.areaSort ||
         (a.areaName ?? "").localeCompare(b.areaName ?? "") ||
+        (a.routeSequence ?? 9999) - (b.routeSequence ?? 9999) ||
         a.customerName.localeCompare(b.customerName),
     );
 }

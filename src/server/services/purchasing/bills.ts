@@ -47,13 +47,18 @@ export type BillRow = {
 /** Bills with their state; `filter` works on the derived status. */
 export async function listCompanyBills(
   ctx: ServiceCtx,
-  f: { companyId?: string; filter: BillFilter; page: number } & DateRange,
+  f: { companyId?: string; q?: string; filter: BillFilter; page: number } & DateRange,
 ) {
   assertCan(ctx.user.role, "ledgers.view");
   const rows = await ctx.db.companyBill.findMany({
     where: {
       ...(f.companyId ? { companyId: f.companyId } : {}),
       ...(f.filter !== "all" ? { status: "POSTED" } : {}),
+      ...(f.q
+        ? /^\d+$/.test(f.q)
+          ? { number: Number(f.q) }
+          : { company: { name: { contains: f.q, mode: "insensitive" as const } } }
+        : {}),
       ...(f.from || f.to
         ? { billDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
         : {}),

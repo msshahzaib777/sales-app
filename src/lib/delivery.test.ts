@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  byRoute,
   checkLineResults,
   deliveredLines,
   deliveryStatus,
@@ -124,6 +125,28 @@ describe("stock out", () => {
     expect([...loadByProduct([chips, nimko, { productId: "p1", quantity: 3 }])]).toEqual([
       ["p1", 23],
       ["p2", 4],
+    ]);
+  });
+});
+
+describe("visiting order", () => {
+  it("goes by area route order, then place on the route, then name", () => {
+    const stop = (name: string, area: [string, number] | null, routeSequence: number | null) => ({
+      customer: { name, routeSequence, area: area ? { name: area[0], sortOrder: area[1] } : null },
+    });
+    const stops = [
+      stop("Zahid", ["Ravi Road", 2], null),
+      stop("Bilal", ["Shahdara", 1], 2),
+      stop("Asif", ["Shahdara", 1], null),
+      stop("Kamran", ["Shahdara", 1], 1),
+      stop("No area", null, null),
+    ];
+    expect([...stops].sort(byRoute).map((s) => s.customer.name)).toEqual([
+      "Kamran",
+      "Bilal",
+      "Asif",
+      "Zahid",
+      "No area",
     ]);
   });
 });

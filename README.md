@@ -65,21 +65,22 @@ Sign in with a demo login (password `Demo@12345`): `owner@demo.test`, `accountan
 
 ## Scripts
 
-| Script             | What it does                                              |
-| ------------------ | --------------------------------------------------------- |
-| `pnpm dev`         | Start the dev server                                      |
-| `pnpm build`       | Production build                                          |
-| `pnpm start`       | Serve the production build                                |
-| `pnpm lint`        | ESLint                                                    |
-| `pnpm typecheck`   | Generate route types and run `tsc --noEmit`               |
-| `pnpm test`        | Unit + integration tests (needs `TEST_DATABASE_URL`)      |
-| `pnpm format`      | Format with Prettier (`format:check` to verify only)      |
-| `pnpm db:migrate`  | Create/apply migrations in development, regenerate client |
-| `pnpm db:deploy`   | Apply migrations in production (`prisma migrate deploy`)  |
-| `pnpm db:seed`     | Seed the demo tenant (only into an empty database)        |
-| `pnpm db:reset`    | Drop the dev database, re-apply migrations, and seed      |
-| `pnpm db:generate` | Regenerate the Prisma client                              |
-| `pnpm db:studio`   | Open Prisma Studio                                        |
+| Script                                          | What it does                                                          |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| `pnpm dev`                                      | Start the dev server                                                  |
+| `pnpm build`                                    | Production build                                                      |
+| `pnpm start`                                    | Serve the production build                                            |
+| `pnpm lint`                                     | ESLint                                                                |
+| `pnpm typecheck`                                | Generate route types and run `tsc --noEmit`                           |
+| `pnpm test`                                     | Unit + integration tests (needs `TEST_DATABASE_URL`)                  |
+| `pnpm format`                                   | Format with Prettier (`format:check` to verify only)                  |
+| `pnpm db:migrate`                               | Create/apply migrations in development, regenerate client             |
+| `pnpm db:deploy`                                | Apply migrations in production (`prisma migrate deploy`)              |
+| `pnpm db:seed`                                  | Seed the demo tenant (only into an empty database)                    |
+| `pnpm tenant:create "Name" "Owner" owner@email` | Create a real tenant and its owner login (prints a one-time password) |
+| `pnpm db:reset`                                 | Drop the dev database, re-apply migrations, and seed                  |
+| `pnpm db:generate`                              | Regenerate the Prisma client                                          |
+| `pnpm db:studio`                                | Open Prisma Studio                                                    |
 
 Stock movements, ledger entries, bill revisions, price history and the audit log are append-only
 (database triggers reject UPDATE and DELETE). To start over in development, use `pnpm db:reset`.
