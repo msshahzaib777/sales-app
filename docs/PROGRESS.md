@@ -2,6 +2,23 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Change list from the owner (round 1)
+
+From the owner's notes after trying Phase 1. Built one item at a time.
+
+1. **Opening stock — done.** Inventory → Opening stock (owner only):
+   - every product with its opening stock so far and what is on hand now, and a box for the
+     opening stock in dozens; keyboard-first (Enter = next product, Ctrl+Enter = save);
+   - no company bill: the goods were bought before the app;
+   - saving sets each product's opening stock to the number typed. Only the difference is posted
+     (an `OPENING` stock movement), so saving twice changes nothing and a later correction is
+     recorded, not overwritten;
+   - the stock goes into one opening batch per product and is dispatched oldest batch first like
+     any other stock;
+   - it can't be lowered below what is left of that batch (stock already sent out);
+   - audited. Tested in `journals.int.test.ts`, and in a browser run (owner saves; staff get
+     "No access").
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

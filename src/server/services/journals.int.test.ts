@@ -8,7 +8,13 @@ import { prisma } from "../db/client";
 import { createTenantDb } from "../db/tenant";
 import { saveDayEnd } from "./delivery/day-end";
 import { createTrip, dispatchTrip } from "./delivery/trips";
-import { getStockCard, listStock, returnDamagedStock } from "./inventory";
+import {
+  getStockCard,
+  listStock,
+  openingStockSheet,
+  returnDamagedStock,
+  setOpeningStock,
+} from "./inventory";
 import { createArea } from "./master/areas";
 import { createBike } from "./master/bikes";
 import type { ServiceCtx } from "./master/common";
@@ -357,5 +363,74 @@ describe("damaged stock sent back to the company", () => {
     expect([card.damagedNow, card.closing.saleable]).toEqual([0, 72]);
     const after = await getCompanyLedger(ctx, w.golden.id, {});
     expect(money(after.summary.payableNow)).toBe(money(before.summary.payableNow));
+  });
+});
+
+describe("opening stock", () => {
+  it("sets first-day stock without a company bill, only posting the difference", async () => {
+    const before = await getCompanyLedger(ctx, w.crunchy.id, {});
+    const start = (await stockPositions(ctx.db, w.wh.id, [w.chips.id])).get(w.chips.id)!.onHand;
+    const requestId = randomUUID();
+    const sheet = {
+      stockDate: "2026-10-19",
+      requestId,
+      lines: [{ productId: w.chips.id, quantity: "20" }],
+    };
+    expect((await setOpeningStock(ctx, sheet)).changed).toBe(1);
+    expect((await setOpeningStock(ctx, sheet)).changed).toBe(0);
+    const onHand = async () =>
+      (await stockPositions(ctx.db, w.wh.id, [w.chips.id])).get(w.chips.id)!.onHand;
+    expect(await onHand()).toBe(start + 40);
+
+    // Lowered to 15 dz: only the difference is posted.
+    await setOpeningStock(ctx, {
+      stockDate: "2026-10-19",
+      lines: [{ productId: w.chips.id, quantity: "15" }],
+    });
+    expect(await onHand()).toBe(start + 30);
+    const rows = await openingStockSheet(ctx, {});
+    expect(rows.find((r) => r.id === w.chips.id)!.opening).toBe(30);
+
+    // No money moved for the company, and the stock sits in one opening batch.
+    const after = await getCompanyLedger(ctx, w.crunchy.id, {});
+    expect(after.summary.payableNow.toFixed(2)).toBe(before.summary.payableNow.toFixed(2));
+    const batches = await ctx.db.stockMovement.findMany({
+      where: { productId: w.chips.id, type: "OPENING" },
+      select: { batchId: true },
+    });
+    expect(new Set(batches.map((b) => b.batchId)).size).toBe(1);
+    const card = await getStockCard(ctx, w.chips.id, {});
+    expect(card.rows.filter((r) => r.typeLabel === "Opening stock")).toHaveLength(2);
+
+    await expect(
+      setOpeningStock({ ...ctx, user: { ...ctx.user, role: "STAFF" } }, sheet),
+    ).rejects.toThrow(/permission/);
+  });
+
+  it("cannot be lowered below what is left of the opening batch", async () => {
+    await setOpeningStock(ctx, {
+      stockDate: "2026-10-19",
+      lines: [{ productId: w.nimko.id, quantity: "1" }],
+    });
+    // Take the opening stock out by hand, as dispatch would (oldest batch first).
+    const opening = await ctx.db.stockMovement.findFirstOrThrow({
+      where: { productId: w.nimko.id, type: "OPENING" },
+    });
+    await ctx.db.stockMovement.create({
+      data: {
+        tenantId: ctx.user.tenantId,
+        type: "DISPATCH",
+        productId: w.nimko.id,
+        warehouseId: w.wh.id,
+        batchId: opening.batchId,
+        quantity: -2,
+      },
+    });
+    await expect(
+      setOpeningStock(ctx, {
+        stockDate: "2026-10-19",
+        lines: [{ productId: w.nimko.id, quantity: "0" }],
+      }),
+    ).rejects.toThrow(/already been sent out/);
   });
 });

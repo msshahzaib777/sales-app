@@ -6,9 +6,11 @@ import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { ListToolbar } from "@/components/list/list-toolbar";
 import { Pagination } from "@/components/list/pagination";
 import { PrintButton } from "@/components/layout/print-button";
+import { LinkButton } from "@/components/master/page-helpers";
 import { Badge } from "@/components/ui/badge";
 import { filterParam, listParamsSchema } from "@/lib/list-params";
 import { formatDozens } from "@/lib/units";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { listStock } from "@/server/services/inventory";
 import { companyOptions } from "@/server/services/master/companies";
@@ -36,7 +38,16 @@ export default async function InventoryPage({ searchParams }: PageProps<"/invent
       <PageHeader
         title="Inventory"
         description="Stock per product, rebuilt from every stock movement. Available = on hand − reserved for booked and planned orders."
-        actions={<PrintButton />}
+        actions={
+          <>
+            {can(ctx.user.role, "masterData.manage") ? (
+              <LinkButton href="/inventory/opening" variant="outline">
+                Opening stock
+              </LinkButton>
+            ) : null}
+            <PrintButton />
+          </>
+        }
       />
       <ListToolbar
         basePath="/inventory"
