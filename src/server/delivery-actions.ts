@@ -7,7 +7,7 @@ import type { ActionState } from "@/lib/action-state";
 
 import { runAction } from "./actions";
 import { requireTenantContext } from "./auth/session";
-import { nextOrderToReconcile, saveDayEnd } from "./services/delivery/day-end";
+import { nextOrderToReconcile, saveDayEnd, undoDayEnd } from "./services/delivery/day-end";
 import {
   addOrdersToTrip,
   cancelTrip,
@@ -125,4 +125,22 @@ export async function saveDayEndAction(
       ? `/delivery/${tripId}/day-end/${next}?notice=day-end-saved`
       : `/delivery/${tripId}?notice=day-end-saved`,
   );
+}
+
+/** Undoes a saved day-end (by reversal) and opens the order's day-end form again. */
+export async function undoDayEndAction(
+  orderId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let tripId = "";
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("payments.manage");
+    tripId = (await undoDayEnd(ctx, { id: orderId, reason: formData.get("reason") })).tripId;
+  }, formData);
+  if (result.status !== "success") return result;
+  revalidatePath("/delivery");
+  revalidatePath("/orders");
+  revalidatePath("/payments");
+  redirect(`/delivery/${tripId}/day-end/${orderId}?notice=day-end-undone`);
 }

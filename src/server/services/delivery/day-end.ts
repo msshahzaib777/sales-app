@@ -10,18 +10,20 @@ import {
   deliveryStatus,
   type LineResult,
 } from "@/lib/delivery";
+import { businessToday } from "@/lib/dates";
 import { calculateLineAmounts, type DiscountType } from "@/lib/pricing";
 import { billTotals } from "@/lib/sales";
 import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
 import { dayEndSchema } from "@/lib/validation/delivery";
+import { reverseSchema } from "@/lib/validation/purchasing";
 
 import { writeAudit } from "../../audit";
 import { assertCan } from "../../auth/permissions";
 import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import type { ServiceCtx } from "../master/common";
-import { postCustomerPayment } from "../payments/customer-payments";
-import { found } from "../posting";
+import { postCustomerPayment, reversePayment } from "../payments/customer-payments";
+import { found, reverseLedgerFor } from "../posting";
 import { logClaim } from "../purchasing/claims";
 import { customerPending } from "../sales/positions";
 import { writeBillRevision } from "../sales/orders";
@@ -357,4 +359,197 @@ export async function nextOrderToReconcile(ctx: ServiceCtx, tripId: string) {
   });
   orders.sort(byRoute);
   return orders[0]?.id ?? null;
+}
+
+/**
+ * Undoes a saved day-end entry so it can be entered again (CLAUDE.md rule 2: by reversal, nothing
+ * is edited or deleted). In one transaction:
+ *  - the return and damage stock movements get mirror movements (stock is back as dispatched);
+ *  - its damage claims are cancelled (refused if one was already deducted on a company bill);
+ *  - the bill is restored to what was dispatched, as a new revision, and its day-end reductions
+ *    are reversed in the customer ledger;
+ *  - the payments collected at that delivery are reversed (refused if a cheque has cleared);
+ *  - the order is Dispatched again and its trip is open again.
+ */
+export async function undoDayEnd(ctx: ServiceCtx, input: unknown) {
+  assertCan(ctx.user.role, "payments.manage");
+  const { id, reason } = reverseSchema.parse(input);
+  return ctx.db.$transaction(
+    async (tx) => {
+      const order = found(
+        await tx.salesOrder.findUnique({
+          where: { id },
+          include: {
+            lines: { include: { product: { select: { name: true } } } },
+            bill: true,
+            claims: { include: { appliedToBill: { select: { number: true } } } },
+            payments: {
+              where: { status: "POSTED", collectedVia: "DELIVERY" },
+              include: { cheque: true },
+            },
+          },
+        }),
+        "order",
+      );
+      if (!order.reconciledAt || !order.tripId)
+        throw new ServiceError(`Day-end for order #${order.number} has not been entered.`);
+      const today = businessToday();
+      const note = `Day-end of order #${order.number} undone: ${reason}`;
+
+      // Refuse first, before anything is posted.
+      const applied = order.claims.find((c) => c.status === "APPLIED");
+      if (applied)
+        throw new ServiceError(
+          `Damage claim #${applied.number} was already deducted on company bill #${applied.appliedToBill?.number}. Cancel that goods receipt first, or correct this order with a new claim instead.`,
+        );
+      const cleared = order.payments.find((p) => p.cheque?.status === "CLEARED");
+      if (cleared)
+        throw new ServiceError(
+          `Payment #${cleared.number} is a cheque that has already cleared, so it cannot be undone.`,
+        );
+
+      // Stock: mirror the day-end movements (returns and damage), never the dispatch.
+      const moves = await tx.stockMovement.findMany({
+        where: {
+          referenceType: "SalesOrder",
+          referenceId: order.id,
+          type: { in: ["CUSTOMER_RETURN", "DELIVERY_DAMAGE"] },
+          reversedBy: { none: {} },
+        },
+      });
+      for (const m of moves) {
+        const balance = await tx.stockMovement.aggregate({
+          where: { productId: m.productId, warehouseId: m.warehouseId, bucket: m.bucket },
+          _sum: { quantity: true },
+        });
+        if ((balance._sum.quantity ?? 0) < m.quantity) {
+          const name =
+            order.lines.find((l) => l.productId === m.productId)?.product.name ?? "A product";
+          throw new ServiceError(
+            `${name}: the ${m.bucket === "DAMAGED" ? "damaged" : "returned"} stock from this order has already been ${m.bucket === "DAMAGED" ? "sent back" : "used"}, so the day-end cannot be undone.`,
+          );
+        }
+        await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.user.tenantId,
+            type: "REVERSAL",
+            productId: m.productId,
+            warehouseId: m.warehouseId,
+            batchId: m.batchId,
+            bucket: m.bucket,
+            quantity: -m.quantity,
+            occurredAt: today,
+            referenceType: "SalesOrder",
+            referenceId: order.id,
+            reversalOfId: m.id,
+            note,
+            createdById: ctx.user.id,
+          },
+        });
+      }
+
+      // Claims for damage on this delivery.
+      for (const c of order.claims.filter((x) => x.status === "PENDING")) {
+        await reverseLedgerFor(
+          tx,
+          ctx,
+          { type: "CompanyClaim", id: c.id },
+          today,
+          `Cancelled claim #${c.number}: ${note}`,
+        );
+        await tx.companyClaim.update({
+          where: { id: c.id },
+          data: { status: "REVERSED", reversedAt: new Date() },
+        });
+      }
+
+      // Bill back to what was dispatched.
+      const bill = order.bill!;
+      const dispatched = order.lines.map((l) => ({
+        productId: l.productId,
+        companyId: l.companyId,
+        quantity: l.quantity,
+        rate: l.rate,
+        discountType: l.discountType as DiscountType,
+        discountValue: l.discountValue,
+        grossAmount: l.grossAmount,
+        discountAmount: l.discountAmount,
+        taxAmount: l.taxAmount,
+        netAmount: l.netAmount,
+      }));
+      const totals = billTotals(dispatched).total;
+      if (!D(totals.netAmount.toString()).eq(bill.netAmount)) {
+        const revision = bill.currentRevision + 1;
+        await tx.bill.update({
+          where: { id: bill.id },
+          data: {
+            currentRevision: revision,
+            grossAmount: D(totals.grossAmount.toString()),
+            discountAmount: D(totals.discountAmount.toString()),
+            taxAmount: D(totals.taxAmount.toString()),
+            netAmount: D(totals.netAmount.toString()),
+          },
+        });
+        await writeBillRevision(
+          tx,
+          ctx,
+          bill.id,
+          revision,
+          `Day-end undone: ${reason}`,
+          dispatched,
+        );
+        await reverseLedgerFor(
+          tx,
+          ctx,
+          { type: "Bill", id: bill.id },
+          today,
+          `Bill #${bill.number}: ${note}`,
+          "REVERSAL",
+          ["BILL_REVISION"],
+        );
+      }
+      await tx.salesOrderLine.updateMany({
+        where: { salesOrderId: order.id },
+        data: { returnedQuantity: 0, damagedQuantity: 0 },
+      });
+
+      // Payments collected at this delivery.
+      for (const p of order.payments) await reversePayment(tx, ctx, p.id, note, "REVERSAL");
+
+      await tx.salesOrder.update({
+        where: { id: order.id },
+        data: {
+          status: "DISPATCHED",
+          reconciledAt: null,
+          reconciledById: null,
+          reconcileRequestId: null,
+        },
+      });
+      await tx.deliveryTrip.updateMany({
+        where: { id: order.tripId, status: "RECONCILED" },
+        data: { status: "DISPATCHED", reconciledAt: null },
+      });
+      await writeAudit(tx, ctx.user, {
+        action: "REVERSE",
+        entityType: "SalesOrder",
+        entityId: order.id,
+        oldValue: {
+          status: order.status,
+          lines: order.lines
+            .filter((l) => l.returnedQuantity || l.damagedQuantity)
+            .map((l) => ({
+              productId: l.productId,
+              returned: l.returnedQuantity,
+              damaged: l.damagedQuantity,
+            })),
+          bill: bill.netAmount,
+          claims: order.claims.filter((c) => c.status === "PENDING").map((c) => c.number),
+          payments: order.payments.map((p) => ({ number: p.number, amount: p.amount })),
+        },
+        newValue: { status: "DISPATCHED", bill: totals.netAmount, reason },
+      });
+      return { orderId: order.id, tripId: order.tripId };
+    },
+    { timeout: 60_000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
 }

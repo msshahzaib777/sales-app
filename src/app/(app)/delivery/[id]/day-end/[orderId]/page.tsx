@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { DayEndForm } from "@/components/delivery/day-end-form";
+import { ReasonAction } from "@/components/form/reason-action";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
 import { DataTable, Td, Th } from "@/components/list/data-table";
 import { Notice } from "@/components/master/notice";
@@ -12,8 +13,9 @@ import { formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import type { DiscountType } from "@/lib/pricing";
 import { formatDozens } from "@/lib/units";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
-import { saveDayEndAction } from "@/server/delivery-actions";
+import { saveDayEndAction, undoDayEndAction } from "@/server/delivery-actions";
 import { getDayEndEntry } from "@/server/services/delivery/day-end";
 
 export const metadata: Metadata = { title: "Day-end entry" };
@@ -136,6 +138,17 @@ export default async function DayEndPage({
             · customer owes now{" "}
             <strong className="tabular-nums">{formatMoney(order.pendingNow)}</strong>
           </p>
+          {can(ctx.user.role, "payments.manage") ? (
+            <ReasonAction
+              action={undoDayEndAction.bind(null, order.id)}
+              label="Undo day-end"
+              description="For a day-end entered wrongly. Returns and damage go back out of stock, the damage claims are cancelled, the bill goes back to what was dispatched and the payments collected are reversed. Then enter it again."
+            />
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Entered wrongly? The owner or accountant can undo it so it can be entered again.
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-sm">This order has not been dispatched yet.</p>

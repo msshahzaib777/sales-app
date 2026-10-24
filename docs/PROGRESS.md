@@ -2,6 +2,48 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Day-end correction — done
+
+A day-end saved with a mistake can now be undone and entered again. It was the main gap from the
+Phase 1 review.
+
+**Built**
+
+- **"Undo day-end"** on a saved day-end (`/delivery/[trip]/day-end/[order]`), for the owner and
+  accountant (`payments.manage`), with a reason. Staff see a note to ask them.
+- In one serializable transaction, all by reversal (CLAUDE.md rule 2), nothing edited or deleted:
+  - the return and damage stock movements get mirror `REVERSAL` movements, so stock is back as
+    dispatched;
+  - the order's damage claims are cancelled, with their company ledger credit reversed;
+  - the bill goes back to what was dispatched as a new revision ("Day-end undone: reason"), and
+    its day-end `BILL_REVISION` credits are reversed (the original sale stays);
+  - the payments collected at that delivery are reversed;
+  - the order is Dispatched again, its returned and damaged quantities are cleared, and its trip
+    is open again;
+  - one audit row records what was undone and why.
+- The day-end form then opens again for the order, to enter it correctly.
+- **Refused, with a clear message, when undoing would break something already done since:**
+  - the damaged stock from the order was already sent back to the company, or the returned stock
+    was already used;
+  - a damage claim was already deducted on a company bill;
+  - a cheque collected at that delivery has cleared.
+- `reverseLedgerFor` can now reverse only some entry types, used to keep the sale and reverse the
+  day-end revision.
+- **Fix:** "Cheques waiting to clear" no longer lists cheques whose payment was reversed.
+
+**Tests:** 225 in total.
+
+- Integration (2 new, in `delivery.int.test.ts`):
+  - undo restores the stock, damaged stock, claim, company ledger, bill (new revision), customer
+    balance, payment, order and trip status; staff are refused; a second undo is refused;
+  - entering the order again then gives the right balances;
+  - refusals: damaged stock already sent back, claim already deducted, cheque already cleared.
+- Browser run of the production build:
+  - staff see the note, not the button;
+  - the owner undid a refused order paid by cheque and a delivered order, then entered both again,
+    and the trip closed again;
+  - an order whose damaged stock had already been sent back was refused with the reason.
+
 ## Task 10: Phase 1 review — done
 
 I reviewed the whole codebase against the CLAUDE.md rules and Phase 1 of `docs/SPEC.md`. Fixes and
@@ -164,8 +206,7 @@ damage and payments, customer and company ledgers, audit log."
 
 **Worth doing before real use:**
 
-- **Correcting a saved day-end** (reversal of its stock, claim, bill revision and payments) is not
-  built. A wrong entry needs a manual fix.
+- ~~Correcting a saved day-end~~: done ("Undo day-end", see the section above).
 - **Login lockout** after repeated wrong passwords, and 2-step verification for owners
   (SPEC §13), are not built.
 - **Refunds** of a customer advance are not built.
@@ -354,8 +395,7 @@ each company's balance). The day-end test was updated.
 
 - **Driver cash hand-in** (expected vs handed in, short or excess against the driver) is Phase 2.
   The trip page already totals cash, cheque and online collected.
-- **Correcting a saved day-end** is not built yet. It needs reversals of stock, claim, bill
-  revision and payments. Until then, a wrong entry needs a manual adjustment.
+- **Correcting a saved day-end:** done later ("Undo day-end").
 - **Rescheduling undelivered orders** in one click is not built; book the order again (Repeat last
   order).
 - **Question for the owner:** when returns take a line below a discount slab, should the slab
