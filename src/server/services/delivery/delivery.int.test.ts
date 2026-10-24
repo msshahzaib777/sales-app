@@ -796,6 +796,11 @@ describe("daily report", () => {
       600, 24, 12, 588,
     ]);
 
+    // Needs attention: half of the chips came back.
+    expect(r.issues.map((i) => [i.level, i.text.split(":")[0]])).toEqual([
+      ["warning", "High returns or damage"],
+    ]);
+
     // Staff: no money, cost or profit.
     const staff = await dailyReport(t.staff, day);
     expect([staff.money, staff.profit, staff.productsSold[0]!.cost]).toEqual([null, null, null]);
@@ -884,5 +889,19 @@ describe("business analysis", () => {
     const staff = await businessAnalysis(t.staff, "month", new Date("2026-10-15T00:00:00.000Z"));
     expect([staff.companies, staff.customers, staff.overview.gross]).toEqual([null, null, null]);
     expect(staff.products.rows[0]!.profit).toBeNull();
+  });
+});
+
+describe("daily report: needs attention", () => {
+  it("puts an order without its day-end first, as a problem", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "2"]]);
+    const b = await book(t.bilal.id, [[t.nimko.id, "1"]]);
+    const tr = await trip([a.id, b.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    await saveDayEnd(t.staff, { orderId: a.id, lines: [] }); // Bilal's is not entered
+    const r = await dailyReport(t.ctx, new Date(`${DAY}T00:00:00.000Z`));
+    expect(r.issues[0]).toMatchObject({ level: "problem" });
+    expect(r.issues[0]!.text).toMatch(/^1 order sent out this day has no day-end entered/);
+    expect(r.issues[0]!.href).toBe(`/delivery?tripStatus=DISPATCHED&from=${DAY}&to=${DAY}`);
   });
 });

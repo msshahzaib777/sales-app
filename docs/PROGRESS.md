@@ -2,6 +2,28 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Usability round — done
+
+- **Staff form: a driver's bike.** When the role is Driver, the staff form shows a Bike choice
+  (fields can now be shown only for one value of another field: `showWhen` in `RecordForm`). It is
+  saved on the bike; the driver's earlier bike is freed and a bike taken from another driver
+  moves. Changing a driver to another role frees their bike instead of refusing.
+- **Quantities typed any way.** One reader for every quantity box (`parseQuantity` in
+  `src/lib/units.ts`): a plain number is dozens everywhere (12, 12.5); packets only with "pk"
+  (12dz 4pk, 12 dz 4, 4pk). Day-end returns and damage, stock adjustments, claims and damaged stock
+  sent back now read "2" as 2 dozen, not 2 packets. Orders, purchases and slabs still need whole or
+  half dozens; opening stock, minimum stock and capacity take loose packets. Edit screens show
+  saved quantities the same way (`quantityText`).
+- **Quick actions on the dashboard,** by role: Enter day-end and Plan trips first and highlighted
+  when something is waiting, then New order, Receive payment, Receive goods, Add expense, Adjust
+  stock, New customer, Day report.
+- **Collapsible sidebar:** icons only with the name on hover; remembered in the browser; the
+  sidebar now stays in place while the page scrolls.
+- **Daily report: "Needs attention"** at the top, worst first, each linking to the fix: day-ends
+  not entered, bounced cheques, stock below zero, more cash out than in (problems); customers over
+  their limit, low stock, high returns (10%+, at least half a dozen), damage to settle, sold below
+  cost (warnings). Products whose stock did not move are folded away.
+- Tested (280 tests) and checked in Edge.
 ## Business analysis — done
 
 Reports → Business analysis (`/reports/analysis?period=week|month|quarter&date=…`, ◀ ▶ by period,

@@ -14,6 +14,8 @@ export function LogoutButton() {
       variant="outline"
       size="sm"
       disabled={pending}
+      title="Sign out"
+      className="group-data-[collapsed=true]/sidebar:w-full group-data-[collapsed=true]/sidebar:px-0"
       onClick={() =>
         startTransition(async () => {
           await logoutAction();
@@ -24,7 +26,9 @@ export function LogoutButton() {
       }
     >
       <LogOut aria-hidden />
-      {pending ? "Signing out…" : "Sign out"}
+      <span className="group-data-[collapsed=true]/sidebar:sr-only">
+        {pending ? "Signing out…" : "Sign out"}
+      </span>
     </Button>
   );
 }

@@ -95,6 +95,7 @@ async function Report({ searchParams }: PageProps<"/reports/daily">) {
             </>
           }
         />
+        <NeedsAttention issues={r.issues} />
         <KeyNumbers r={r} />
         <Deliveries r={r} />
         <ProductsSold r={r} />
@@ -103,6 +104,46 @@ async function Report({ searchParams }: PageProps<"/reports/daily">) {
         <Stock r={r} />
       </article>
     </div>
+  );
+}
+
+/** The day's problems first, each linking to where it is fixed; the details follow below. */
+function NeedsAttention({ issues }: { issues: DailyReport["issues"] }) {
+  if (issues.length === 0) {
+    return (
+      <p className="rounded-md border border-emerald-600 p-[0.6em] font-medium text-emerald-800 dark:text-emerald-300 print:border-black print:text-black">
+        ✓ Nothing needs attention for this day.
+      </p>
+    );
+  }
+  return (
+    <section
+      aria-labelledby="attention-heading"
+      className="space-y-[0.3em] rounded-md border-2 border-amber-500 p-[0.6em] print:border-black"
+    >
+      <h2 id="attention-heading" className="text-[1.05em] font-bold">
+        Needs attention ({issues.length})
+      </h2>
+      <ul className="space-y-[0.25em]">
+        {issues.map((issue) => (
+          <li key={issue.text} className="flex gap-2">
+            <span
+              className={
+                issue.level === "problem"
+                  ? "font-bold text-red-700 print:text-black"
+                  : "font-bold text-amber-700 print:text-black"
+              }
+            >
+              {issue.level === "problem" ? "●" : "▲"}
+              <span className="sr-only">{issue.level === "problem" ? "Problem:" : "Warning:"}</span>
+            </span>
+            <Link href={issue.href} className="hover:underline print:no-underline">
+              {issue.text}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -460,39 +501,61 @@ function Pending({ pending }: { pending: NonNullable<DailyReport["money"]>["pend
 }
 
 function Stock({ r }: { r: DailyReport }) {
+  // Products that moved today or need attention first; the unchanged rest is folded away.
+  const busy = (s: DailyReport["stock"][number]) =>
+    s.received || s.dispatched || s.returned || s.adjusted || s.low || s.closing < 0;
+  const moved = r.stock.filter(busy);
+  const quiet = r.stock.filter((s) => !busy(s));
+  const head = (
+    <thead>
+      <tr>
+        <th className={th}>Product</th>
+        <th className={`${th} ${num}`}>Opening</th>
+        <th className={`${th} ${num}`}>Received</th>
+        <th className={`${th} ${num}`}>Sent out</th>
+        <th className={`${th} ${num}`}>Returned</th>
+        <th className={`${th} ${num}`}>Adjusted</th>
+        <th className={`${th} ${num}`}>Closing</th>
+        <th className={`${th} ${num}`}>Damaged</th>
+      </tr>
+    </thead>
+  );
+  const row = (s: DailyReport["stock"][number]) => (
+    <tr key={s.productId} className={s.low || s.closing < 0 ? "font-semibold" : undefined}>
+      <td className={td}>
+        {s.code} {s.name}
+        {s.closing < 0 ? " · below zero" : s.low ? " · low" : null}
+      </td>
+      <td className={`${td} ${num}`}>{formatDozens(s.opening)}</td>
+      <td className={`${td} ${num}`}>{s.received ? formatDozens(s.received) : ""}</td>
+      <td className={`${td} ${num}`}>{s.dispatched ? formatDozens(s.dispatched) : ""}</td>
+      <td className={`${td} ${num}`}>{s.returned ? formatDozens(s.returned) : ""}</td>
+      <td className={`${td} ${num}`}>{s.adjusted ? formatDozens(s.adjusted) : ""}</td>
+      <td className={`${td} ${num} font-semibold`}>{formatDozens(s.closing)}</td>
+      <td className={`${td} ${num}`}>{s.damaged ? formatDozens(s.damaged) : ""}</td>
+    </tr>
+  );
   return (
     <Section title="Stock left (end of day)">
-      <table className="w-full border-collapse">
-        <thead>
-          <tr>
-            <th className={th}>Product</th>
-            <th className={`${th} ${num}`}>Opening</th>
-            <th className={`${th} ${num}`}>Received</th>
-            <th className={`${th} ${num}`}>Sent out</th>
-            <th className={`${th} ${num}`}>Returned</th>
-            <th className={`${th} ${num}`}>Adjusted</th>
-            <th className={`${th} ${num}`}>Closing</th>
-            <th className={`${th} ${num}`}>Damaged</th>
-          </tr>
-        </thead>
-        <tbody>
-          {r.stock.map((s) => (
-            <tr key={s.productId}>
-              <td className={td}>
-                {s.code} {s.name}
-                {s.low ? <strong> · low</strong> : null}
-              </td>
-              <td className={`${td} ${num}`}>{formatDozens(s.opening)}</td>
-              <td className={`${td} ${num}`}>{s.received ? formatDozens(s.received) : ""}</td>
-              <td className={`${td} ${num}`}>{s.dispatched ? formatDozens(s.dispatched) : ""}</td>
-              <td className={`${td} ${num}`}>{s.returned ? formatDozens(s.returned) : ""}</td>
-              <td className={`${td} ${num}`}>{s.adjusted ? formatDozens(s.adjusted) : ""}</td>
-              <td className={`${td} ${num} font-semibold`}>{formatDozens(s.closing)}</td>
-              <td className={`${td} ${num}`}>{s.damaged ? formatDozens(s.damaged) : ""}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {moved.length ? (
+        <table className="w-full border-collapse">
+          {head}
+          <tbody>{moved.map(row)}</tbody>
+        </table>
+      ) : (
+        <p>No stock moved this day.</p>
+      )}
+      {quiet.length ? (
+        <details>
+          <summary className="cursor-pointer text-[0.9em]">
+            {quiet.length} product{quiet.length === 1 ? "" : "s"} did not move (show)
+          </summary>
+          <table className="w-full border-collapse">
+            {head}
+            <tbody>{quiet.map(row)}</tbody>
+          </table>
+        </details>
+      ) : null}
     </Section>
   );
 }

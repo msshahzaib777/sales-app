@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { type QuickAction, QuickActions } from "@/components/dashboard/quick-actions";
 import { RequirePermission } from "@/components/layout/no-access";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
+import type { Role } from "@/generated/prisma/enums";
+import { can, type Permission } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { type Dashboard, DUE_SOON_DAYS, getDashboard } from "@/server/services/dashboard";
 import { parseDateRange } from "@/server/services/purchasing/filters";
@@ -83,6 +86,7 @@ async function DashboardView({
           and low stock are always as they are now.
         </p>
       )}
+      <QuickActions actions={quickActions(ctx.user.role, d)} />
       <div className="grid gap-4 lg:grid-cols-2">
         <TodaysWork work={d.work} date={d.today} isToday={d.isToday} />
         {d.money ? <MoneyToday money={d.money} date={d.isToday ? null : d.today} /> : null}
@@ -91,6 +95,64 @@ async function DashboardView({
       </div>
     </div>
   );
+}
+
+/** The everyday jobs this role can do; the ones with something waiting are marked urgent. */
+function quickActions(role: Role, d: Dashboard): QuickAction[] {
+  const w = d.work;
+  const waiting = w.tripsOut[0];
+  const tomorrow = toDateInput(w.tomorrow);
+  const all: (QuickAction & { permission: Permission })[] = [
+    {
+      href: waiting ? `/delivery/${waiting.id}` : "/delivery?tripStatus=DISPATCHED",
+      label: "Enter day-end",
+      icon: "dayEnd",
+      permission: "operations.manage",
+      urgent: w.dayEndPending
+        ? `${w.dayEndPending} order${w.dayEndPending === 1 ? "" : "s"} waiting`
+        : undefined,
+    },
+    {
+      href: `/delivery/new?date=${tomorrow}`,
+      label: "Plan trips",
+      icon: "trip",
+      permission: "operations.manage",
+      urgent: w.notOnTripTomorrow ? `${w.notOnTripTomorrow} for tomorrow not on a trip` : undefined,
+    },
+    { href: "/orders/new", label: "New order", icon: "order", permission: "operations.manage" },
+    {
+      href: "/payments/new",
+      label: "Receive payment",
+      icon: "payment",
+      permission: "payments.manage",
+    },
+    {
+      href: "/purchases/receipts/new",
+      label: "Receive goods",
+      icon: "goods",
+      permission: "operations.manage",
+    },
+    { href: "/expenses/new", label: "Add expense", icon: "expense", permission: "expenses.manage" },
+    {
+      href: "/inventory/adjustments/new",
+      label: "Adjust stock",
+      icon: "adjust",
+      permission: "stock.requestAdjustment",
+    },
+    {
+      href: "/customers/new",
+      label: "New customer",
+      icon: "customer",
+      permission: "masterData.manage",
+    },
+    {
+      href: `/reports/daily?date=${toDateInput(d.today)}`,
+      label: "Day report",
+      icon: "report",
+      permission: "operations.manage",
+    },
+  ];
+  return all.filter((a) => can(role, a.permission)).map(({ permission: _p, ...a }) => a);
 }
 
 function Panel({
