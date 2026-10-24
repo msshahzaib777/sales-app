@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { APP_NAME } from "@/lib/brand";
 
 /** Shows a one-time password so the owner can pass it on. It is not stored and won't be shown again. */
 export function TemporaryPasswordNotice({
@@ -13,7 +14,7 @@ export function TemporaryPasswordNotice({
   temporaryPassword: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const text = `Sales App sign-in\nEmail: ${email}\nTemporary password: ${temporaryPassword}`;
+  const text = `${APP_NAME} sign-in\nEmail: ${email}\nTemporary password: ${temporaryPassword}`;
 
   return (
     <div role="status" className="border-foreground/80 space-y-2 rounded-md border-2 p-3 text-sm">

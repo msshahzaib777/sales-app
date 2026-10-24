@@ -1,4 +1,7 @@
-# Sales App
+# Taqseem
+
+**Taqseem** (تقسیم, Urdu for _distribution_): orders, delivery, stock and khata in one place.
+The code, database and repository keep the working name `sales-app` / `sales_app`.
 
 Multi-tenant distribution management for product distributors: orders, delivery, stock,
 purchasing, payments, ledgers, expenses and reports. Requirements are in

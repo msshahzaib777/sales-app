@@ -1,4 +1,4 @@
-# Run Sales App on a Windows laptop
+# Run Taqseem on a Windows laptop
 
 For a Windows 10 or 11 laptop with nothing installed. One file does everything: it installs
 Node.js and pnpm, sets up a PostgreSQL database, builds the website and starts it.
@@ -10,7 +10,7 @@ starts it each time you run the script.
 ## First time
 
 1. On GitHub, open the repository, click **Code → Download ZIP**, and unzip it, for example to
-   `C:\SalesApp`. Avoid a OneDrive or Desktop folder that syncs to the cloud.
+   `C:\Taqseem`. Avoid a OneDrive or Desktop folder that syncs to the cloud.
 2. Open that folder and double-click **`setup-windows.bat`**.
 3. If Windows shows "Windows protected your PC", click **More info → Run anyway** (the file came
    from a downloaded ZIP). Then click **Yes** when Windows asks for administrator rights. Installing Node.js and PostgreSQL
@@ -58,7 +58,8 @@ computer on the same Wi-Fi or network. The laptop running the window must stay o
 
 - Your data is in `%LOCALAPPDATA%\SalesApp\data` (for example
   `C:\Users\you\AppData\Local\SalesApp\data`), not in the project folder. Deleting the
-  project folder does not delete it. Deleting that `SalesApp` folder does.
+  project folder does not delete it. Deleting that `SalesApp` folder does. (The folder keeps the
+  app's first name, so installations made before the rename keep their data.)
 - **Back up regularly:** a laptop can be lost or fail. Before relying on it, set up a daily backup
   or use an online database (see the hosting notes in README.md).
 - `%LOCALAPPDATA%\SalesApp\postgres-superuser-password.txt` holds the database administrator

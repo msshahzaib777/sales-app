@@ -1,4 +1,4 @@
-# Sales App: one-step setup and start on a Windows laptop with nothing installed.
+# Taqseem: one-step setup and start on a Windows laptop with nothing installed.
 #
 # Run it by double-clicking setup-windows.bat in the project folder. It is safe to run again: each
 # step checks what is already done. The first run installs Node.js, pnpm and PostgreSQL, creates
@@ -22,6 +22,7 @@ $Port = 3000
 $EnvFile = Join-Path $Root ".env"
 $DbHelper = Join-Path $Root "scripts\windows\db.mjs"
 $PgVersion = "17.10.0-beta.17"
+# The data folder keeps its first name ("SalesApp") so existing installations keep their data.
 $PgRoot = Join-Path $env:LOCALAPPDATA "SalesApp\postgres"
 $PgBin = Join-Path $PgRoot "bin"
 $PgData = Join-Path $env:LOCALAPPDATA "SalesApp\data"
@@ -97,14 +98,14 @@ function Capture([scriptblock]$command) {
   }
 }
 
-Write-Host "Sales App setup" -ForegroundColor White
+Write-Host "Taqseem setup" -ForegroundColor White
 Write-Host "Project folder: $Root"
 
 # -- 0. Start, or fresh installation -----------------------------------------
 $Fresh = $false
 if ((Test-Path $EnvFile) -or (Test-Path $PgData)) {
   Write-Host ""
-  Write-Host "Sales App is already installed on this laptop. What do you want to do?" -ForegroundColor White
+  Write-Host "Taqseem is already installed on this laptop. What do you want to do?" -ForegroundColor White
   Write-Host "    1 = Start the website and keep all data (press Enter)"
   Write-Host "    2 = Fresh installation: DELETE ALL DATA (orders, bills, payments, stock, customers...)"
   Write-Host "        and start again with an empty database"
@@ -355,7 +356,9 @@ if ($needBuild) {
 }
 
 # -- 9. Other computers in the office ----------------------------------------
-$rule = "Sales App (port $Port)"
+$rule = "Taqseem (port $Port)"
+# The rule had the app's first name before; replace it rather than keep two.
+Get-NetFirewallRule -DisplayName "Sales App (port $Port)" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
   New-NetFirewallRule -DisplayName $rule -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Private | Out-Null
 }

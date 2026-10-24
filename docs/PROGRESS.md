@@ -2,6 +2,20 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Name: Taqseem — done
+
+- The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,
+  delivery, stock and khata in one place". It shows in browser tab titles, the sidebar, the
+  sign-in page (with the Urdu name), the copied sign-in details for new users, the Windows setup
+  window and the docs.
+- The name lives in one place: `src/lib/brand.ts` (`APP_NAME`, `APP_NAME_URDU`, `TAGLINE`).
+- Unchanged on purpose: the repository, package and database names (`sales-app`, `sales_app`)
+  and the Windows data folder `%LOCALAPPDATA%\SalesApp`, so existing installations keep working
+  and keep their data. The Windows setup replaces its old "Sales App" firewall rule with a
+  "Taqseem" one.
+- Windows setup also got a **fresh installation** option: when already installed, it asks
+  1 = start and keep data (Enter) or 2 = delete all data and start empty (type DELETE).
+
 ## Day-end correction — done
 
 A day-end saved with a mistake can now be undone and entered again. It was the main gap from the

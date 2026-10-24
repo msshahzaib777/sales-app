@@ -1,4 +1,8 @@
-# Sales App — project brief for Claude Code
+# Taqseem — project brief for Claude Code
+
+The product is called **Taqseem** (Urdu for *distribution*); show it through `APP_NAME` in
+`src/lib/brand.ts`. Code, database and repository names keep the working name `sales-app` /
+`sales_app`.
 
 Multi-tenant SaaS for product distributors (first tenant: a snack distributor in Pakistan).
 The full requirements are in `docs/SPEC.md`. Read the relevant section before starting any task.

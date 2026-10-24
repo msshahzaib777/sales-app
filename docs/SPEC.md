@@ -1,10 +1,10 @@
-# Sales App — Software Requirements Specification
+# Taqseem — Software Requirements Specification
 
 Oct 24, 2026 · @Muhammad Laraib
 
 ## 1. Overview and scope
 
-Sales App is a web-based, multi-tenant distribution management system for distributors who buy products from supplier companies on credit, stock them in warehouses, and sell and deliver to about 200 customers per tenant. The first tenant is a snack distributor; the design must later support carton-based products with expiry dates.
+Taqseem (تقسیم, Urdu for *distribution*; working name "Sales App") is a web-based, multi-tenant distribution management system for distributors who buy products from supplier companies on credit, stock them in warehouses, and sell and deliver to about 200 customers per tenant. The first tenant is a snack distributor; the design must later support carton-based products with expiry dates.
 
 The system replaces paper records and bill-only software with one place for orders, deliveries, stock, payments, ledgers, expenses and reports.
 
