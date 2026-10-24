@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { Prisma } from "@/generated/prisma/client";
 import type { ApprovalStatus, StockAdjustmentReason } from "@/generated/prisma/enums";
+import { businessToday } from "@/lib/dates";
 import { takeFromBatches } from "@/lib/delivery";
 import { icontains, matchEveryWord } from "@/lib/list-params";
 import { formatDozens } from "@/lib/units";
@@ -191,6 +192,8 @@ async function applyAdjustment(
         batchId,
         bucket,
         quantity,
+        // The business date (like every other movement), so day reports put it on the right day.
+        occurredAt: businessToday(),
         referenceType: "StockAdjustment",
         referenceId: a.id,
         note: `${ADJUSTMENT_REASON_LABEL[a.reason]}${a.note ? `: ${a.note}` : ""}`,

@@ -7,6 +7,12 @@ export const metadata: Metadata = { title: "Reports" };
 
 const REPORTS = [
   {
+    href: "/reports/daily",
+    title: "Daily report",
+    description:
+      "The day-end numbers: products sold, orders delivered, payments received, what customers owe, cash in hand, expenses, profit and stock left.",
+  },
+  {
     href: "/reports/damage",
     title: "Damage report",
     description:
