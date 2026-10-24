@@ -25,10 +25,30 @@ export function statusWhere(status: StatusFilter) {
   return status === "all" ? {} : { isActive: status === "active" };
 }
 
-/** Case-insensitive "contains" across several text columns. */
+/** The words of a search box, e.g. "  kh  ali " → ["kh", "ali"] (at most 6). */
+export function searchWords(q: string | undefined): string[] {
+  return (q ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 6);
+}
+
+/** Case-insensitive "contains" for one word. */
+export const icontains = (word: string) => ({ contains: word, mode: "insensitive" as const });
+
+/**
+ * Every word must match at least one of the conditions `match(word)` gives, in any order and in
+ * any of the fields: "kh ali" finds "Ali Khan", "ali kiryana" finds Ali at Mughal Kiryana Store.
+ */
+export function matchEveryWord<T>(q: string | undefined, match: (word: string) => T[]) {
+  const words = searchWords(q);
+  return words.length ? { AND: words.map((w) => ({ OR: match(w) })) } : {};
+}
+
+/** "12" or "#12" → 12, for finding a document by its number; otherwise undefined. */
+export function searchNumber(q: string | undefined): number | undefined {
+  const m = (q ?? "").trim().match(/^#?(\d{1,9})$/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** Every word in at least one of several text columns (see matchEveryWord). */
 export function searchWhere(q: string | undefined, fields: string[]) {
-  if (!q) return {};
-  return {
-    OR: fields.map((field) => ({ [field]: { contains: q, mode: "insensitive" as const } })),
-  };
+  return matchEveryWord(q, (w) => fields.map((field) => ({ [field]: icontains(w) })));
 }

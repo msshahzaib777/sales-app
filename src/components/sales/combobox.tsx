@@ -143,12 +143,26 @@ export function Combobox<T>({
   );
 }
 
-/** Ranking for code/name search: exact code > code prefix > word prefix > contains. */
+/**
+ * Ranking for code/name search: exact code > code prefix > word prefix > contains. Several words
+ * must each match somewhere, in any order ("kh ali" finds Ali Khan); the weakest word decides.
+ * `query` is lower case.
+ */
 export function rankText(
   query: string,
   code: string | null,
   ...texts: (string | null | undefined)[]
 ): number {
+  const words = query.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    const whole = rankWord(query, code, texts);
+    const each = Math.min(...words.map((w) => rankWord(w, code, texts)));
+    return Math.max(whole, each);
+  }
+  return rankWord(query, code, texts);
+}
+
+function rankWord(query: string, code: string | null, texts: (string | null | undefined)[]) {
   const c = (code ?? "").toLowerCase();
   if (c && c === query) return 100;
   if (c && c.startsWith(query)) return 80;

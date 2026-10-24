@@ -5,6 +5,7 @@ import type { TripStatus } from "@/generated/prisma/enums";
 import { byRoute, loadByProduct, takeFromBatches } from "@/lib/delivery";
 import { formatDozens } from "@/lib/units";
 import { recordIdSchema } from "@/lib/validation/master";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 import {
   tripDriverSchema,
   tripOrderSchema,
@@ -383,16 +384,13 @@ export async function listTrips(
 ) {
   assertCan(ctx.user.role, "operations.manage");
   const where: Prisma.DeliveryTripWhereInput = {
-    ...(f.q
-      ? /^\d+$/.test(f.q)
-        ? { number: Number(f.q) }
-        : {
-            OR: [
-              { bike: { name: { contains: f.q, mode: "insensitive" } } },
-              { driver: { name: { contains: f.q, mode: "insensitive" } } },
-            ],
-          }
-      : {}),
+    ...(searchNumber(f.q) !== undefined
+      ? { number: searchNumber(f.q) }
+      : matchEveryWord(f.q, (w): Prisma.DeliveryTripWhereInput[] => [
+          { bike: { name: icontains(w) } },
+          { driver: { name: icontains(w) } },
+          { orders: { some: { customer: { name: icontains(w) } } } },
+        ])),
     ...(f.status === "open"
       ? { status: { in: ["PLANNED", "DISPATCHED"] } }
       : f.status && TRIP_STATUSES.includes(f.status as TripStatus)

@@ -17,6 +17,7 @@ import {
   approveCreditOverride,
   cancelSalesOrder,
   createSalesOrder,
+  listSalesOrders,
   getSalesOrder,
   orderEntryContext,
   updateSalesOrder,
@@ -309,5 +310,24 @@ describe("order entry context", () => {
     expect(c.products.map((p) => p.code)).toEqual(["CB01", "GC01"]);
     expect(c.products[0]).toMatchObject({ available: 336, tiers: [{ minQuantity: 300 }] });
     expect(c.lastOrder?.lines).toEqual([{ productId: t.chips.id, quantity: 24 }]);
+  });
+});
+
+describe("finding orders", () => {
+  it("by customer words in any order, by product code or name, and with the area filter", async () => {
+    const r = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1" }]));
+    const find = async (q: string, extra: object = {}) =>
+      (await listSalesOrders(t.staff, { q, page: 1, ...extra })).rows.map((o) => o.id);
+    expect(await find("kh ali")).toEqual([r.id]);
+    expect(await find("ALI KHAN")).toEqual([r.id]);
+    expect(await find("ali bakers")).toEqual([]);
+    expect(await find("cb01")).toEqual([r.id]); // chips' code
+    expect(await find("item cb")).toEqual([r.id]); // its name
+    expect(await find("gc01")).toEqual([]); // nimko is not on the order
+    expect(await find("shahdara")).toEqual([r.id]); // the customer's area
+    expect(await find(`#${r.number}`)).toEqual([r.id]);
+    // The search and the area filter work together (they both filter the customer).
+    const elsewhere = await createArea(t.ctx, { warehouseId: t.main.id, name: "Ravi" });
+    expect(await find("ali", { areaId: elsewhere.id })).toEqual([]);
   });
 });

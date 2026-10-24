@@ -13,6 +13,7 @@ import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
 import { found, nextDocumentNumber, postCompanyLedger, reverseLedgerFor } from "../posting";
 import { calculateLineAmounts } from "@/lib/pricing";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 import type { DateRange } from "./filters";
 
 // Company claims (damage in delivery, damaged stock returned, other): a credit against the
@@ -32,17 +33,14 @@ export async function listClaims(
   assertCan(ctx.user.role, "payments.manage");
   const where: Prisma.CompanyClaimWhereInput = {
     ...(f.companyId ? { companyId: f.companyId } : {}),
-    ...(f.q
-      ? /^\d+$/.test(f.q)
-        ? { number: Number(f.q) }
-        : {
-            OR: [
-              { product: { name: { contains: f.q, mode: "insensitive" } } },
-              { product: { code: { contains: f.q, mode: "insensitive" } } },
-              { note: { contains: f.q, mode: "insensitive" } },
-            ],
-          }
-      : {}),
+    ...(searchNumber(f.q) !== undefined
+      ? { number: searchNumber(f.q) }
+      : matchEveryWord(f.q, (w): Prisma.CompanyClaimWhereInput[] => [
+          { product: { name: icontains(w) } },
+          { product: { code: icontains(w) } },
+          { company: { name: icontains(w) } },
+          { note: icontains(w) },
+        ])),
     ...(f.status && STATUSES.includes(f.status as ClaimStatus)
       ? { status: f.status as ClaimStatus }
       : {}),

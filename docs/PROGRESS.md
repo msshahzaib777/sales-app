@@ -113,6 +113,23 @@ From the owner's notes after trying Phase 1. Built one item at a time.
      Tested in `delivery.int.test.ts` and `dates.test.ts`, and in a browser run (owner and staff,
      PDF and Excel).
 
+9. **Search — done.**
+   - **As you type:** every list's search box applies itself after a short pause (no Enter);
+     dropdowns and dates apply as soon as they change. The list updates in place (`next/form`,
+     `AutoSubmit` in `src/components/list/auto-submit.tsx`) and the cursor stays in the box.
+     "Clear" empties the boxes too. Without JavaScript the form still works with Enter.
+   - **Words in any order, in any field:** "kh ali" finds Ali Khan, "ali kiryana" finds Ali at
+     Mughal Kiryana Store (`matchEveryWord` in `src/lib/list-params.ts`, used by every list). The
+     customer and product pickers on order entry and payments rank the same way (`rankText`).
+   - **More fields:** orders by product code or name on the order, and by the customer's area;
+     customers by area; trips by a customer on them; goods receipts and purchase orders by
+     product; claims by company. "#12" finds document 12; a number also matches a customer's
+     phone (orders) and cheque numbers and references (payments).
+   - **Fixed:** on the orders list, choosing an area and searching at the same time ignored the
+     area.
+   - Tested in `list-params.test.ts`, `combobox.test.ts` and `sales.int.test.ts`, and in a
+     browser run.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

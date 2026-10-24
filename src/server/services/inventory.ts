@@ -6,6 +6,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import type { StockMovementType } from "@/generated/prisma/enums";
 
 import { formatDozens } from "@/lib/units";
+import { searchWhere } from "@/lib/list-params";
 import {
   dateSchema,
   dozensSchema,
@@ -61,14 +62,7 @@ export async function listStock(ctx: ServiceCtx, f: StockFilters) {
     isActive: true,
     ...(f.companyId ? { companyId: f.companyId } : {}),
     ...(f.warehouseId ? { company: { warehouseId: f.warehouseId } } : {}),
-    ...(f.q
-      ? {
-          OR: [
-            { code: { contains: f.q, mode: "insensitive" } },
-            { name: { contains: f.q, mode: "insensitive" } },
-          ],
-        }
-      : {}),
+    ...searchWhere(f.q, ["code", "name"]),
   };
   const products = await ctx.db.product.findMany({
     where,

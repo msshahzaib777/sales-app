@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { PurchaseOrderStatus } from "@/generated/prisma/enums";
 import { purchaseOrderSchema, type PurchaseOrderInput } from "@/lib/validation/purchasing";
 import { recordIdSchema } from "@/lib/validation/master";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
@@ -34,7 +35,7 @@ export type PurchaseOrderFilters = {
 
 export async function listPurchaseOrders(ctx: ServiceCtx, f: PurchaseOrderFilters) {
   assertCan(ctx.user.role, "operations.manage");
-  const number = f.q && /^\d+$/.test(f.q) ? Number(f.q) : undefined;
+  const number = searchNumber(f.q);
   const where: Prisma.PurchaseOrderWhereInput = {
     ...(f.companyId ? { companyId: f.companyId } : {}),
     ...(f.status && STATUSES.includes(f.status as PurchaseOrderStatus)
@@ -43,11 +44,13 @@ export async function listPurchaseOrders(ctx: ServiceCtx, f: PurchaseOrderFilter
     ...(f.from || f.to
       ? { orderDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
       : {}),
-    ...(f.q
-      ? number
-        ? { number }
-        : { company: { name: { contains: f.q, mode: "insensitive" } } }
-      : {}),
+    ...(number !== undefined
+      ? { number }
+      : matchEveryWord(f.q, (w): Prisma.PurchaseOrderWhereInput[] => [
+          { company: { name: icontains(w) } },
+          { lines: { some: { product: { code: icontains(w) } } } },
+          { lines: { some: { product: { name: icontains(w) } } } },
+        ])),
   };
   const [rows, total] = await Promise.all([
     ctx.db.purchaseOrder.findMany({

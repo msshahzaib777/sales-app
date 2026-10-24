@@ -14,6 +14,7 @@ import {
 } from "@/lib/sales";
 import { recordIdSchema } from "@/lib/validation/master";
 import { salesOrderSchema, type SalesOrderInput } from "@/lib/validation/sales";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
@@ -486,7 +487,7 @@ const STATUSES: SalesOrderStatus[] = [
 /** Orders by delivery date. Status "open" = booked or planned. */
 export async function listSalesOrders(ctx: ServiceCtx, f: OrderFilters) {
   assertCan(ctx.user.role, "operations.manage");
-  const number = f.q && /^\d+$/.test(f.q) ? Number(f.q) : undefined;
+  const number = searchNumber(f.q);
   const where: Prisma.SalesOrderWhereInput = {
     ...(f.status === "open"
       ? { status: { in: ["BOOKED", "PLANNED"] } }
@@ -498,19 +499,19 @@ export async function listSalesOrders(ctx: ServiceCtx, f: OrderFilters) {
       : {}),
     ...(f.areaId ? { customer: { areaId: f.areaId } } : {}),
     ...(f.needsApproval ? { needsCreditApproval: true } : {}),
-    ...(f.q
-      ? number
-        ? { number }
-        : {
-            customer: {
-              OR: [
-                { name: { contains: f.q, mode: "insensitive" } },
-                { shopName: { contains: f.q, mode: "insensitive" } },
-                { phone: { contains: f.q } },
-              ],
-            },
-          }
-      : {}),
+    // The order number, the customer (name, shop, phone, area) or a product on the order (code or
+    // name); every word must match somewhere. Kept apart from the area filter above, which also
+    // filters `customer`.
+    ...(number !== undefined
+      ? { OR: [{ number }, { customer: { phone: { contains: String(number) } } }] }
+      : matchEveryWord(f.q, (w): Prisma.SalesOrderWhereInput[] => [
+          { customer: { name: icontains(w) } },
+          { customer: { shopName: icontains(w) } },
+          { customer: { phone: { contains: w } } },
+          { customer: { area: { name: icontains(w) } } },
+          { lines: { some: { product: { code: icontains(w) } } } },
+          { lines: { some: { product: { name: icontains(w) } } } },
+        ])),
   };
   const [rows, total, sums] = await Promise.all([
     ctx.db.salesOrder.findMany({

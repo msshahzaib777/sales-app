@@ -2,7 +2,13 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import { businessToday } from "@/lib/dates";
-import { filterParam, type ListParams, searchWhere, statusWhere } from "@/lib/list-params";
+import {
+  filterParam,
+  icontains,
+  type ListParams,
+  matchEveryWord,
+  statusWhere,
+} from "@/lib/list-params";
 import { CUSTOMER_TYPES, type CustomerInput, customerSchema } from "@/lib/validation/master";
 
 import { writeAudit } from "../../audit";
@@ -26,7 +32,12 @@ export async function listCustomers(
   const type = filterParam(filters, "type");
   const where = {
     ...statusWhere(params.status),
-    ...searchWhere(params.q, ["name", "shopName", "phone", "whatsapp", "address"]),
+    ...matchEveryWord(params.q, (w): Prisma.CustomerWhereInput[] => [
+      ...["name", "shopName", "phone", "whatsapp", "address"].map((field) => ({
+        [field]: icontains(w),
+      })),
+      { area: { name: icontains(w) } },
+    ]),
     ...(areaId ? { areaId } : {}),
     ...(type && (CUSTOMER_TYPES as readonly string[]).includes(type)
       ? { type: type as (typeof CUSTOMER_TYPES)[number] }

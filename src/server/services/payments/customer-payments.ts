@@ -9,6 +9,7 @@ import type {
 } from "@/generated/prisma/enums";
 import { businessToday, formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 import {
   allocateByCompany,
   allocateOldestFirst,
@@ -376,7 +377,7 @@ const pick = <T extends string>(list: T[], v?: string) =>
 
 export async function listCustomerPayments(ctx: ServiceCtx, f: PaymentFilters) {
   assertCan(ctx.user.role, "payments.manage");
-  const number = f.q && /^\d+$/.test(f.q) ? Number(f.q) : undefined;
+  const number = searchNumber(f.q);
   const chequeStatus = pick(CHEQUE_STATUSES, f.cheque);
   const where: Prisma.CustomerPaymentWhereInput = {
     ...(f.customerId ? { customerId: f.customerId } : {}),
@@ -393,18 +394,22 @@ export async function listCustomerPayments(ctx: ServiceCtx, f: PaymentFilters) {
     ...(f.from || f.to
       ? { paymentDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
       : {}),
-    ...(f.q
-      ? number
-        ? { number }
-        : {
-            OR: [
-              { customer: { name: { contains: f.q, mode: "insensitive" } } },
-              { customer: { shopName: { contains: f.q, mode: "insensitive" } } },
-              { reference: { contains: f.q, mode: "insensitive" } },
-              { cheque: { chequeNo: { contains: f.q } } },
-            ],
-          }
-      : {}),
+    // A number is a payment number, cheque number or online reference; otherwise every word in
+    // the customer's name or shop, the reference or the cheque number.
+    ...(number !== undefined
+      ? {
+          OR: [
+            { number },
+            { cheque: { chequeNo: { contains: String(number) } } },
+            { reference: { contains: String(number) } },
+          ],
+        }
+      : matchEveryWord(f.q, (w): Prisma.CustomerPaymentWhereInput[] => [
+          { customer: { name: icontains(w) } },
+          { customer: { shopName: icontains(w) } },
+          { reference: icontains(w) },
+          { cheque: { chequeNo: { contains: w } } },
+        ])),
   };
   const [rows, total, sum] = await Promise.all([
     ctx.db.customerPayment.findMany({
