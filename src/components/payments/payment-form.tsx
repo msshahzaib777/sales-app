@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
-import { allocateOldestFirst } from "@/lib/payments";
+import { allocateOldestFirst, OLD_BALANCE } from "@/lib/payments";
 import type { PaymentContext } from "@/server/services/payments/customer-payments";
 
 type Customer = {
@@ -91,9 +91,17 @@ export function CustomerPaymentForm({
     value && debt && mode === "auto" ? allocateOldestFirst(value, debt, context!.advanceTo) : null;
   const applied = (billId: string, companyId: string) =>
     preview?.allocations.find((a) => a.billId === billId && a.companyId === companyId)?.amount;
-  const companyName = new Map(context?.companies.map((c) => [c.id, c.name]));
+  const companyName = new Map([
+    [OLD_BALANCE, "Old balance"],
+    ...(context?.companies.map((c) => [c.id, c.name] as const) ?? []),
+  ]);
   const splitTotal = Object.values(split).reduce((s, v) => s.add(amountOf(v) ?? 0), new Decimal(0));
-  const owing = context?.companies.filter((c) => c.owed !== "0.00") ?? [];
+  const owing = [
+    ...(context && context.oldBalance !== "0.00"
+      ? [{ name: "Old balance", owed: context.oldBalance }]
+      : []),
+    ...(context?.companies.filter((c) => c.owed !== "0.00") ?? []),
+  ];
 
   return (
     <form action={(fd) => formAction(withRequestId(fd))} className="max-w-5xl space-y-6">
@@ -290,8 +298,12 @@ export function CustomerPaymentForm({
                     ) : null}
                     {context.unbilled.map(([companyId, owed]) => (
                       <tr key={`u-${companyId}`} className="border-t">
-                        <td className="px-3 py-1.5">Opening balance</td>
-                        <td className="px-3 py-1.5">{companyName.get(companyId)}</td>
+                        <td className="px-3 py-1.5">
+                          {companyId === OLD_BALANCE ? "Old balance" : "Opening balance"}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          {companyId === OLD_BALANCE ? "—" : companyName.get(companyId)}
+                        </td>
                         <td className="px-3 py-1.5 text-right tabular-nums">{formatMoney(owed)}</td>
                         <td className="px-3 py-1.5 text-right tabular-nums">
                           {preview && value
@@ -333,6 +345,24 @@ export function CustomerPaymentForm({
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-3">
+                {context.oldBalance !== "0.00" ? (
+                  <div className="space-y-1">
+                    <label htmlFor="company-old" className="text-sm font-medium">
+                      Old balance{" "}
+                      <span className="text-muted-foreground font-normal">
+                        owes {formatMoney(context.oldBalance)}
+                      </span>
+                    </label>
+                    <Input
+                      id="company-old"
+                      name={`company:${OLD_BALANCE}`}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={split[OLD_BALANCE] ?? ""}
+                      onChange={(e) => setSplit((s) => ({ ...s, [OLD_BALANCE]: e.target.value }))}
+                    />
+                  </div>
+                ) : null}
                 {context.companies.map((c) => (
                   <div key={c.id} className="space-y-1">
                     <label htmlFor={`company-${c.id}`} className="text-sm font-medium">

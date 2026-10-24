@@ -2,6 +2,148 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Change list from the owner (round 1)
+
+From the owner's notes after trying Phase 1. Built one item at a time.
+
+1. **Opening stock — done.** Inventory → Opening stock (owner only):
+   - every product with its opening stock so far and what is on hand now, and a box for the
+     opening stock in dozens; keyboard-first (Enter = next product, Ctrl+Enter = save);
+   - no company bill: the goods were bought before the app;
+   - saving sets each product's opening stock to the number typed. Only the difference is posted
+     (an `OPENING` stock movement), so saving twice changes nothing and a later correction is
+     recorded, not overwritten;
+   - the stock goes into one opening batch per product and is dispatched oldest batch first like
+     any other stock;
+   - it can't be lowered below what is left of that batch (stock already sent out);
+   - audited. Tested in `journals.int.test.ts`, and in a browser run (owner saves; staff get
+     "No access").
+
+2. **Driver chosen later — done.**
+   - A trip's driver is optional (migration `trip_driver_optional`). Planning starts with "Not
+     decided yet"; the bike's usual driver is not filled in.
+   - The trip page has a driver picker while the trip is planned or out; it can be set, changed or
+     cleared until day-end is done (audited).
+   - With no driver, the trip list says "Not set" and the loading sheet prints
+     "Driver: ____________________" to fill in by hand.
+   - Tested in `delivery.int.test.ts` and in a browser run.
+
+3. **Bill print spacing — done.** Wider gaps between the bill's columns. Long product and
+   company names wrap onto a second line instead of squeezing the numbers; quantities, rates and
+   amounts never wrap. Checked in print at A5 width, full bill and one-company slices.
+
+4. **Minimum payment — done.** The least the customer should pay: the balance left from earlier
+   bills, or what brings the total due back within their credit limit, whichever is more (just the
+   earlier balance when there is no limit; never below zero). `minimumPayment` in `src/lib/sales.ts`.
+   - Printed on the full bill under "Total due". Not on one-company slices, because the credit
+     limit is the customer's, not a company's.
+   - The day-end screen shows it next to the total due, updating with returns, and warns
+     "… short of the minimum payment" when less is collected (a warning only; it doesn't block).
+   - Uses the customer's credit limit at the time of printing, so a reprint follows a changed limit.
+   - Tested in `sales.test.ts` and `sales.int.test.ts`, and in a browser run.
+
+5. **Old balance — done.** Unpaid paper bills from before the app, owed to us and not to any
+   company (table `CustomerOldBill`, migration `customer_old_bills`).
+   - Customer → Old balance (owner and accountant), also linked from the statement: date, optional
+     bill number, unpaid amount, note. A list shows each old bill with how much is paid (payments
+     go to the oldest first). "Remove" (with a reason) posts a reversal; refused once payments have
+     used the bill up.
+   - Each posts a customer `OPENING_BALANCE` ledger entry with **no company**: the approved
+     exception to CLAUDE.md rule 3 (noted there). The `LedgerEntry_party_check` constraint now
+     allows a null company on customer entries only for opening balance, payment, cheque bounce
+     and reversal entries.
+   - Counts in the customer's total (credit limit, pending, minimum payment). Shows as "Old
+     balance" on the printed bill (apart from the company "Previous pending"), on the statement
+     (rows and the by-company summary), on order entry and on the payment screen. Left out of
+     every company figure: bill slices, company receivables, a one-company statement.
+   - Payments: oldest debt first now pays the old balance before anything else (then company
+     opening balances, then bills). "Split by company" has an "Old balance" box; more than is owed
+     there is refused.
+   - The demo seed gives 5 customers an old bill.
+   - Tested in `payments.test.ts` and `payments.int.test.ts` (incl. idempotent retry, bounce,
+     removal rules, DB check, permissions), and in a browser run.
+
+6. **Damage and returns in packets — done.** The base unit is now the **packet** (12 = 1 dozen;
+   a half dozen = 6), instead of the half dozen. `PACKETS_PER_DOZEN` in `src/lib/units.ts`; rates
+   stay per dozen, so a loose packet is priced at rate ÷ 12.
+   - Migration `packets_base_unit` multiplies every stored quantity by 6: stock movements and
+     adjustments, order lines (incl. returned and damaged), purchase and receipt lines, claims,
+     bike capacity, minimum stock, discount slabs, and the quantities inside price-history slabs
+     and bill revision snapshots. The append-only triggers on those three tables are switched off
+     only for this restatement and back on in the same migration. Unit conversions now read
+     PACKET = 1, HALF_DOZEN = 6, DOZEN = 12. Checked on a copy of demo data: every total is
+     exactly 6×, and bill snapshots still match their order lines.
+   - Orders, purchases, opening stock, slabs and capacity are still entered in whole or half
+     dozens.
+   - Typed in packets: day-end returned and damaged (with "= 2.5 dz" shown under each box),
+     damaged stock sent back to the company, and damage claims.
+   - Display: whole and half dozens as before ("3.5 dz"); loose packets as "2 dz 10 pk" (bill,
+     loading sheet, day-end, stock screens).
+   - Tests updated to packets, plus new ones for loose packets (pricing, re-pricing at day-end,
+     display). Checked in a browser: day-end with 5 returned and 3 damaged packets, and the
+     revised bill print.
+
+7. **Damage claims settled by the user — done.** (migration `claim_settlement`)
+   - Damage entered at day-end now creates a claim **Pending: settle with company** (status
+     `AWAITING`), valued at purchase cost, with **no money moved**.
+   - On Purchases → Claims (owner and accountant), each pending claim has an "Amount the company
+     accepted" box (filled with the claimed value), a note, and **Accept** or **Reject**:
+     - Accept (in full or a smaller amount, never more than claimed) posts the credit to the
+       company ledger, and the claim is deducted on the company's next bill automatically.
+     - Reject moves no money; the damaged stock stays in the damaged bucket.
+     - The list shows "claimed X" when less was accepted, and the settlement note. Audited.
+   - Claims logged by hand on the claims screen are still posted at once, and existing claims
+     stay as they were (`claimedAmount` backfilled).
+   - Undo day-end also cancels a still-pending claim; a pending claim can be cancelled (logged by
+     mistake) as well as rejected.
+   - Tested in `delivery.int.test.ts` (accept less, reject, limits, permissions, deduction on the
+     next bill) and in a browser run.
+
+8. **Damage report — done.** Reports → Damage report (`/reports/damage`; anyone with
+   operations access).
+   - Everything damaged in delivery (from day-end), by trip date: date, trip, driver, order and
+     customer, product, company, quantity (dozens and packets). Totals, plus summaries by driver
+     and by product.
+   - Period buttons: this week / last week (Monday to Sunday) / this month / last month, or any
+     from–to dates. Filters: driver, trip, product, company.
+   - Owner and accountant also see each claim's value (purchase cost), its status (pending,
+     accepted, deducted, rejected) and any smaller accepted amount; staff never see these.
+   - Print / PDF on A4, and Download Excel with the same filters and rows.
+   - `damageReport` in `src/server/services/reports/damage.ts`, `periodRange` in `src/lib/dates.ts`.
+     Tested in `delivery.int.test.ts` and `dates.test.ts`, and in a browser run (owner and staff,
+     PDF and Excel).
+
+9. **Search — done.**
+   - **As you type:** every list's search box applies itself after a short pause (no Enter);
+     dropdowns and dates apply as soon as they change. The list updates in place (`next/form`,
+     `AutoSubmit` in `src/components/list/auto-submit.tsx`) and the cursor stays in the box.
+     "Clear" empties the boxes too. Without JavaScript the form still works with Enter.
+   - **Words in any order, in any field:** "kh ali" finds Ali Khan, "ali kiryana" finds Ali at
+     Mughal Kiryana Store (`matchEveryWord` in `src/lib/list-params.ts`, used by every list). The
+     customer and product pickers on order entry and payments rank the same way (`rankText`).
+   - **More fields:** orders by product code or name on the order, and by the customer's area;
+     customers by area; trips by a customer on them; goods receipts and purchase orders by
+     product; claims by company. "#12" finds document 12; a number also matches a customer's
+     phone (orders) and cheque numbers and references (payments).
+   - **Fixed:** on the orders list, choosing an area and searching at the same time ignored the
+     area.
+   - Tested in `list-params.test.ts`, `combobox.test.ts` and `sales.int.test.ts`, and in a
+     browser run.
+
+10. **Dashboard — done.** (`src/server/services/dashboard.ts`; every number links to its list)
+    - **Today's work** (everyone): orders for tomorrow and how many are not on a trip yet; trips
+      out, each with how many day-end entries are left (late ones in red); day-end entries
+      pending.
+    - **Money today** (owner and accountant only): cash, cheques and online collected today;
+      cheques waiting to clear; company bills overdue and due in the next 7 days, with the list.
+    - **Over their credit limit** (everyone): customers whose balance (incl. old balance) is above
+      their limit, most over first, with flagged customers marked.
+    - **Low stock** (everyone): products below their minimum level.
+    - Staff never see profit, cost or company bills. Tested in `delivery.int.test.ts` (owner and
+      staff) and in a browser run.
+
+Round 1 of the owner's change list is complete.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

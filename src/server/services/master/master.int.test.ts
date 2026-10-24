@@ -88,9 +88,9 @@ describe("products and price history", () => {
     let full = await getProduct(t.ctx, product.id);
     expect(full.priceHistory).toHaveLength(1);
     expect(full.discountTiers.map((s) => [s.minQuantity, s.discountValue.toFixed(2)])).toEqual([
-      [50, "250.00"],
+      [300, "250.00"],
     ]);
-    expect(full.minStockLevel).toBe(20);
+    expect(full.minStockLevel).toBe(120);
 
     // Name-only change: no new history row.
     await updateProduct(
@@ -119,8 +119,8 @@ describe("products and price history", () => {
     expect(full.priceHistory).toHaveLength(2);
     expect(full.priceHistory[0]!.saleRate.toFixed(2)).toBe("1350.00");
     expect(full.priceHistory[0]!.discountTiers).toEqual([
-      { minQuantity: 50, discountType: "AMOUNT_PER_UNIT", discountValue: "260.00" },
-      { minQuantity: 100, discountType: "AMOUNT_PER_UNIT", discountValue: "300.00" },
+      { minQuantity: 300, discountType: "AMOUNT_PER_UNIT", discountValue: "260.00" },
+      { minQuantity: 600, discountType: "AMOUNT_PER_UNIT", discountValue: "300.00" },
     ]);
     expect(full.discountTiers).toHaveLength(2);
 
@@ -263,7 +263,7 @@ describe("references and tenant isolation", () => {
       monthlySalary: "32000",
     });
     const bike = await createBike(t.ctx, { name: "Bike 1", capacity: "90", driverId: driver.id });
-    expect(bike.capacity).toBe(180);
+    expect(bike.capacity).toBe(1080);
   });
 
   it("cannot read, edit, deactivate or reference another tenant's records", async () => {

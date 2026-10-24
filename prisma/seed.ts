@@ -9,7 +9,7 @@ import {
   PrismaClient,
 } from "../src/generated/prisma/client";
 import { hashPassword } from "../src/server/auth/password";
-import { HALF_DOZENS_PER_DOZEN } from "../src/lib/units";
+import { PACKETS_PER_DOZEN } from "../src/lib/units";
 import {
   calculateLineAmounts,
   type DiscountTier,
@@ -29,7 +29,7 @@ const prisma = new PrismaClient({
 });
 
 const DEMO_PASSWORD = "Demo@12345";
-const dz = (dozens: number) => dozens * HALF_DOZENS_PER_DOZEN;
+const dz = (dozens: number) => dozens * PACKETS_PER_DOZEN;
 
 // Deterministic pseudo-random numbers so every seed run produces the same data.
 let rngState = 20261024;
@@ -432,11 +432,12 @@ async function main() {
       });
       const createdById = owner.id;
 
-      // ── Units: half dozen is the base unit; rates are per dozen ──
+      // ── Units: packet is the base unit (12 to a dozen); rates are per dozen ──
       await tx.unitConversion.createMany({
         data: [
-          { tenantId, baseUnit: "HALF_DOZEN", unit: "HALF_DOZEN", baseUnitsPerUnit: 1 },
-          { tenantId, baseUnit: "HALF_DOZEN", unit: "DOZEN", baseUnitsPerUnit: 2 },
+          { tenantId, baseUnit: "PACKET", unit: "PACKET", baseUnitsPerUnit: 1 },
+          { tenantId, baseUnit: "PACKET", unit: "HALF_DOZEN", baseUnitsPerUnit: 6 },
+          { tenantId, baseUnit: "PACKET", unit: "DOZEN", baseUnitsPerUnit: 12 },
         ],
       });
 
@@ -663,6 +664,36 @@ async function main() {
             },
           });
         }
+
+        // Some customers still owe on paper bills from before the app: their old balance, owed
+        // to us and not to any company (no companyId; CLAUDE.md rule 3 exception).
+        if (i % 6 === 0) {
+          const oldBill = await tx.customerOldBill.create({
+            data: {
+              tenantId,
+              customerId: customer.id,
+              billDate: day(-90),
+              billNo: `K-${100 + i}`,
+              amount: between(10, 80) * 100,
+              createdById,
+            },
+          });
+          await tx.ledgerEntry.create({
+            data: {
+              tenantId,
+              partyType: "CUSTOMER",
+              customerId: customer.id,
+              companyId: null,
+              type: "OPENING_BALANCE",
+              entryDate: oldBill.billDate,
+              debit: oldBill.amount,
+              description: `Old bill #${oldBill.billNo}`,
+              referenceType: "CustomerOldBill",
+              referenceId: oldBill.id,
+              createdById,
+            },
+          });
+        }
       }
 
       // ── Purchases: one PO + goods receipt + company bill per company (received 10 days ago) ──
@@ -714,7 +745,7 @@ async function main() {
           });
           const { netAmount } = calculateLineAmounts({
             quantity: received,
-            baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+            baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
             rate: product.purchaseRate,
           });
           billTotal = billTotal.add(netAmount);
@@ -892,7 +923,7 @@ async function main() {
           const discount = resolveDiscount(product, product.tiers, quantity);
           const amounts = calculateLineAmounts({
             quantity,
-            baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+            baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
             rate: product.saleRate,
             ...discount,
           });
@@ -1145,7 +1176,7 @@ async function main() {
       });
       const claimAmount = calculateLineAmounts({
         quantity: 1,
-        baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+        baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
         rate: damagedProduct.purchaseRate,
       }).netAmount;
       const claim = await tx.companyClaim.create({
@@ -1190,7 +1221,7 @@ async function main() {
           quantity: l.quantity - 1,
           ...calculateLineAmounts({
             quantity: l.quantity - 1,
-            baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+            baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
             rate: l.rate,
             discountType: l.discountType,
             discountValue: l.discountValue,

@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { TRIP_STATUS_LABEL } from "@/lib/delivery";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 
 export function TripStatusBadge({ status }: { status: keyof typeof TRIP_STATUS_LABEL }) {
   return (
@@ -14,7 +15,7 @@ export function LoadText({ load, capacity }: { load: number; capacity: number })
   const over = load > capacity;
   return (
     <span className={over ? "text-destructive font-semibold" : undefined}>
-      {load / 2} / {capacity / 2} dz{over ? " (over capacity)" : ""}
+      {load / PACKETS_PER_DOZEN} / {capacity / PACKETS_PER_DOZEN} dz{over ? " (over capacity)" : ""}
     </span>
   );
 }

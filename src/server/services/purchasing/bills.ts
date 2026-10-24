@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import { businessToday } from "@/lib/dates";
 import { dueDateSchema } from "@/lib/validation/purchasing";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 
 import { writeAudit } from "../../audit";
 import { assertCan } from "../../auth/permissions";
@@ -54,11 +55,9 @@ export async function listCompanyBills(
     where: {
       ...(f.companyId ? { companyId: f.companyId } : {}),
       ...(f.filter !== "all" ? { status: "POSTED" } : {}),
-      ...(f.q
-        ? /^\d+$/.test(f.q)
-          ? { number: Number(f.q) }
-          : { company: { name: { contains: f.q, mode: "insensitive" as const } } }
-        : {}),
+      ...(searchNumber(f.q) !== undefined
+        ? { number: searchNumber(f.q) }
+        : matchEveryWord(f.q, (w) => [{ company: { name: icontains(w) } }])),
       ...(f.from || f.to
         ? { billDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
         : {}),

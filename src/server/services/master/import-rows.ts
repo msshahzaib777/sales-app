@@ -2,7 +2,6 @@ import Papa from "papaparse";
 import { readSheet } from "read-excel-file/node";
 import type { ZodError } from "zod";
 
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
 import {
   CUSTOMER_TYPES,
   type CustomerInput,
@@ -347,7 +346,7 @@ export const IMPORT_NOTES: Record<ImportKind, string[]> = {
     "One row per product. Rates are per dozen in PKR.",
     "A code that already exists updates that product; new rates take effect today and are kept in price history.",
     "Discount per dozen is optional. Quantity slabs can be added on the product page after importing.",
-    `Minimum stock is in dozens (whole or half, e.g. 12.5 = ${12.5 * HALF_DOZENS_PER_DOZEN} half dozens).`,
+    "Minimum stock is in dozens (whole or half, e.g. 12.5).",
   ],
   customers: [
     "One row per customer. Type is Retailer, Wholesaler, Dealer or Bike supplier (blank = Retailer).",

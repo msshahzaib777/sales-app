@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { billTotals, canTransition, checkCredit, isOpenOrder, priceLine } from "./sales";
+import {
+  billTotals,
+  canTransition,
+  checkCredit,
+  isOpenOrder,
+  minimumPayment,
+  priceLine,
+} from "./sales";
 
 const chips = {
   id: "p1",
@@ -8,7 +15,7 @@ const chips = {
   saleRate: "228",
   discountType: "AMOUNT_PER_UNIT" as const,
   discountValue: "4",
-  tiers: [{ minQuantity: 50, discountType: "AMOUNT_PER_UNIT" as const, discountValue: "8" }],
+  tiers: [{ minQuantity: 300, discountType: "AMOUNT_PER_UNIT" as const, discountValue: "8" }],
 };
 const nimko = {
   id: "p2",
@@ -21,7 +28,7 @@ const nimko = {
 
 describe("priceLine", () => {
   it("applies the company discount per dozen", () => {
-    const line = priceLine(chips, 7); // 3.5 dz
+    const line = priceLine(chips, 42); // 3.5 dz
     expect([
       line.grossAmount.toFixed(2),
       line.discountAmount.toFixed(2),
@@ -31,16 +38,21 @@ describe("priceLine", () => {
   });
 
   it("switches to the slab the quantity reaches, for the whole line", () => {
-    const line = priceLine(chips, 50); // 25 dz
+    const line = priceLine(chips, 300); // 25 dz
     expect([line.discountValue.toFixed(2), line.netAmount.toFixed(2)]).toEqual(["8.00", "5500.00"]);
+  });
+
+  it("prices loose packets at the per-dozen rate", () => {
+    const line = priceLine(nimko, 5); // 5 packets of 230 / dozen
+    expect(line.netAmount.toFixed(2)).toBe("95.83");
   });
 });
 
 describe("billTotals", () => {
   it("totals the bill and each company's slice", () => {
-    const lines = [priceLine(chips, 4), priceLine(nimko, 3), priceLine(chips, 2)];
+    const lines = [priceLine(chips, 24), priceLine(nimko, 18), priceLine(chips, 12)];
     const { total, byCompany } = billTotals(lines);
-    expect([total.netAmount.toFixed(2), total.quantity]).toEqual(["1017.00", 9]);
+    expect([total.netAmount.toFixed(2), total.quantity]).toEqual(["1017.00", 54]);
     expect(byCompany.get("c1")!.netAmount.toFixed(2)).toBe("672.00");
     expect(byCompany.get("c2")!.netAmount.toFixed(2)).toBe("345.00");
   });
@@ -84,5 +96,26 @@ describe("order statuses", () => {
       true,
       false,
     ]);
+  });
+});
+
+describe("minimumPayment", () => {
+  const min = (previous: string, totalDue: string, creditLimit: string | null) =>
+    minimumPayment({ previous, totalDue, creditLimit }).toFixed(2);
+
+  it("is the earlier balance when the total stays within the limit", () => {
+    expect(min("5000", "12000", "20000")).toBe("5000.00");
+  });
+  it("is what brings the total back within the limit when that is more", () => {
+    expect(min("5000", "32000", "20000")).toBe("12000.00");
+  });
+  it("is the earlier balance when there is no credit limit", () => {
+    expect(min("5000", "32000", null)).toBe("5000.00");
+  });
+  it("is the whole total with a zero limit", () => {
+    expect(min("5000", "8000", "0")).toBe("8000.00");
+  });
+  it("is never negative (advance in hand)", () => {
+    expect(min("-3000", "2000", "10000")).toBe("0.00");
   });
 });

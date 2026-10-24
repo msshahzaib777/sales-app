@@ -1,5 +1,5 @@
 import type { FieldDef } from "@/components/master/record-form";
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 
 type Option = { id: string; name: string };
 const opts = (list: Option[]) => list.map((o) => ({ value: o.id, label: o.name }));
@@ -78,7 +78,7 @@ export function bikeFields(
       label: "Capacity (dozens)",
       required: true,
       inputMode: "decimal",
-      defaultValue: d.capacity ? String(d.capacity / HALF_DOZENS_PER_DOZEN) : "",
+      defaultValue: d.capacity ? String(d.capacity / PACKETS_PER_DOZEN) : "",
       hint: "Usually 80–100 dozen.",
       width: "sm",
     },

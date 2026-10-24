@@ -14,6 +14,7 @@ import {
   createTrip,
   dispatchTrip,
   removeOrderFromTrip,
+  setTripDriver,
 } from "./services/delivery/trips";
 
 // Server actions for delivery trips and day-end entry. The services check permissions, validate,
@@ -143,4 +144,18 @@ export async function undoDayEndAction(
   revalidatePath("/orders");
   revalidatePath("/payments");
   redirect(`/delivery/${tripId}/day-end/${orderId}?notice=day-end-undone`);
+}
+
+export async function setTripDriverAction(
+  tripId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("operations.manage");
+    await setTripDriver(ctx, { tripId, driverId: formData.get("driverId") });
+    return { message: "Driver saved." };
+  }, formData);
+  if (result.status === "success") revalidatePath(`/delivery/${tripId}`);
+  return result;
 }

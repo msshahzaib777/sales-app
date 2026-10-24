@@ -4,7 +4,7 @@ import { BackLink, PageHeader } from "@/components/layout/page-header";
 import { orNotFound } from "@/components/master/page-helpers";
 import { PurchaseOrderForm } from "@/components/purchasing/purchase-order-form";
 import { toDateInput } from "@/lib/dates";
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { savePurchaseOrderAction } from "@/server/purchasing-actions";
@@ -54,7 +54,7 @@ export default async function EditPurchaseOrderPage({
           lines: Object.fromEntries(
             po.lines.map((l) => [
               l.productId,
-              { quantity: String(l.quantity / HALF_DOZENS_PER_DOZEN), rate: l.rate?.toFixed(2) },
+              { quantity: String(l.quantity / PACKETS_PER_DOZEN), rate: l.rate?.toFixed(2) },
             ]),
           ),
         }}

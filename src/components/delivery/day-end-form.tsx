@@ -11,17 +11,23 @@ import { Label } from "@/components/ui/label";
 import { type ActionState, fieldError, idleState, submittedValue } from "@/lib/action-state";
 import { deliveredLines, type BookedLine } from "@/lib/delivery";
 import { formatMoney } from "@/lib/format";
-import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { minimumPayment } from "@/lib/sales";
+import { formatDozens } from "@/lib/units";
 
 export type DayEndLine = BookedLine & { code: string; name: string; companyName: string };
 
-/** "1.5" → 3 half dozens; blank → 0; anything else → null. */
-function halfDozens(text: string): number | null {
-  const t = text.trim();
+/** Packets as typed: "30" → 30; blank → 0; anything else → null. */
+function packets(text: string): number | null {
+  const t = text.trim().replace(/,/g, "");
   if (t === "") return 0;
-  if (!/^\d{1,7}(\.\d+)?$/.test(t)) return null;
-  const half = Number(t) * HALF_DOZENS_PER_DOZEN;
-  return Number.isInteger(half) ? half : null;
+  return /^\d{1,7}$/.test(t) ? Number(t) : null;
+}
+
+/** "30" → "2.5 dz" under a packets box, so the entry can be checked against the bill. */
+function PacketsHint({ value }: { value: number | null }) {
+  return value ? (
+    <div className="text-muted-foreground mt-0.5 text-xs tabular-nums">= {formatDozens(value)}</div>
+  ) : null;
 }
 
 /**
@@ -35,6 +41,7 @@ export function DayEndForm({
   lines,
   previous,
   billBefore,
+  creditLimit,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   orderId: string;
@@ -42,6 +49,7 @@ export function DayEndForm({
   lines: DayEndLine[];
   previous: string;
   billBefore: string;
+  creditLimit: string | null;
 }) {
   const [state, formAction, pending] = useActionState(action, idleState);
   const withRequestId = useRequestId();
@@ -53,8 +61,8 @@ export function DayEndForm({
     const q = qty[l.productId] ?? { returned: "", damaged: "" };
     return {
       productId: l.productId,
-      returned: halfDozens(q.returned),
-      damaged: halfDozens(q.damaged),
+      returned: packets(q.returned),
+      damaged: packets(q.damaged),
     };
   });
   const invalid = results.some(
@@ -76,6 +84,8 @@ export function DayEndForm({
     /^\d+(\.\d{1,2})?$/.test(v.trim()) ? new Decimal(v.trim()) : new Decimal(0);
   const collected = money(paid.cash).add(money(paid.cheque)).add(money(paid.online));
   const due = billAfter ? billAfter.add(previous) : null;
+  const minimum = due ? minimumPayment({ previous, totalDue: due, creditLimit }) : null;
+  const short = minimum ? minimum.sub(collected) : null;
 
   const set = (productId: string, field: "returned" | "damaged", value: string) =>
     setQty((prev) => ({
@@ -111,7 +121,7 @@ export function DayEndForm({
       <section aria-labelledby="lines-heading" className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="lines-heading" className="font-medium">
-            Products (dozens; leave blank when all were delivered)
+            Products: returns and damage in packets (12 = 1 dozen); blank when all were delivered
           </h2>
           <Button
             type="button"
@@ -120,10 +130,7 @@ export function DayEndForm({
             onClick={() =>
               setQty(
                 Object.fromEntries(
-                  lines.map((l) => [
-                    l.productId,
-                    { returned: String(l.quantity / HALF_DOZENS_PER_DOZEN), damaged: "" },
-                  ]),
+                  lines.map((l) => [l.productId, { returned: String(l.quantity), damaged: "" }]),
                 ),
               )
             }
@@ -163,27 +170,29 @@ export function DayEndForm({
                     <td className="px-3 py-1.5">
                       <Input
                         name="line.returned"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         autoComplete="off"
                         className="w-20"
                         value={q.returned}
                         autoFocus={i === 0}
-                        aria-label={`${l.name} returned (dozens)`}
+                        aria-label={`${l.name} returned (packets)`}
                         aria-invalid={bad ? true : undefined}
                         onChange={(e) => set(l.productId, "returned", e.target.value)}
                       />
+                      <PacketsHint value={r.returned} />
                     </td>
                     <td className="px-3 py-1.5">
                       <Input
                         name="line.damaged"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         autoComplete="off"
                         className="w-20"
                         value={q.damaged}
-                        aria-label={`${l.name} damaged (dozens)`}
+                        aria-label={`${l.name} damaged (packets)`}
                         aria-invalid={bad ? true : undefined}
                         onChange={(e) => set(l.productId, "damaged", e.target.value)}
                       />
+                      <PacketsHint value={r.damaged} />
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {bad ? (
@@ -262,12 +271,21 @@ export function DayEndForm({
         <dd className="text-right font-semibold tabular-nums">
           {due ? formatMoney(due.toFixed(2)) : "—"}
         </dd>
+        <dt>Minimum payment</dt>
+        <dd className="text-right tabular-nums">
+          {minimum ? formatMoney(minimum.toFixed(2)) : "—"}
+        </dd>
         <dt>Collected</dt>
         <dd className="text-right tabular-nums">{formatMoney(collected.toFixed(2))}</dd>
         <dt className="border-t pt-1 font-semibold">Still pending</dt>
         <dd className="border-t pt-1 text-right font-semibold tabular-nums">
           {due ? formatMoney(due.sub(collected).toFixed(2)) : "—"}
         </dd>
+        {short?.gt(0) ? (
+          <dd className="text-destructive col-span-2 text-right text-xs" role="note">
+            {formatMoney(short.toFixed(2))} short of the minimum payment
+          </dd>
+        ) : null}
       </dl>
 
       <div className="flex flex-wrap items-center gap-3">

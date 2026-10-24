@@ -6,9 +6,11 @@ import type { Prisma } from "@/generated/prisma/client";
 import type { StockMovementType } from "@/generated/prisma/enums";
 
 import { formatDozens } from "@/lib/units";
+import { searchWhere } from "@/lib/list-params";
 import {
   dateSchema,
   dozensSchema,
+  packetsSchema,
   idSchema,
   optionalText,
   requestIdSchema,
@@ -24,12 +26,12 @@ import { stockPositions } from "./sales/positions";
 
 // Inventory (SPEC §5): stock per product per warehouse, always rebuilt from the stock journal.
 // On hand = saleable movements; reserved = booked and planned orders; available = on hand −
-// reserved; damaged = the damaged bucket. Quantities in half dozens. No costs: staff see this.
+// reserved; damaged = the damaged bucket. Quantities in packets. No costs: staff see this.
 
 const returnDamagedSchema = z.object({
   requestId: requestIdSchema,
   productId: idSchema,
-  quantity: dozensSchema("quantity", { min: 1 }),
+  quantity: packetsSchema("quantity", { min: 1 }),
   returnDate: dateSchema("date"),
   note: optionalText(300),
 });
@@ -60,14 +62,7 @@ export async function listStock(ctx: ServiceCtx, f: StockFilters) {
     isActive: true,
     ...(f.companyId ? { companyId: f.companyId } : {}),
     ...(f.warehouseId ? { company: { warehouseId: f.warehouseId } } : {}),
-    ...(f.q
-      ? {
-          OR: [
-            { code: { contains: f.q, mode: "insensitive" } },
-            { name: { contains: f.q, mode: "insensitive" } },
-          ],
-        }
-      : {}),
+    ...searchWhere(f.q, ["code", "name"]),
   };
   const products = await ctx.db.product.findMany({
     where,
@@ -273,4 +268,152 @@ export async function returnDamagedStock(ctx: ServiceCtx, input: unknown) {
     });
     return movement;
   });
+}
+
+// ───────────────────────── Opening stock ─────────────────────────
+
+const openingStockSchema = z.object({
+  requestId: requestIdSchema,
+  stockDate: dateSchema("date"),
+  lines: z
+    .array(z.object({ productId: idSchema, quantity: dozensSchema("opening stock") }))
+    .max(1000),
+});
+
+/** Products with the opening stock entered so far and what is on hand now (for the entry screen). */
+export async function openingStockSheet(
+  ctx: ServiceCtx,
+  f: { warehouseId?: string; companyId?: string },
+) {
+  assertCan(ctx.user.role, "masterData.manage");
+  const products = await ctx.db.product.findMany({
+    where: {
+      isActive: true,
+      ...(f.companyId ? { companyId: f.companyId } : {}),
+      ...(f.warehouseId ? { company: { warehouseId: f.warehouseId } } : {}),
+    },
+    orderBy: [{ company: { name: "asc" } }, { code: "asc" }],
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      company: { select: { name: true, warehouseId: true, warehouse: { select: { name: true } } } },
+    },
+  });
+  const ids = products.map((p) => p.id);
+  const [opening, onHand] = await Promise.all([
+    ctx.db.stockMovement.groupBy({
+      by: ["productId"],
+      where: { productId: { in: ids }, type: "OPENING", bucket: "SALEABLE" },
+      _sum: { quantity: true },
+    }),
+    ctx.db.stockMovement.groupBy({
+      by: ["productId"],
+      where: { productId: { in: ids }, bucket: "SALEABLE" },
+      _sum: { quantity: true },
+    }),
+  ]);
+  const openingOf = new Map(opening.map((g) => [g.productId, g._sum.quantity ?? 0]));
+  const onHandOf = new Map(onHand.map((g) => [g.productId, g._sum.quantity ?? 0]));
+  return products.map((p) => ({
+    id: p.id,
+    code: p.code,
+    name: p.name,
+    companyName: p.company.name,
+    warehouseName: p.company.warehouse.name,
+    opening: openingOf.get(p.id) ?? 0,
+    onHand: onHandOf.get(p.id) ?? 0,
+  }));
+}
+
+/**
+ * Sets each listed product's opening stock (the stock already in the warehouse on the first day)
+ * to the quantity given. No company bill: these goods were bought before the app. Posted as the
+ * difference from what was entered before (append-only), so saving the same sheet twice changes
+ * nothing. The stock goes into one opening batch per product, dispatched like any other batch.
+ */
+export async function setOpeningStock(ctx: ServiceCtx, input: unknown) {
+  assertCan(ctx.user.role, "masterData.manage");
+  const data = openingStockSchema.parse(input);
+  return ctx.db.$transaction(
+    async (tx) => {
+      const products = await tx.product.findMany({
+        where: { id: { in: data.lines.map((l) => l.productId) } },
+        select: { id: true, name: true, company: { select: { warehouseId: true } } },
+      });
+      const byId = new Map(products.map((p) => [p.id, p]));
+      const changes: { productId: string; from: number; to: number }[] = [];
+      for (const line of data.lines) {
+        const product = byId.get(line.productId);
+        if (!product) throw new ServiceError("A product on this sheet was not found.");
+        const warehouseId = product.company.warehouseId;
+        const opening = await tx.stockMovement.findMany({
+          where: { productId: product.id, warehouseId, type: "OPENING", bucket: "SALEABLE" },
+          orderBy: { createdAt: "asc" },
+          select: { quantity: true, batchId: true },
+        });
+        const current = opening.reduce((s, m) => s + m.quantity, 0);
+        const delta = line.quantity - current;
+        if (delta === 0) continue;
+        let batchId = opening.find((m) => m.batchId)?.batchId ?? null;
+        if (delta < 0) {
+          // Only what is still left of the opening batch can be taken back.
+          const left = batchId
+            ? ((
+                await tx.stockMovement.aggregate({
+                  where: { batchId, bucket: "SALEABLE" },
+                  _sum: { quantity: true },
+                })
+              )._sum.quantity ?? 0)
+            : 0;
+          if (left + delta < 0)
+            throw new ServiceError(
+              `${product.name}: some of its opening stock has already been sent out, so it cannot be lowered to ${formatDozens(line.quantity)}.`,
+            );
+        }
+        if (!batchId) {
+          batchId = (
+            await tx.batch.create({
+              data: {
+                tenantId: ctx.user.tenantId,
+                productId: product.id,
+                warehouseId,
+                receivedDate: data.stockDate,
+              },
+            })
+          ).id;
+        }
+        await tx.stockMovement.create({
+          data: {
+            tenantId: ctx.user.tenantId,
+            type: "OPENING",
+            productId: product.id,
+            warehouseId,
+            batchId,
+            bucket: "SALEABLE",
+            quantity: delta,
+            occurredAt: data.stockDate,
+            note:
+              current === 0
+                ? "Opening stock"
+                : `Opening stock changed from ${formatDozens(current)}`,
+            requestId: data.requestId,
+            createdById: ctx.user.id,
+          },
+        });
+        changes.push({ productId: product.id, from: current, to: line.quantity });
+      }
+      if (changes.length > 0) {
+        await writeAudit(tx, ctx.user, {
+          action: "POST",
+          entityType: "OpeningStock",
+          entityId: ctx.user.tenantId,
+          newValue: { stockDate: data.stockDate, changes },
+          requestId: data.requestId,
+        });
+      }
+      return { changed: changes.length };
+    },
+    { timeout: 60_000 },
+  );
 }

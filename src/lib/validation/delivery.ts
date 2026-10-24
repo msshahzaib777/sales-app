@@ -2,12 +2,13 @@ import { z } from "zod";
 
 import {
   blankAs,
+  blankToUndefined,
   dateSchema,
-  dozensSchema,
   idSchema,
   optionalDateSchema,
   optionalMoneySchema,
   optionalText,
+  packetsSchema,
   requestIdSchema,
 } from "./master";
 
@@ -22,7 +23,8 @@ export const tripSchema = z.object({
   requestId: requestIdSchema,
   tripDate: dateSchema("delivery date"),
   bikeId: z.string({ error: "Choose a bike" }).min(1, "Choose a bike").max(40),
-  driverId: z.string({ error: "Choose the driver" }).min(1, "Choose the driver").max(40),
+  /** Optional: often chosen when the trip leaves, or later. */
+  driverId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
   note: optionalText(300),
   orderIds: orderIds.refine((ids) => ids.length > 0, "Tick at least one order"),
 });
@@ -32,13 +34,18 @@ export const tripOrdersSchema = z.object({
   orderIds: orderIds.refine((ids) => ids.length > 0, "Tick at least one order"),
 });
 
+export const tripDriverSchema = z.object({
+  tripId: idSchema,
+  driverId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
+});
+
 export const tripOrderSchema = z.object({ tripId: idSchema, orderId: idSchema });
 
-const dozensOrZero = (label: string) => blankAs(dozensSchema(label), 0);
+const packetsOrZero = (label: string) => blankAs(packetsSchema(label), 0);
 const amount = (label: string) =>
   optionalMoneySchema(label).transform((v) => (v === null || Number(v) === 0 ? null : v));
 
-/** One order's day-end entry from the signed bill. Quantities in dozens, amounts in rupees. */
+/** One order's day-end entry from the signed bill. Returns and damage in packets, amounts in rupees. */
 export const dayEndSchema = z
   .object({
     requestId: requestIdSchema,
@@ -47,8 +54,8 @@ export const dayEndSchema = z
       .array(
         z.object({
           productId: idSchema,
-          returned: dozensOrZero("returned quantity"),
-          damaged: dozensOrZero("damaged quantity"),
+          returned: packetsOrZero("returned quantity"),
+          damaged: packetsOrZero("damaged quantity"),
         }),
       )
       .max(200)

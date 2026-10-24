@@ -89,7 +89,7 @@ describe("purchase orders", () => {
       lines: [{ productId: t.p1.id, quantity: "10", rate: "1" }],
     });
     const full = await getPurchaseOrder(t.ctx, po.id);
-    expect(full.lines[0]).toMatchObject({ quantity: 20 });
+    expect(full.lines[0]).toMatchObject({ quantity: 120 });
     expect(D(full.lines[0]!.rate)).toBe("1200.00");
     // And staff do not see the rate at all.
     expect((await getPurchaseOrder(t.as("STAFF"), po.id)).lines[0]!.rate).toBeNull();
@@ -111,8 +111,8 @@ describe("purchase orders", () => {
     let full = await getPurchaseOrder(t.ctx, po.id);
     expect(full.status).toBe("PARTIALLY_RECEIVED");
     expect(full.lines.map((l) => [l.received, l.variance])).toEqual([
-      [12, -8],
-      [0, -10],
+      [72, -48],
+      [0, -60],
     ]);
     await expect(
       updatePurchaseOrder(t.ctx, po.id, {
@@ -132,7 +132,7 @@ describe("purchase orders", () => {
     });
     full = await getPurchaseOrder(t.ctx, po.id);
     expect(full.status).toBe("RECEIVED");
-    expect(full.lines.map((l) => l.variance)).toEqual([2, 0]);
+    expect(full.lines.map((l) => l.variance)).toEqual([12, 0]);
   });
 
   it("cancels an untouched order and closes a partly received one", async () => {
@@ -161,8 +161,8 @@ describe("goods receipts", () => {
         { productId: t.p2.id, quantity: "2.5" },
       ],
     });
-    expect(await stockOf(t.p1.id)).toBe(20);
-    expect(await stockOf(t.p2.id)).toBe(5);
+    expect(await stockOf(t.p1.id)).toBe(120);
+    expect(await stockOf(t.p2.id)).toBe(30);
     expect(await t.ctx.db.batch.count()).toBe(2);
     const bill = receipt.companyBill;
     // 10 dz × 1200 + 2.5 dz × 600
@@ -194,7 +194,7 @@ describe("goods receipts", () => {
     const a = await receive(t.ctx, { requestId, lines: [{ productId: t.p1.id, quantity: "1" }] });
     const b = await receive(t.ctx, { requestId, lines: [{ productId: t.p1.id, quantity: "1" }] });
     expect(b.id).toBe(a.id);
-    expect(await stockOf(t.p1.id)).toBe(2);
+    expect(await stockOf(t.p1.id)).toBe(12);
   });
 
   it("numbers documents per tenant in sequence", async () => {
@@ -212,7 +212,7 @@ describe("damage claims", () => {
       productId: t.p1.id,
       type: "DELIVERY_DAMAGE",
       claimDate: "2026-10-05",
-      quantity: "1",
+      quantity: "12",
     });
     expect(D(claim.amount)).toBe("1200.00");
     const { companyBill } = await receive(t.ctx, {
@@ -237,7 +237,7 @@ describe("damage claims", () => {
       productId: t.p1.id,
       type: "OTHER",
       claimDate: "2026-10-05",
-      quantity: "10",
+      quantity: "120",
     });
     const { companyBill } = await receive(t.ctx, {
       lines: [{ productId: t.p2.id, quantity: "1" }],
@@ -359,7 +359,7 @@ describe("cancelling a goods receipt", () => {
       productId: t.p2.id,
       type: "OTHER",
       claimDate: "2026-10-02",
-      quantity: "1",
+      quantity: "12",
     });
     const receipt = await receive(t.ctx, {
       purchaseOrderId: po.id,
@@ -414,7 +414,7 @@ describe("company ledger", () => {
       productId: t.p1.id,
       type: "DELIVERY_DAMAGE",
       claimDate: "2026-10-02",
-      quantity: "0.5",
+      quantity: "6",
     }); // 600 pending
     await createCompanyPayment(t.ctx, {
       companyId: t.company.id,
@@ -506,7 +506,7 @@ describe("tenant isolation", () => {
         productId: other.p1.id,
         type: "OTHER",
         claimDate: "2026-10-01",
-        quantity: "1",
+        quantity: "12",
       }),
     ).rejects.toThrow("product of this company");
     await expect(

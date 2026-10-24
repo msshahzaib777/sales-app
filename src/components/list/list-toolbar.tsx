@@ -1,9 +1,11 @@
-import Link from "next/link";
+import Form from "next/form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { ListParams } from "@/lib/list-params";
+
+import { AutoSubmit, ClearFilters } from "./auto-submit";
 
 export type FilterConfig = {
   name: string;
@@ -15,8 +17,9 @@ export type FilterConfig = {
 };
 
 /**
- * Search + filters as a plain GET form: works without JavaScript, keeps filters in the URL so
- * lists can be bookmarked, and Enter in the search box applies everything.
+ * Search + filters as a GET form: keeps filters in the URL so lists can be bookmarked. Applies
+ * itself as you type (search) or choose (filters); Enter still works, and so does the form without
+ * JavaScript.
  */
 export function ListToolbar({
   basePath,
@@ -41,12 +44,16 @@ export function ListToolbar({
   allOption?: string;
 }) {
   return (
-    <form
-      method="get"
+    // next/form: a GET form that navigates without a full page load, so the list updates in place
+    // while typing (AutoSubmit) and focus stays in the search box.
+    <Form
       action={basePath}
+      replace
+      scroll={false}
       role="search"
       className="mb-4 flex flex-wrap items-end gap-2"
     >
+      <AutoSubmit />
       {showSearch ? (
         <div className="min-w-48 flex-1 space-y-1">
           <label htmlFor="q" className="text-muted-foreground text-xs font-medium">
@@ -132,9 +139,7 @@ export function ListToolbar({
       <Button type="submit" variant="secondary">
         Apply
       </Button>
-      <Button asChild variant="ghost">
-        <Link href={basePath}>Clear</Link>
-      </Button>
-    </form>
+      <ClearFilters href={basePath} />
+    </Form>
   );
 }

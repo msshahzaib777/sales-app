@@ -6,7 +6,7 @@ import {
   type DiscountType,
   resolveDiscount,
 } from "./pricing";
-import { HALF_DOZENS_PER_DOZEN } from "./units";
+import { PACKETS_PER_DOZEN } from "./units";
 
 // Sales order rules shared by the server (what is stored) and the order-entry screen (what the user
 // sees while typing), so both always agree. Pure: no database, no Prisma.
@@ -47,7 +47,7 @@ export function priceLine(product: PricedProduct, quantity: number): PricedLine 
   );
   const amounts = calculateLineAmounts({
     quantity,
-    baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+    baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
     rate: product.saleRate,
     discountType: discount.discountType,
     discountValue: discount.discountValue,
@@ -135,6 +135,22 @@ export function checkCredit(input: {
   const limit = input.creditLimit === null ? null : D(input.creditLimit);
   const over = limit !== null && exposure.gt(limit) && thisOrder.gt(0) ? exposure.sub(limit) : null;
   return { limit, pending, openOrders, thisOrder, exposure, over };
+}
+
+/**
+ * The least the customer should pay against a bill: everything left over from earlier bills, or
+ * whatever takes the total due back within the credit limit, whichever is more. With no limit it is
+ * just the earlier balance. Never below zero (an advance in hand means nothing is owed yet).
+ */
+export function minimumPayment(input: {
+  previous: DecimalValue;
+  totalDue: DecimalValue;
+  creditLimit: DecimalValue | null;
+}): Decimal {
+  const previous = D(input.previous);
+  const overLimit =
+    input.creditLimit === null ? new Decimal(0) : D(input.totalDue).sub(input.creditLimit);
+  return Decimal.max(previous, overLimit, 0);
 }
 
 // ───────────── Status machine (SPEC §6) ─────────────

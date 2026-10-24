@@ -9,9 +9,9 @@ type DecimalInput = Decimal | number | string;
 export type DiscountType = "NONE" | "PERCENT" | "AMOUNT_PER_UNIT";
 
 export type LineInput = {
-  /** Quantity in base units (half dozens for snacks). */
+  /** Quantity in base units (packets for snacks). */
   quantity: number;
-  /** How many base units one price unit holds (2 for half dozen → dozen). */
+  /** How many base units one price unit holds (12 packets → dozen). */
   baseUnitsPerPriceUnit: number;
   /** Rate per price unit. */
   rate: DecimalInput;

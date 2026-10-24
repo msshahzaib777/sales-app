@@ -14,7 +14,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
 import { billTotals, checkCredit, priceLine, type PricedLine } from "@/lib/sales";
-import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 import { orderEntryContextAction } from "@/server/sales-actions";
 import type { OrderEntryContext } from "@/server/services/sales/orders";
 
@@ -36,12 +36,11 @@ const SOURCES = [
   { value: "BOOKER_APP", label: "Booker app" },
 ];
 
-/** "3.5" → 7 half dozens; null if not a whole or half dozen. */
+/** "3.5" → 42 packets; null if not a whole or half dozen. */
 function halfDozens(qty: string): number | null {
   const n = Number(qty.replace(/,/g, ""));
-  if (!qty.trim() || !Number.isFinite(n) || n <= 0) return null;
-  const half = n * HALF_DOZENS_PER_DOZEN;
-  return Number.isInteger(half) ? half : null;
+  if (!qty.trim() || !Number.isFinite(n) || n <= 0 || !Number.isInteger(n * 2)) return null;
+  return n * PACKETS_PER_DOZEN;
 }
 
 /**
@@ -163,7 +162,7 @@ export function OrderEntry({
     setLines(
       context.lastOrder.lines
         .filter((l) => productById.has(l.productId))
-        .map((l) => ({ productId: l.productId, qty: String(l.quantity / HALF_DOZENS_PER_DOZEN) })),
+        .map((l) => ({ productId: l.productId, qty: String(l.quantity / PACKETS_PER_DOZEN) })),
     );
   };
 

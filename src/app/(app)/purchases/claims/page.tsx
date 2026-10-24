@@ -9,13 +9,14 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Notice } from "@/components/master/notice";
 import { LinkButton } from "@/components/master/page-helpers";
 import { MoneyPage } from "@/components/purchasing/money-guard";
+import { SettleClaimForm } from "@/components/purchasing/settle-claim-form";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { filterParam, listParamsSchema } from "@/lib/list-params";
 import { formatDozens } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
-import { cancelClaimAction } from "@/server/purchasing-actions";
+import { cancelClaimAction, settleClaimAction } from "@/server/purchasing-actions";
 import { companyOptions } from "@/server/services/master/companies";
 import { listClaims } from "@/server/services/purchasing/claims";
 import { parseDateRange } from "@/server/services/purchasing/filters";
@@ -28,8 +29,10 @@ const TYPE = {
   OTHER: "Other",
 } as const;
 const STATUS = {
-  PENDING: "Waiting for next bill",
+  AWAITING: "Pending: settle with company",
+  PENDING: "Accepted: to deduct on next bill",
   APPLIED: "Deducted",
+  REJECTED: "Rejected",
   REVERSED: "Cancelled",
 } as const;
 
@@ -38,7 +41,7 @@ export default function ClaimsPage({ searchParams }: PageProps<"/purchases/claim
     <MoneyPage>
       <PageHeader
         title="Company claims"
-        description="Credits against companies (e.g. stock damaged in delivery). Each is deducted on the company's next bill."
+        description="Credits against companies. Damage from day-end waits here until you settle it with the company: accept it (in full or for less) or reject it. Accepted claims are deducted on the company's next bill."
         actions={<LinkButton href="/purchases/claims/new">Log claim</LinkButton>}
       />
       <Claims searchParams={searchParams} />
@@ -120,11 +123,36 @@ async function Claims({
               </Td>
               <Td>{TYPE[c.type]}</Td>
               <Td className="text-right tabular-nums">{formatDozens(c.quantity)}</Td>
-              <Td className="text-right tabular-nums">{formatMoney(c.amount)}</Td>
+              <Td className="text-right tabular-nums">
+                {formatMoney(c.amount)}
+                {c.claimedAmount && !c.claimedAmount.eq(c.amount) ? (
+                  <div className="text-muted-foreground text-xs">
+                    claimed {formatMoney(c.claimedAmount)}
+                  </div>
+                ) : null}
+              </Td>
               <Td className="space-y-2">
-                <Badge variant={c.status === "PENDING" ? "secondary" : "outline"}>
+                <Badge
+                  variant={
+                    c.status === "AWAITING"
+                      ? "default"
+                      : c.status === "PENDING"
+                        ? "secondary"
+                        : "outline"
+                  }
+                >
                   {STATUS[c.status]}
                 </Badge>
+                {c.settlementNote ? (
+                  <div className="text-muted-foreground text-xs">{c.settlementNote}</div>
+                ) : null}
+                {c.status === "AWAITING" ? (
+                  <SettleClaimForm
+                    action={settleClaimAction.bind(null, c.id)}
+                    number={c.number}
+                    claimed={c.amount.toFixed(2)}
+                  />
+                ) : null}
                 {c.appliedToBill ? (
                   <div>
                     <Link
@@ -135,11 +163,15 @@ async function Claims({
                     </Link>
                   </div>
                 ) : null}
-                {c.status === "PENDING" ? (
+                {c.status === "PENDING" || c.status === "AWAITING" ? (
                   <ReasonAction
                     action={cancelClaimAction.bind(null, c.id)}
                     label="Cancel"
-                    description={`Cancel claim #${c.number}? Its credit is reversed.`}
+                    description={
+                      c.status === "AWAITING"
+                        ? `Cancel claim #${c.number}? Use this for a claim logged by mistake; use Reject when the company refused it.`
+                        : `Cancel claim #${c.number}? Its credit is reversed.`
+                    }
                   />
                 ) : null}
               </Td>

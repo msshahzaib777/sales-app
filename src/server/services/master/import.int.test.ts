@@ -63,7 +63,7 @@ describe("product import", () => {
       where: { tenantId_code: { tenantId: ctx.user.tenantId, code: "CB01" } },
       include: { priceHistory: true },
     });
-    expect(cb01).toMatchObject({ discountType: "AMOUNT_PER_UNIT", minStockLevel: 20 });
+    expect(cb01).toMatchObject({ discountType: "AMOUNT_PER_UNIT", minStockLevel: 120 });
     expect(cb01.priceHistory).toHaveLength(1);
   });
 

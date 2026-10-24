@@ -4,7 +4,7 @@ import { ConfirmAction } from "@/components/form/confirm-action";
 import { RequirePermission } from "@/components/layout/no-access";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
 import { Notice } from "@/components/master/notice";
-import { orNotFound } from "@/components/master/page-helpers";
+import { LinkButton, orNotFound } from "@/components/master/page-helpers";
 import { RecordForm } from "@/components/master/record-form";
 import { RecordStatusActions } from "@/components/master/record-status-actions";
 import { can } from "@/server/auth/permissions";
@@ -60,7 +60,15 @@ async function Editor({ params }: { params: Promise<{ id: string }> }) {
       : areas;
   return (
     <div className="space-y-8">
-      <PageHeader title={customer.name} description={customer.shopName ?? undefined} />
+      <PageHeader
+        title={customer.name}
+        description={customer.shopName ?? undefined}
+        actions={
+          <LinkButton href={`/customers/${id}/old-bills`} variant="outline">
+            Old balance (paper bills)
+          </LinkButton>
+        }
+      />
       {customer.isFlagged ? (
         <div role="alert" className="border-destructive space-y-2 rounded-md border p-3 text-sm">
           <p className="text-destructive font-medium">

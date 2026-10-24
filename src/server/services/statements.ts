@@ -10,7 +10,8 @@ import type { DateRange } from "./purchasing/filters";
 
 // Customer statement (SPEC §8 views "customer, all companies" and "customer × company"): every
 // bill, payment and adjustment with a running balance of what the customer owes. Printed and
-// handed or sent to the customer.
+// handed or sent to the customer. The old balance (entries with no company) shows only on the
+// all-companies view.
 
 const D = (v: Prisma.Decimal | number | string) => new Prisma.Decimal(v);
 
@@ -73,7 +74,8 @@ export async function getCustomerStatement(
       entryDate: e.entryDate,
       typeLabel: LEDGER_TYPE_LABEL[e.type],
       description: e.description ?? "",
-      companyName: companyName.get(e.companyId ?? "") ?? "",
+      // No company: the customer's old balance (paper bills from before the app).
+      companyName: e.companyId ? (companyName.get(e.companyId) ?? "") : "Old balance",
       debit: e.debit,
       credit: e.credit,
       balance,
@@ -96,15 +98,22 @@ export async function getCustomerStatement(
     opening,
     rows,
     closing: balance,
-    /** What the customer owes now per company (all dates), for the all-companies summary. */
+    /**
+     * What the customer owes now per company (all dates), for the all-companies summary. The old
+     * balance (no company) comes first, under companyId "".
+     */
     byCompany: perCompany
       .map((g) => ({
-        companyId: g.companyId!,
-        companyName: companyName.get(g.companyId!) ?? "",
+        companyId: g.companyId ?? "",
+        companyName: g.companyId ? (companyName.get(g.companyId) ?? "") : "Old balance",
         balance: D(g._sum.debit ?? 0).sub(g._sum.credit ?? 0),
       }))
       .filter((c) => !c.balance.isZero())
-      .sort((a, b) => a.companyName.localeCompare(b.companyName)),
+      .sort(
+        (a, b) =>
+          Number(a.companyId !== "") - Number(b.companyId !== "") ||
+          a.companyName.localeCompare(b.companyName),
+      ),
   };
 }
 

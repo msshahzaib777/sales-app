@@ -17,6 +17,7 @@ import {
   approveCreditOverride,
   cancelSalesOrder,
   createSalesOrder,
+  listSalesOrders,
   getSalesOrder,
   orderEntryContext,
   updateSalesOrder,
@@ -122,7 +123,7 @@ describe("booking an order", () => {
     );
     const full = await getSalesOrder(t.ctx, result.id);
     const chipsLine = full.lines.find((l) => l.productId === t.chips.id)!;
-    expect(chipsLine).toMatchObject({ companyId: t.crunchy.id, quantity: 7 });
+    expect(chipsLine).toMatchObject({ companyId: t.crunchy.id, quantity: 42 });
     expect([chipsLine.discountAmount.toFixed(2), chipsLine.netAmount.toFixed(2)]).toEqual([
       "14.00",
       "784.00",
@@ -142,24 +143,24 @@ describe("booking an order", () => {
 
   it("reserves stock: available drops, editing does not double count, cancelling frees it", async () => {
     const before = (await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!;
-    expect(before).toEqual({ onHand: 60, reserved: 0, available: 60 });
+    expect(before).toEqual({ onHand: 360, reserved: 0, available: 360 });
     const r = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "5" }]));
     expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)).toEqual({
-      onHand: 60,
-      reserved: 10,
-      available: 50,
+      onHand: 360,
+      reserved: 60,
+      available: 300,
     });
     const ctxForEdit = await orderEntryContext(t.ctx, t.customer.id, { excludeOrderId: r.id });
-    expect(ctxForEdit.products.find((p) => p.id === t.chips.id)!.available).toBe(60);
+    expect(ctxForEdit.products.find((p) => p.id === t.chips.id)!.available).toBe(360);
     await updateSalesOrder(t.staff, r.id, order([{ productId: t.chips.id, quantity: "6" }]));
-    expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!.reserved).toBe(12);
+    expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!.reserved).toBe(72);
     await cancelSalesOrder(t.staff, { id: r.id });
     expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!.reserved).toBe(0);
   });
 
   it("reports products booked beyond available stock (and still books them)", async () => {
     const r = await createSalesOrder(t.staff, order([{ productId: t.nimko.id, quantity: "12" }]));
-    expect(r.shortages).toEqual([{ productId: t.nimko.id, name: "Item GC01", short: 4 }]);
+    expect(r.shortages).toEqual([{ productId: t.nimko.id, name: "Item GC01", short: 24 }]);
   });
 
   it("refuses products from another warehouse and requires a warehouse for customers without an area", async () => {
@@ -244,7 +245,7 @@ describe("editing and bill revisions", () => {
     const audit = await prisma.auditLog.findFirstOrThrow({
       where: { entityId: r.id, action: "UPDATE" },
     });
-    expect(audit.oldValue).toMatchObject({ lines: [{ quantity: 4 }] });
+    expect(audit.oldValue).toMatchObject({ lines: [{ quantity: 24 }] });
 
     await prisma.salesOrder.update({ where: { id: r.id }, data: { status: "DISPATCHED" } });
     await expect(
@@ -281,6 +282,15 @@ describe("bill view", () => {
       ["Golden", "1000.00", "230.00", "1230.00"],
     ]);
     expect(view.lines.map((l) => l.code).sort()).toEqual(["CB01", "GC01"]);
+    // No credit limit: the minimum is what was left over from before.
+    expect(view.minimumPayment.toFixed(2)).toBe("4000.00");
+
+    // A 4,500 limit: 4,678 due, so at least the earlier 4,000 (more than the 178 over).
+    await prisma.customer.update({ where: { id: t.customer.id }, data: { creditLimit: 4500 } });
+    expect((await getBillView(t.ctx, r.id)).minimumPayment.toFixed(2)).toBe("4000.00");
+    // A 500 limit: 4,178 over it, which is more than the earlier balance.
+    await prisma.customer.update({ where: { id: t.customer.id }, data: { creditLimit: 500 } });
+    expect((await getBillView(t.ctx, r.id)).minimumPayment.toFixed(2)).toBe("4178.00");
   });
 });
 
@@ -298,7 +308,26 @@ describe("order entry context", () => {
       ["Golden", "1000.00"],
     ]);
     expect(c.products.map((p) => p.code)).toEqual(["CB01", "GC01"]);
-    expect(c.products[0]).toMatchObject({ available: 56, tiers: [{ minQuantity: 50 }] });
-    expect(c.lastOrder?.lines).toEqual([{ productId: t.chips.id, quantity: 4 }]);
+    expect(c.products[0]).toMatchObject({ available: 336, tiers: [{ minQuantity: 300 }] });
+    expect(c.lastOrder?.lines).toEqual([{ productId: t.chips.id, quantity: 24 }]);
+  });
+});
+
+describe("finding orders", () => {
+  it("by customer words in any order, by product code or name, and with the area filter", async () => {
+    const r = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1" }]));
+    const find = async (q: string, extra: object = {}) =>
+      (await listSalesOrders(t.staff, { q, page: 1, ...extra })).rows.map((o) => o.id);
+    expect(await find("kh ali")).toEqual([r.id]);
+    expect(await find("ALI KHAN")).toEqual([r.id]);
+    expect(await find("ali bakers")).toEqual([]);
+    expect(await find("cb01")).toEqual([r.id]); // chips' code
+    expect(await find("item cb")).toEqual([r.id]); // its name
+    expect(await find("gc01")).toEqual([]); // nimko is not on the order
+    expect(await find("shahdara")).toEqual([r.id]); // the customer's area
+    expect(await find(`#${r.number}`)).toEqual([r.id]);
+    // The search and the area filter work together (they both filter the customer).
+    const elsewhere = await createArea(t.ctx, { warehouseId: t.main.id, name: "Ravi" });
+    expect(await find("ali", { areaId: elsewhere.id })).toEqual([]);
   });
 });

@@ -2,7 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import { businessToday } from "@/lib/dates";
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 import { goodsReceiptSchema, reverseSchema } from "@/lib/validation/purchasing";
 
 import { writeAudit } from "../../audit";
@@ -17,6 +17,7 @@ import {
   reverseLedgerFor,
 } from "../posting";
 import { calculateLineAmounts } from "@/lib/pricing";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 import { addDays, claimsToDeduct } from "./calc";
 import type { DateRange } from "./filters";
 import { refreshPurchaseOrderStatus } from "./purchase-orders";
@@ -33,22 +34,20 @@ export type ReceiptFilters = { companyId?: string; q?: string; page: number } & 
 
 export async function listGoodsReceipts(ctx: ServiceCtx, f: ReceiptFilters) {
   assertCan(ctx.user.role, "operations.manage");
-  const number = f.q && /^\d+$/.test(f.q) ? Number(f.q) : undefined;
+  const number = searchNumber(f.q);
   const where: Prisma.GoodsReceiptWhereInput = {
     ...(f.companyId ? { companyId: f.companyId } : {}),
     ...(f.from || f.to
       ? { receivedDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
       : {}),
-    ...(f.q
-      ? number
-        ? { number }
-        : {
-            OR: [
-              { supplierRef: { contains: f.q, mode: "insensitive" } },
-              { company: { name: { contains: f.q, mode: "insensitive" } } },
-            ],
-          }
-      : {}),
+    ...(number !== undefined
+      ? { number }
+      : matchEveryWord(f.q, (w): Prisma.GoodsReceiptWhereInput[] => [
+          { supplierRef: icontains(w) },
+          { company: { name: icontains(w) } },
+          { lines: { some: { product: { code: icontains(w) } } } },
+          { lines: { some: { product: { name: icontains(w) } } } },
+        ])),
   };
   const showCost = can(ctx.user.role, "financials.view");
   const [rows, total] = await Promise.all([
@@ -180,7 +179,7 @@ export async function createGoodsReceipt(ctx: ServiceCtx, input: unknown) {
             : (poLine?.rate ?? product.purchaseRate);
         const { netAmount } = calculateLineAmounts({
           quantity: line.quantity,
-          baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+          baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
           rate,
         });
         return { product, poLine, quantity: line.quantity, rate, amount: netAmount };

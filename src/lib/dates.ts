@@ -25,3 +25,23 @@ export function formatDate(date: Date): string {
     year: "numeric",
   }).format(date);
 }
+
+export const PERIODS = {
+  "this-week": "This week",
+  "last-week": "Last week",
+  "this-month": "This month",
+  "last-month": "Last month",
+} as const;
+export type Period = keyof typeof PERIODS;
+
+/** A report period as business dates (weeks start on Monday), from `today` (UTC midnight). */
+export function periodRange(period: Period, today: Date): { from: Date; to: Date } {
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth();
+  const day = (d: number) => new Date(Date.UTC(y, m, d));
+  if (period === "this-month") return { from: day(1), to: new Date(Date.UTC(y, m + 1, 0)) };
+  if (period === "last-month") return { from: new Date(Date.UTC(y, m - 1, 1)), to: day(0) };
+  const sinceMonday = (today.getUTCDay() + 6) % 7;
+  const monday = day(today.getUTCDate() - sinceMonday - (period === "last-week" ? 7 : 0));
+  return { from: monday, to: new Date(monday.getTime() + 6 * 86_400_000) };
+}

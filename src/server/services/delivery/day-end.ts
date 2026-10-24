@@ -13,7 +13,7 @@ import {
 import { businessToday } from "@/lib/dates";
 import { calculateLineAmounts, type DiscountType } from "@/lib/pricing";
 import { billTotals } from "@/lib/sales";
-import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 import { dayEndSchema } from "@/lib/validation/delivery";
 import { reverseSchema } from "@/lib/validation/purchasing";
 
@@ -31,7 +31,8 @@ import { writeBillRevision } from "../sales/orders";
 // Day-end entry (SPEC §7): after the drivers return, staff enter each order from its signed bill.
 // One transaction per order:
 //  - returned quantity goes back to saleable stock;
-//  - damaged quantity goes to damaged stock and becomes a claim against the product's company
+//  - damaged quantity goes to damaged stock and becomes a claim against the product's company,
+//    waiting to be settled with the company (no money moves until it is accepted)
 //    (at purchase cost, SPEC §17);
 //  - the bill is re-priced on what the customer kept, saved as a new revision, and the reduction
 //    is credited to each company's slice of the customer ledger;
@@ -58,7 +59,14 @@ export async function getDayEndEntry(ctx: ServiceCtx, orderId: string) {
             driver: { select: { name: true } },
           },
         },
-        customer: { select: { name: true, shopName: true, area: { select: { name: true } } } },
+        customer: {
+          select: {
+            name: true,
+            shopName: true,
+            creditLimit: true,
+            area: { select: { name: true } },
+          },
+        },
         bill: { select: { id: true, number: true, netAmount: true, previousBalance: true } },
         lines: {
           include: {
@@ -188,7 +196,7 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
           const rate = line.product.purchaseRate;
           const amount = calculateLineAmounts({
             quantity: r.damaged,
-            baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+            baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
             rate,
           }).netAmount;
           if (amount.gt(0)) {
@@ -202,6 +210,7 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
               amount: D(amount.toString()),
               note: `damaged in delivery, order #${order.number}`,
               salesOrderId: order.id,
+              awaiting: true,
             });
             claims.push({
               number: claim.number,
@@ -449,7 +458,9 @@ export async function undoDayEnd(ctx: ServiceCtx, input: unknown) {
       }
 
       // Claims for damage on this delivery.
-      for (const c of order.claims.filter((x) => x.status === "PENDING")) {
+      for (const c of order.claims.filter(
+        (x) => x.status === "PENDING" || x.status === "AWAITING",
+      )) {
         await reverseLedgerFor(
           tx,
           ctx,
@@ -543,7 +554,9 @@ export async function undoDayEnd(ctx: ServiceCtx, input: unknown) {
               damaged: l.damagedQuantity,
             })),
           bill: bill.netAmount,
-          claims: order.claims.filter((c) => c.status === "PENDING").map((c) => c.number),
+          claims: order.claims
+            .filter((c) => c.status === "PENDING" || c.status === "AWAITING")
+            .map((c) => c.number),
           payments: order.payments.map((p) => ({ number: p.number, amount: p.amount })),
         },
         newValue: { status: "DISPATCHED", bill: totals.netAmount, reason },

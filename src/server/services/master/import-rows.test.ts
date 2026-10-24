@@ -80,7 +80,7 @@ describe("validateProductRows", () => {
     ]);
     expect(rows[0]).toMatchObject({
       existingId: "p1",
-      input: { code: "CB01", discountType: "AMOUNT_PER_UNIT", minStockLevel: 20 },
+      input: { code: "CB01", discountType: "AMOUNT_PER_UNIT", minStockLevel: 120 },
     });
     expect(rows[1]!.input).toMatchObject({
       discountType: "NONE",

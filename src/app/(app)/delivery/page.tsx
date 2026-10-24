@@ -89,7 +89,7 @@ export default async function DeliveryPage({ searchParams }: PageProps<"/deliver
               </Td>
               <Td className="whitespace-nowrap">{formatDate(t.tripDate)}</Td>
               <Td>{t.bike.name}</Td>
-              <Td>{t.driver.name}</Td>
+              <Td>{t.driver?.name ?? <span className="text-muted-foreground">Not set</span>}</Td>
               <Td className="text-right tabular-nums">
                 <LoadText load={t.load} capacity={t.bike.capacity} />
               </Td>

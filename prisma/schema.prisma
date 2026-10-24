@@ -4,7 +4,7 @@
 // - Every business table has `tenantId` and `@@unique([tenantId, id])`. References between
 //   business tables are composite foreign keys on (tenantId, xId), so the database itself refuses
 //   a row that points at another tenant's record.
-// - Quantities are Int in the product's base unit (half dozen for snacks). Rates are per the
+// - Quantities are Int in the product's base unit (packet for snacks; 12 to a dozen). Rates are per the
 //   product's price unit (dozen); `UnitConversion` maps units to base units.
 // - Money is Decimal(14,2). Signed ledger convention: balance = SUM(debit - credit) per party.
 //   Positive = the party owes us (customer); negative = we owe the party (company).
@@ -104,10 +104,14 @@ enum ClaimType {
 }
 
 enum ClaimStatus {
-  /// Logged; credit already in the company ledger, not yet deducted on a company bill.
+  /// Damage from day-end, waiting for the user to settle it with the company. No money moved yet.
+  AWAITING
+  /// Accepted (or logged by hand); credit in the company ledger, not yet deducted on a company bill.
   PENDING
   /// Deducted on a company bill (`appliedToBillId`).
   APPLIED
+  /// The company did not accept it. No money moved.
+  REJECTED
   REVERSED
 }
 
@@ -269,6 +273,7 @@ model Tenant {
   billRevisions        BillRevision[]
   cheques              Cheque[]
   customerPayments     CustomerPayment[]
+  customerOldBills     CustomerOldBill[]
   paymentAllocations   PaymentAllocation[]
   ledgerEntries        LedgerEntry[]
 }
@@ -481,7 +486,7 @@ model ProductDiscountTier {
   id            String       @id @default(cuid())
   tenantId      String
   productId     String
-  /// Base units (half dozens): 25 dozen = 50.
+  /// Base units (packets): 25 dozen = 300.
   minQuantity   Int
   discountType  DiscountType
   /// Percent (0–100) or PKR per price unit, depending on `discountType`.
@@ -566,6 +571,7 @@ model Customer {
   salesOrders   SalesOrder[]
   bills         Bill[]
   payments      CustomerPayment[]
+  oldBills      CustomerOldBill[]
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
@@ -580,7 +586,7 @@ model Bike {
   tenantId    String
   warehouseId String?
   name        String
-  /// Load capacity in base units (half dozens): 80 dozen = 160.
+  /// Load capacity in base units (packets): 80 dozen = 960.
   capacity    Int
   driverId    String?
   isActive    Boolean  @default(true)
@@ -834,7 +840,13 @@ model CompanyClaim {
   quantity        Int
   /// Per price unit (purchase rate by default; see SPEC §17 open question).
   rate            Decimal     @db.Decimal(14, 2)
+  /// What we credit the company: the claimed value, or the smaller amount accepted at settlement.
   amount          Decimal     @db.Decimal(14, 2)
+  /// What was claimed (quantity × rate), kept when a smaller amount is accepted.
+  claimedAmount   Decimal?    @db.Decimal(14, 2)
+  settledAt       DateTime?
+  settledById     String?
+  settlementNote  String?
   /// Delivery the damage came from, when known.
   salesOrderId    String?
   appliedToBillId String?
@@ -959,7 +971,8 @@ model DeliveryTrip {
   tripDate     DateTime   @db.Date
   warehouseId  String
   bikeId       String
-  driverId     String
+  /// Optional: often chosen only when the trip leaves, or later; can be set until day-end is done.
+  driverId     String?
   status       TripStatus @default(PLANNED)
   dispatchedAt DateTime?
   reconciledAt DateTime?
@@ -972,7 +985,7 @@ model DeliveryTrip {
   tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   warehouse Warehouse    @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
   bike      Bike         @relation(fields: [tenantId, bikeId], references: [tenantId, id], onDelete: Restrict)
-  driver    Staff        @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  driver    Staff?       @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
   orders    SalesOrder[]
 
   @@unique([tenantId, id])
@@ -1187,6 +1200,34 @@ model CustomerPayment {
   @@unique([tenantId, requestId])
   @@unique([tenantId, chequeId])
   @@index([tenantId, customerId, paymentDate])
+}
+
+/// An unpaid bill from before the app (paper khata), owed to us and not to any company. Posts a
+/// customer OPENING_BALANCE ledger entry with no companyId (the one exception to CLAUDE.md rule 3);
+/// removing it posts a reversal. Paid before anything else; left out of every company figure.
+model CustomerOldBill {
+  id             String        @id @default(cuid())
+  tenantId       String
+  customerId     String
+  billDate       DateTime      @db.Date
+  /// The number on the paper bill, when there is one.
+  billNo         String?
+  amount         Decimal       @db.Decimal(14, 2)
+  note           String?
+  status         PostingStatus @default(POSTED)
+  reversedAt     DateTime?
+  reversalReason String?
+  requestId      String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer Customer @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, customerId, billDate])
 }
 
 /// Payment → bill → company slice. A payment covering a multi-company bill gets one row per company.

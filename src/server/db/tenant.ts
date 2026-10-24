@@ -51,6 +51,7 @@ export const TENANT_MODELS = [
   "BillRevision",
   "Cheque",
   "CustomerPayment",
+  "CustomerOldBill",
   "PaymentAllocation",
   "LedgerEntry",
 ] as const;

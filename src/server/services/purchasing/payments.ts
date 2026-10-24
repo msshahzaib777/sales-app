@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { PaymentMethod } from "@/generated/prisma/enums";
 import { businessToday } from "@/lib/dates";
 import { companyPaymentSchema, reverseSchema } from "@/lib/validation/purchasing";
+import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 
 import { writeAudit } from "../../audit";
 import { assertCan } from "../../auth/permissions";
@@ -29,22 +30,18 @@ export async function listCompanyPayments(
   f: { companyId?: string; q?: string; page: number } & DateRange,
 ) {
   assertCan(ctx.user.role, "payments.manage");
-  const number = f.q && /^\d+$/.test(f.q) ? Number(f.q) : undefined;
+  const number = searchNumber(f.q);
   const where: Prisma.CompanyPaymentWhereInput = {
     ...(f.companyId ? { companyId: f.companyId } : {}),
     ...(f.from || f.to
       ? { paymentDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
       : {}),
-    ...(f.q
-      ? number
-        ? { number }
-        : {
-            OR: [
-              { reference: { contains: f.q, mode: "insensitive" } },
-              { company: { name: { contains: f.q, mode: "insensitive" } } },
-            ],
-          }
-      : {}),
+    ...(number !== undefined
+      ? { number }
+      : matchEveryWord(f.q, (w): Prisma.CompanyPaymentWhereInput[] => [
+          { reference: icontains(w) },
+          { company: { name: icontains(w) } },
+        ])),
   };
   const [rows, total] = await Promise.all([
     ctx.db.companyPayment.findMany({

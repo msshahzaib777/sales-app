@@ -4,14 +4,21 @@ import { splitByWeight } from "./delivery";
 
 // Customer payment allocation (SPEC §8), shared by the server and the payment screen. Pure.
 //
-// A payment goes to the customer's oldest debt first. Debt the bills cannot explain (an opening
-// balance) is the oldest. Then posted bills, oldest first; a payment covering part of a bill with
+// A payment goes to the customer's oldest debt first. The customer's old balance (paper bills from
+// before the app, owed to us and not to a company, keyed OLD_BALANCE) comes first of all. Then debt
+// the bills cannot explain (a company opening balance). Then posted bills, oldest first; a payment covering part of a bill with
 // several companies is split across them in proportion to each company's unpaid amount on it.
 // Anything left over is an advance.
 
 type DecimalValue = Decimal | number | string;
 const D = (v: DecimalValue) => new Decimal(v);
 const ZERO = new Decimal(0);
+
+/**
+ * Key for the customer's old balance in the per-company maps below. It belongs to no company, so
+ * its ledger rows have companyId null; never a real company id.
+ */
+export const OLD_BALANCE = "";
 
 export type BillDebt = {
   billId: string;
@@ -76,12 +83,20 @@ export function allocateOldestFirst(
   const byCompany = new Map<string, Decimal>();
   const allocations: Allocation[] = [];
 
-  const unbilledTotal = [...debt.unbilled.values()].reduce((s, v) => s.add(v), ZERO);
+  const old = debt.unbilled.get(OLD_BALANCE) ?? ZERO;
+  if (old.gt(0) && left.gt(0)) {
+    const take = Decimal.min(left, old);
+    add(byCompany, OLD_BALANCE, take);
+    left = left.sub(take);
+  }
+
+  const companies = [...debt.unbilled].filter(([k]) => k !== OLD_BALANCE);
+  const unbilledTotal = companies.reduce((s, [, v]) => s.add(v), ZERO);
   if (unbilledTotal.gt(0) && left.gt(0)) {
     const take = Decimal.min(left, unbilledTotal);
     const parts = take.eq(unbilledTotal)
-      ? new Map([...debt.unbilled].map(([k, v]) => [k, D(v)]))
-      : splitByWeight(take, [...debt.unbilled]);
+      ? new Map(companies.map(([k, v]) => [k, D(v)]))
+      : splitByWeight(take, companies);
     for (const [companyId, part] of parts) add(byCompany, companyId, part);
     left = left.sub(take);
   }
@@ -114,8 +129,9 @@ export function allocateOldestFirst(
 }
 
 /**
- * Manual split: the user says how much goes to each company; within a company it pays the opening
- * balance, then that company's bill slices oldest first. Any rest is an advance with that company.
+ * Manual split: the user says how much goes to each company (and to the old balance); within a
+ * company it pays the opening balance, then that company's bill slices oldest first. Any rest is an
+ * advance with that company.
  */
 export function allocateByCompany(
   perCompany: Map<string, DecimalValue>,

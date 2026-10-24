@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
-import { formatDozens } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 
 import { LoadText } from "./trip-badge";
 
@@ -153,7 +153,7 @@ export function TripForm({
   const withRequestId = useRequestId();
   const [bikeId, setBikeId] = useState(bikes.length === 1 ? bikes[0]!.id : "");
   const bike = bikes.find((b) => b.id === bikeId);
-  const [driverId, setDriverId] = useState(bike?.driverId ?? "");
+  const [driverId, setDriverId] = useState("");
   const visible = bike?.warehouse
     ? orders.filter((o) => o.warehouseId === bike.warehouse!.id)
     : orders;
@@ -169,16 +169,13 @@ export function TripForm({
             value={bikeId}
             autoFocus
             aria-invalid={fieldError(state, "bikeId") ? true : undefined}
-            onChange={(e) => {
-              const next = bikes.find((b) => b.id === e.target.value);
-              setBikeId(e.target.value);
-              if (next?.driverId) setDriverId(next.driverId);
-            }}
+            onChange={(e) => setBikeId(e.target.value)}
           >
             <option value="">Choose a bike</option>
             {bikes.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name} · {b.capacity / 2} dz{b.warehouse ? ` · ${b.warehouse.name}` : ""}
+                {b.name} · {b.capacity / PACKETS_PER_DOZEN} dz
+                {b.warehouse ? ` · ${b.warehouse.name}` : ""}
               </option>
             ))}
           </NativeSelect>
@@ -187,7 +184,7 @@ export function TripForm({
           ) : null}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="driverId">Driver *</Label>
+          <Label htmlFor="driverId">Driver</Label>
           <NativeSelect
             id="driverId"
             name="driverId"
@@ -195,7 +192,7 @@ export function TripForm({
             onChange={(e) => setDriverId(e.target.value)}
             aria-invalid={fieldError(state, "driverId") ? true : undefined}
           >
-            <option value="">Choose the driver</option>
+            <option value="">Not decided yet</option>
             {staff.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}

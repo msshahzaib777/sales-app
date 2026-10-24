@@ -17,6 +17,7 @@ import {
   type PaymentContext,
   reverseCustomerPayment,
 } from "./services/payments/customer-payments";
+import { createOldBill, removeOldBill } from "./services/payments/old-bills";
 
 // Server actions for customer payments at the office. The services check permissions, allocate,
 // post to the ledger and audit.
@@ -107,4 +108,40 @@ export async function clearCustomerFlagAction(customerId: string): Promise<Actio
   if (result.status !== "success") return result;
   revalidatePath("/customers");
   redirect(`/customers/${customerId}?notice=unflagged`);
+}
+
+export async function saveOldBillAction(
+  customerId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("payments.manage");
+    await createOldBill(ctx, {
+      requestId: formData.get("requestId"),
+      customerId,
+      billDate: formData.get("billDate"),
+      billNo: formData.get("billNo"),
+      amount: formData.get("amount"),
+      note: formData.get("note"),
+    });
+  }, formData);
+  if (result.status !== "success") return result;
+  revalidatePath("/customers");
+  redirect(`/customers/${customerId}/old-bills?notice=old-bill-added`);
+}
+
+export async function removeOldBillAction(
+  id: string,
+  customerId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("payments.manage");
+    await removeOldBill(ctx, { id, reason: formData.get("reason") });
+  }, formData);
+  if (result.status !== "success") return result;
+  revalidatePath("/customers");
+  redirect(`/customers/${customerId}/old-bills?notice=old-bill-removed`);
 }

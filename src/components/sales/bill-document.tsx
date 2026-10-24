@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { Letterhead } from "@/components/print/print-frame";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
-import { formatDozens } from "@/lib/units";
+import { formatDozensCell } from "@/lib/units";
 import type { BillView } from "@/server/services/sales/bills";
 import type { PrintProfile } from "@/server/services/settings";
 
@@ -21,7 +21,9 @@ export function BillDocument({
   lines,
   thisBill,
   previous,
+  oldBalance,
   totalDue,
+  minimum,
   showCompany,
 }: {
   view: BillView;
@@ -30,12 +32,16 @@ export function BillDocument({
   lines: Line[];
   thisBill: { toString(): string };
   previous: { toString(): string };
+  /** Part of `previous` from old paper bills; shown on its own line on the full bill. */
+  oldBalance?: { toString(): string };
   totalDue: { toString(): string };
+  /** Shown on the full bill only: the credit limit is the customer's, not a company's. */
+  minimum?: { toString(): string };
   showCompany: boolean;
 }) {
   // Money is summed as decimals, never floats (CLAUDE.md rule 5).
   const discount = lines.reduce((s, l) => s.add(l.discountAmount), new Decimal(0));
-  const dz = (q: number) => formatDozens(q).replace(" dz", "");
+  const dz = formatDozensCell;
   return (
     <article className="space-y-[0.6em] leading-snug">
       <Letterhead
@@ -61,30 +67,40 @@ export function BillDocument({
         </div>
       </div>
       {title ? <p className="font-semibold">{title}</p> : null}
-      <table className="w-full border-collapse">
+      <table className="w-full border-collapse [&_td:not(:first-child)]:pl-[0.8em] [&_th:not(:first-child)]:pl-[0.8em]">
         <thead>
           <tr className="border-y border-black text-left">
-            <th className="py-[0.2em] pr-1 font-semibold">Product</th>
-            {showCompany ? <th className="py-[0.2em] pr-1 font-semibold">Company</th> : null}
-            <th className="py-[0.2em] pr-1 text-right font-semibold">Dz</th>
-            <th className="py-[0.2em] pr-1 text-right font-semibold">Rate</th>
-            <th className="py-[0.2em] pr-1 text-right font-semibold">Disc.</th>
-            <th className="py-[0.2em] text-right font-semibold">Amount</th>
+            <th className={`${showCompany ? "w-[45%]" : "w-[60%]"} py-[0.2em] font-semibold`}>
+              Product
+            </th>
+            {showCompany ? (
+              <th className="py-[0.2em] font-semibold whitespace-nowrap">Company</th>
+            ) : null}
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Dz</th>
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Rate</th>
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Disc.</th>
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Amount</th>
           </tr>
         </thead>
         <tbody>
           {lines.map((l) => (
-            <tr key={l.productId} className="border-b border-dotted border-black/60">
-              <td className="py-[0.1em] pr-1">
+            <tr key={l.productId} className="border-b border-dotted border-black/60 align-top">
+              <td className="py-[0.1em] break-words">
                 {l.code} {l.name}
               </td>
-              {showCompany ? <td className="py-[0.1em] pr-1">{l.companyName}</td> : null}
-              <td className="py-[0.1em] pr-1 text-right tabular-nums">{dz(l.quantity)}</td>
-              <td className="py-[0.1em] pr-1 text-right tabular-nums">{formatMoney(l.rate)}</td>
-              <td className="py-[0.1em] pr-1 text-right tabular-nums">
+              {showCompany ? <td className="py-[0.1em]">{l.companyName}</td> : null}
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
+                {dz(l.quantity)}
+              </td>
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
+                {formatMoney(l.rate)}
+              </td>
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
                 {new Decimal(l.discountAmount).isZero() ? "" : formatMoney(l.discountAmount)}
               </td>
-              <td className="py-[0.1em] text-right tabular-nums">{formatMoney(l.netAmount)}</td>
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
+                {formatMoney(l.netAmount)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -100,10 +116,29 @@ export function BillDocument({
         ) : null}
         <dt className="font-semibold">This bill</dt>
         <dd className="font-semibold tabular-nums">{formatMoney(thisBill)}</dd>
-        <dt>Previous pending</dt>
-        <dd className="tabular-nums">{formatMoney(previous)}</dd>
+        {oldBalance && !new Decimal(oldBalance.toString()).isZero() ? (
+          <>
+            <dt>Old balance</dt>
+            <dd className="tabular-nums">{formatMoney(oldBalance)}</dd>
+            <dt>Previous pending</dt>
+            <dd className="tabular-nums">
+              {formatMoney(new Decimal(previous.toString()).sub(oldBalance.toString()).toFixed(2))}
+            </dd>
+          </>
+        ) : (
+          <>
+            <dt>Previous pending</dt>
+            <dd className="tabular-nums">{formatMoney(previous)}</dd>
+          </>
+        )}
         <dt className="border-t border-black font-bold">Total due</dt>
         <dd className="border-t border-black font-bold tabular-nums">{formatMoney(totalDue)}</dd>
+        {minimum ? (
+          <>
+            <dt className="font-semibold">Minimum payment</dt>
+            <dd className="font-semibold tabular-nums">{formatMoney(minimum)}</dd>
+          </>
+        ) : null}
       </dl>
       <footer className="flex justify-between gap-4 pt-[1.5em]">
         <p>Received by: __________________</p>
@@ -126,7 +161,9 @@ export function billDocuments(view: BillView, business: PrintProfile["business"]
             lines={view.lines}
             thisBill={view.bill.netAmount}
             previous={view.previous}
+            oldBalance={view.oldBalance}
             totalDue={view.totalDue}
+            minimum={view.minimumPayment}
             showCompany={view.sections.length > 1}
           />
         ),

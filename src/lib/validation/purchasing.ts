@@ -9,15 +9,16 @@ import {
   optionalDateSchema,
   optionalMoneySchema,
   optionalText,
+  packetsSchema,
   requestIdSchema,
 } from "./master";
 
 // Purchasing validation, shared by forms, server actions and services.
 
-/** One product line: quantity in dozens (→ half dozens); rate per dozen only for roles that see cost. */
+/** One product line: quantity in dozens (→ packets); rate per dozen only for roles that see cost. */
 export const purchaseLineSchema = z.object({
   productId: idSchema,
-  quantity: dozensSchema("quantity", { min: 1 }),
+  quantity: dozensSchema("quantity", { min: 0.5 }),
   rate: optionalMoneySchema("rate"),
 });
 
@@ -100,10 +101,25 @@ export const claimSchema = z.object({
   productId: idSchema,
   type: z.enum(CLAIM_TYPES, { error: "Choose the claim type" }),
   claimDate: dateSchema("claim date"),
-  quantity: dozensSchema("quantity", { min: 1 }),
+  quantity: packetsSchema("quantity", { min: 1 }),
   rate: optionalMoneySchema("rate"),
   note: optionalText(500),
 });
+
+/** Settling a day-end damage claim with the company. */
+export const settleClaimSchema = z
+  .object({
+    id: idSchema,
+    decision: z.enum(["ACCEPT", "ACCEPT_LESS", "REJECT"], {
+      error: "Choose what the company said",
+    }),
+    amount: optionalMoneySchema("accepted amount"),
+    note: optionalText(300),
+  })
+  .superRefine((d, ctx) => {
+    if (d.decision === "ACCEPT_LESS" && !d.amount)
+      ctx.addIssue({ code: "custom", path: ["amount"], message: "Enter the accepted amount" });
+  });
 
 export const reverseSchema = z.object({
   id: idSchema,

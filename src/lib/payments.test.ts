@@ -7,6 +7,7 @@ import {
   type BillDebt,
   checkCompanySplit,
   effectiveDebt,
+  OLD_BALANCE,
 } from "./payments";
 
 const owed = (o: Record<string, string>) => new Map(Object.entries(o).map(([k, v]) => [k, v]));
@@ -68,6 +69,30 @@ describe("oldest debt first", () => {
     ]);
     expect(s.advance.toFixed(2)).toBe("100.00");
     expect(fixed(s.byCompany)).toEqual({ A: "1700.00", B: "400.00" });
+  });
+});
+
+describe("old balance (no company)", () => {
+  // Old paper bills 700, company A opening balance 300, then the bills above.
+  const debt = () => effectiveDebt(owed({ [OLD_BALANCE]: "700", A: "1900", B: "400" }), bills);
+
+  it("is paid before company opening balances and bills", () => {
+    const s = allocateOldestFirst("500", debt(), []);
+    expect(fixed(s.byCompany)).toEqual({ [OLD_BALANCE]: "500.00" });
+    expect(s.allocations).toEqual([]);
+  });
+
+  it("then the company opening balance, then bills oldest first", () => {
+    const s = allocateOldestFirst("1500", debt(), []);
+    expect(fixed(s.byCompany)).toEqual({ [OLD_BALANCE]: "700.00", A: "600.00", B: "200.00" });
+    expect(allocs(s.allocations)).toEqual(["b1/A=300.00", "b1/B=200.00"]);
+  });
+
+  it("can be paid on its own in a manual split", () => {
+    const s = allocateByCompany(owed({ [OLD_BALANCE]: "700", B: "100" }), debt());
+    expect(fixed(s.byCompany)).toEqual({ [OLD_BALANCE]: "700.00", B: "100.00" });
+    expect(allocs(s.allocations)).toEqual(["b1/B=100.00"]);
+    expect(s.advance.toFixed(2)).toBe("0.00");
   });
 });
 
