@@ -2,6 +2,41 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Daily report — done
+
+Reports → Daily report (`/reports/daily?date=…`, previous / next day, Print / PDF, Excel): the
+numbers to check at day-end for one business date (`dailyReport` in
+`src/server/services/reports/daily.ts`).
+
+- **Key numbers:** sold (billed), orders delivered (and how many day-ends are not entered),
+  received from customers, what customers owe at the end of the day, cash in hand, expenses,
+  gross and net profit.
+- **Orders delivered:** delivered / partly / returned / still out, dozens sent, kept, returned
+  and damaged, the amount billed, and each order.
+- **Products sold:** each product's quantity and sales on the day's bills (latest revision, so
+  returns are off). Cost and profit for owner and accountant, at the current purchase rate.
+- **Money** (owner and accountant): payments received by cash / cheque / online, at delivery and
+  at the office; cheques bounced that day; expenses by category; paid to companies; goods
+  received; cash in hand = cash received − cash expenses − cash paid to companies; profit =
+  sales − cost of goods sold − expenses.
+- **Payment pending:** what all customers owe at the end of the day, how many are over their
+  limit, and the 15 who owe most.
+- **Stock left:** each product's opening, received, sent out, returned, adjusted, closing and
+  damaged stock for the day; low stock marked.
+- Staff see deliveries, products sold (no cost) and stock only. Tested in `delivery.int.test.ts`
+  (owner and staff) and in a browser run.
+- Stock adjustments now carry the business date, like other movements, so an adjustment made
+  after midnight lands on the right day.
+- Still open from SPEC §10: profit and loss by month, company and product; the cost of goods sold
+  uses the current purchase rate, not the batch's.
+
+**Cheque bounce check:** reported that after a 4,000 cheque against 5,000 owed bounced, the
+customer showed 9,000. Not reproduced: the bounce posts one CHEQUE_BOUNCE entry mirroring the
+payment (refused twice, and a DB unique key prevents a second reversal), and the balance goes back
+to exactly what it was before the cheque on every screen (ledger, statement, payment screen,
+customer list, day-end, next bill), also when the day-end is undone afterwards. A regression test
+covers it ("a bounced day-end cheque"). Waiting for the screen and steps that showed 9,000.
+
 ## Dashboard date and Windows deployment — done
 
 **Dashboard date:** a date box with previous / next day and "Today" (`/dashboard?date=…`). For the

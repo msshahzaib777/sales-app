@@ -14,10 +14,11 @@ import { createProduct } from "../master/products";
 import { createStaff } from "../master/staff";
 import { createWarehouse } from "../master/warehouses";
 import { returnDamagedStock } from "../inventory";
-import { clearCheque } from "../payments/customer-payments";
+import { bounceCheque, clearCheque } from "../payments/customer-payments";
 import { settleClaim } from "../purchasing/claims";
 import { getDashboard } from "../dashboard";
 import { createCustomerPayment } from "../payments/customer-payments";
+import { dailyReport } from "../reports/daily";
 import { damageReport } from "../reports/damage";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { getBillView } from "../sales/bills";
@@ -715,10 +716,13 @@ describe("dashboard", () => {
     // The three goods receipts of 1 Oct, due after 15 days, are unpaid.
     expect(d.money!.companyBills.overdue.rows).toHaveLength(3);
 
-    // Yesterday: no orders for "its next day" (today), nothing collected; today's order is not
-    // tomorrow's. Trips out are always as now.
+    // Yesterday: its "next day" is today (the trip above may fall on today), nothing collected.
+    // Trips out are always as now.
     const yesterday = await getDashboard(t.ctx, { date: new Date(`${day(-1)}T00:00:00.000Z`) });
-    expect([yesterday.isToday, yesterday.work.ordersTomorrow]).toEqual([false, 0]);
+    const forToday = await t.ctx.db.salesOrder.count({
+      where: { deliveryDate: new Date(`${day(0)}T00:00:00.000Z`), status: { not: "CANCELLED" } },
+    });
+    expect([yesterday.isToday, yesterday.work.ordersTomorrow]).toEqual([false, forToday]);
     expect(yesterday.money!.collectedTotal.toFixed(2)).toBe("0.00");
     expect(yesterday.work.tripsOut).toHaveLength(1);
     expect(d.isToday).toBe(true);
@@ -726,5 +730,73 @@ describe("dashboard", () => {
     const staffView = await getDashboard(t.staff);
     expect(staffView.money).toBeNull();
     expect(staffView.overLimit).toHaveLength(1);
+  });
+});
+
+describe("a bounced day-end cheque", () => {
+  it("puts back exactly the cheque's amount, on every screen that shows the balance", async () => {
+    const a = await book(t.bilal.id, [[t.chips.id, "2"]]);
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    const owed = async () => (await customerPending(t.ctx.db, t.bilal.id)).total.toFixed(2);
+    expect(await owed()).toBe("392.00"); // the bill
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [],
+      chequeAmount: "300",
+      chequeNo: "11",
+      bankName: "HBL",
+      chequeDate: DAY,
+    });
+    expect(await owed()).toBe("92.00");
+    const p = await t.ctx.db.customerPayment.findFirstOrThrow({ where: { salesOrderId: a.id } });
+    await bounceCheque(t.ctx, { id: p.id, reason: "no funds" });
+    await expect(bounceCheque(t.ctx, { id: p.id, reason: "again" })).rejects.toThrow();
+    // Back to what was owed before the cheque: not the cheque counted twice.
+    expect(await owed()).toBe("392.00");
+    expect((await getDayEndEntry(t.ctx, a.id)).pendingNow.toFixed(2)).toBe("392.00");
+    const next = await book(t.bilal.id, [[t.chips.id, "1"]]);
+    expect((await getBillView(t.ctx, next.id)).previous.toFixed(2)).toBe("392.00");
+    // Undoing that day-end afterwards does not reverse the bounced payment again.
+    await undoDayEnd(t.ctx, { id: a.id, reason: "re-enter" });
+    expect(await owed()).toBe("392.00");
+  });
+});
+
+describe("daily report", () => {
+  it("adds up the day's deliveries, products sold, money, pending and stock", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "2"]]);
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    // 1 dozen comes back; 100 cash.
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "12", damaged: "" }],
+      cash: "100",
+    });
+    const day = new Date(`${DAY}T00:00:00.000Z`);
+    const r = await dailyReport(t.ctx, day);
+
+    expect([r.deliveries.orders, r.deliveries.partly, r.deliveries.stillOut]).toEqual([1, 1, 0]);
+    expect([r.deliveries.sent, r.deliveries.kept, r.deliveries.returnedQty]).toEqual([24, 12, 12]);
+    // 1 dz chips kept at 200 − 4 discount; cost at the purchase rate of 100.
+    expect(
+      r.productsSold.map((p) => [p.code, p.quantity, p.amount.toFixed(2), p.cost?.toFixed(2)]),
+    ).toEqual([["CB01", 12, "196.00", "100.00"]]);
+    expect([r.profit?.gross.toFixed(2), r.profit?.net.toFixed(2)]).toEqual(["96.00", "96.00"]);
+    expect(r.money!.collections.cash.atDelivery.toFixed(2)).toBe("100.00");
+    expect(r.money!.cashInHand.net.toFixed(2)).toBe("100.00");
+    // Ali: 4000 opening + 196 − 100.
+    expect(r.money!.pending.top.map((c) => [c.name, c.balance.toFixed(2)])).toEqual([
+      ["Ali", "4096.00"],
+    ]);
+    const chips = r.stock.find((x) => x.code === "CB01")!;
+    expect([chips.opening, chips.dispatched, chips.returned, chips.closing]).toEqual([
+      600, 24, 12, 588,
+    ]);
+
+    // Staff: no money, cost or profit.
+    const staff = await dailyReport(t.staff, day);
+    expect([staff.money, staff.profit, staff.productsSold[0]!.cost]).toEqual([null, null, null]);
   });
 });
