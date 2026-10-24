@@ -1,0 +1,1095 @@
+// Prisma schema for Sales App — Phase 1 (see docs/SPEC.md sections 3–8 and 15).
+//
+// Conventions (CLAUDE.md "Architecture rules"; design notes in docs/PROGRESS.md):
+// - Every business table has `tenantId` and `@@unique([tenantId, id])`. References between
+//   business tables are composite foreign keys on (tenantId, xId), so the database itself refuses
+//   a row that points at another tenant's record.
+// - Quantities are Int in the product's base unit (half dozen for snacks). Rates are per the
+//   product's price unit (dozen); `UnitConversion` maps units to base units.
+// - Money is Decimal(14,2). Signed ledger convention: balance = SUM(debit - credit) per party.
+//   Positive = the party owes us (customer); negative = we owe the party (company).
+// - `StockMovement`, `LedgerEntry`, `ProductPriceHistory`, `BillRevision` and `AuditLog` are
+//   append-only; database triggers block UPDATE and DELETE (see the schema migration).
+// - Create/post documents carry an optional client `requestId`, unique per tenant (idempotency).
+// - `createdById` / `*ById` columns are plain user ids; `AuditLog` is the authoritative trail.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  OWNER
+  ACCOUNTANT
+  STAFF
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  POST
+  REVERSE
+  APPROVE
+  REJECT
+  LOGIN
+}
+
+enum CustomerType {
+  RETAILER
+  WHOLESALER
+  DEALER
+  BIKE_SUPPLIER
+}
+
+enum StaffRole {
+  DRIVER
+  OFFICE
+  LOADER
+  OTHER
+}
+
+/// How a company's product discount is expressed (open question in SPEC §17, so both are supported).
+enum DiscountType {
+  NONE
+  PERCENT
+  /// Fixed PKR amount per price unit (per dozen for snacks).
+  AMOUNT_PER_UNIT
+}
+
+enum PurchaseOrderStatus {
+  OPEN
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+/// Lifecycle of a posted financial document. Posted documents are never edited; a correction
+/// reverses them (ledger reversal entries) and marks them REVERSED.
+enum PostingStatus {
+  POSTED
+  REVERSED
+}
+
+enum ClaimType {
+  /// Damaged during our delivery; charged back to the company.
+  DELIVERY_DAMAGE
+  /// Damaged stock sent back to the company.
+  RETURN_TO_COMPANY
+  OTHER
+}
+
+enum ClaimStatus {
+  /// Logged; credit already in the company ledger, not yet deducted on a company bill.
+  PENDING
+  /// Deducted on a company bill (`appliedToBillId`).
+  APPLIED
+  REVERSED
+}
+
+enum PaymentMethod {
+  CASH
+  CHEQUE
+  ONLINE
+}
+
+enum ChequeStatus {
+  PENDING
+  CLEARED
+  BOUNCED
+}
+
+enum ChequeDirection {
+  /// Received from a customer.
+  RECEIVED
+  /// Issued by us to a company.
+  ISSUED
+}
+
+enum StockBucket {
+  SALEABLE
+  DAMAGED
+}
+
+enum StockMovementType {
+  OPENING
+  GOODS_RECEIPT
+  DISPATCH
+  CUSTOMER_RETURN
+  /// Pair of movements: −SALEABLE is already done at dispatch, so this is +DAMAGED.
+  DELIVERY_DAMAGE
+  RETURN_TO_COMPANY
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum StockAdjustmentReason {
+  COUNTING_ERROR
+  THEFT
+  OTHER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SalesOrderStatus {
+  BOOKED
+  PLANNED
+  DISPATCHED
+  DELIVERED
+  PARTIALLY_DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+enum OrderSource {
+  OFFICE
+  WHATSAPP
+  BOOKER_APP
+}
+
+enum PaymentCollectedVia {
+  OFFICE
+  DELIVERY
+}
+
+enum LedgerPartyType {
+  CUSTOMER
+  COMPANY
+  STAFF
+}
+
+enum LedgerEntryType {
+  OPENING_BALANCE
+  SALES_BILL
+  BILL_REVISION
+  CUSTOMER_PAYMENT
+  CHEQUE_BOUNCE
+  COMPANY_BILL
+  COMPANY_PAYMENT
+  COMPANY_CLAIM
+  ADJUSTMENT
+  REVERSAL
+}
+
+// ───────────────────────────── Platform ─────────────────────────────
+
+model Tenant {
+  id                    String   @id @default(cuid())
+  name                  String
+  slug                  String   @unique
+  address               String?
+  phone                 String?
+  logoUrl               String?
+  timezone              String   @default("Asia/Karachi")
+  currency              String   @default("PKR")
+  /// Product base unit used for new products (smallest unit; quantities are stored in it).
+  defaultBaseUnit       String   @default("HALF_DOZEN")
+  /// Unit that rates are quoted in for new products.
+  defaultPriceUnit      String   @default("DOZEN")
+  taxEnabled            Boolean  @default(false)
+  expiryTrackingEnabled Boolean  @default(false)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  users                User[]
+  auditLogs            AuditLog[]
+  documentSequences    DocumentSequence[]
+  warehouses           Warehouse[]
+  companies            Company[]
+  products             Product[]
+  productPriceHistory  ProductPriceHistory[]
+  unitConversions      UnitConversion[]
+  areas                Area[]
+  customers            Customer[]
+  bikes                Bike[]
+  staff                Staff[]
+  purchaseOrders       PurchaseOrder[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  goodsReceipts        GoodsReceipt[]
+  goodsReceiptLines    GoodsReceiptLine[]
+  companyBills         CompanyBill[]
+  companyPayments      CompanyPayment[]
+  companyPaymentAllocs CompanyPaymentAllocation[]
+  companyClaims        CompanyClaim[]
+  batches              Batch[]
+  stockMovements       StockMovement[]
+  stockAdjustments     StockAdjustment[]
+  salesOrders          SalesOrder[]
+  salesOrderLines      SalesOrderLine[]
+  bills                Bill[]
+  billRevisions        BillRevision[]
+  cheques              Cheque[]
+  customerPayments     CustomerPayment[]
+  paymentAllocations   PaymentAllocation[]
+  ledgerEntries        LedgerEntry[]
+}
+
+/// A login. SUPER_ADMIN users are platform-level and have no tenant; everyone else has exactly one.
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         Role
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  staff     Staff?
+  auditLogs AuditLog[]
+
+  @@index([tenantId])
+}
+
+/// Append-only. `tenantId` is null only for platform-level (super admin) actions.
+model AuditLog {
+  id         String      @id @default(cuid())
+  tenantId   String?
+  userId     String?
+  action     AuditAction
+  entityType String
+  entityId   String
+  oldValue   Json?
+  newValue   Json?
+  requestId  String?
+  ipAddress  String?
+  createdAt  DateTime    @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, userId, createdAt])
+}
+
+/// Per-tenant counters for human-readable document numbers (PO-12, BILL-345 …).
+/// Increment with `UPDATE … SET nextValue = nextValue + 1 RETURNING` inside the posting transaction.
+model DocumentSequence {
+  tenantId  String
+  /// e.g. "PURCHASE_ORDER", "GOODS_RECEIPT", "SALES_ORDER", "BILL", "CUSTOMER_PAYMENT".
+  key       String
+  nextValue Int    @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([tenantId, key])
+}
+
+// ───────────────────────────── Master data ─────────────────────────────
+
+model Warehouse {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  companies        Company[]
+  areas            Area[]
+  bikes            Bike[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceipts    GoodsReceipt[]
+  batches          Batch[]
+  stockMovements   StockMovement[]
+  stockAdjustments StockAdjustment[]
+  salesOrders      SalesOrder[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+/// Supplier whose products we distribute. Opening balance is a LedgerEntry (OPENING_BALANCE),
+/// not a column, so the balance always comes from the journal.
+model Company {
+  id               String   @id @default(cuid())
+  tenantId         String
+  warehouseId      String
+  name             String
+  contactName      String?
+  phone            String?
+  address          String?
+  orderBookerName  String?
+  orderBookerPhone String?
+  /// Due date of a company bill = receipt date + this many days (editable per bill).
+  paymentTermsDays Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant          Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  warehouse       Warehouse                  @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  products        Product[]
+  purchaseOrders  PurchaseOrder[]
+  goodsReceipts   GoodsReceipt[]
+  companyBills    CompanyBill[]
+  companyPayments CompanyPayment[]
+  paymentAllocs   CompanyPaymentAllocation[]
+  claims          CompanyClaim[]
+  salesOrderLines SalesOrderLine[]
+  customerAllocs  PaymentAllocation[]
+  ledgerEntries   LedgerEntry[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@index([tenantId, warehouseId])
+}
+
+/// Current rates live on the product for fast order entry; every change also appends a
+/// ProductPriceHistory row with its effective date.
+model Product {
+  id            String       @id @default(cuid())
+  tenantId      String
+  companyId     String
+  name          String
+  /// Short code for keyboard-first search in order entry.
+  code          String
+  /// Smallest unit; all quantities for this product are stored in it.
+  baseUnit      String       @default("HALF_DOZEN")
+  /// Unit the rates below are quoted in.
+  priceUnit     String       @default("DOZEN")
+  purchaseRate  Decimal      @db.Decimal(14, 2)
+  saleRate      Decimal      @db.Decimal(14, 2)
+  discountType  DiscountType @default(NONE)
+  /// Percent (0–100) or PKR per price unit, depending on `discountType`.
+  discountValue Decimal      @default(0) @db.Decimal(14, 2)
+  /// In base units.
+  minStockLevel Int          @default(0)
+  /// Off unless the tenant enables tax.
+  taxRate       Decimal      @default(0) @db.Decimal(5, 2)
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company            Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  priceHistory       ProductPriceHistory[]
+  unitConversions    UnitConversion[]
+  purchaseOrderLines PurchaseOrderLine[]
+  goodsReceiptLines  GoodsReceiptLine[]
+  claims             CompanyClaim[]
+  batches            Batch[]
+  stockMovements     StockMovement[]
+  stockAdjustments   StockAdjustment[]
+  salesOrderLines    SalesOrderLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@unique([tenantId, companyId, name])
+  @@index([tenantId, name])
+}
+
+/// Append-only. One row per rate/discount change.
+model ProductPriceHistory {
+  id            String       @id @default(cuid())
+  tenantId      String
+  productId     String
+  purchaseRate  Decimal      @db.Decimal(14, 2)
+  saleRate      Decimal      @db.Decimal(14, 2)
+  discountType  DiscountType
+  discountValue Decimal      @db.Decimal(14, 2)
+  effectiveFrom DateTime
+  createdById   String?
+  createdAt     DateTime     @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, productId, effectiveFrom])
+}
+
+/// How many base units one `unit` holds. `productId = null` is the tenant-wide default
+/// (e.g. DOZEN = 2 HALF_DOZEN); a product row overrides it (e.g. CARTON = 48 PIECE).
+model UnitConversion {
+  id               String   @id @default(cuid())
+  tenantId         String
+  productId        String?
+  baseUnit         String
+  unit             String
+  baseUnitsPerUnit Int
+  createdAt        DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product Product? @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, productId, baseUnit, unit])
+  @@index([tenantId, productId])
+}
+
+/// Area / route. Replaces GPS for grouping deliveries; `sortOrder` keeps nearby areas together.
+model Area {
+  id          String   @id @default(cuid())
+  tenantId    String
+  warehouseId String
+  name        String
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse  @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  customers Customer[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, warehouseId, name])
+}
+
+/// Opening balances per company are LedgerEntry rows (OPENING_BALANCE with companyId).
+model Customer {
+  id            String       @id @default(cuid())
+  tenantId      String
+  areaId        String?
+  name          String
+  shopName      String?
+  type          CustomerType @default(RETAILER)
+  phone         String?
+  whatsapp      String?
+  address       String?
+  /// Visiting order within the area.
+  routeSequence Int?
+  /// Null = no limit.
+  creditLimit   Decimal?     @db.Decimal(14, 2)
+  /// Set when a cheque bounces; cleared by the owner.
+  isFlagged     Boolean      @default(false)
+  flagReason    String?
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  area          Area?             @relation(fields: [tenantId, areaId], references: [tenantId, id], onDelete: Restrict)
+  salesOrders   SalesOrder[]
+  bills         Bill[]
+  payments      CustomerPayment[]
+  ledgerEntries LedgerEntry[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, areaId, routeSequence])
+  @@index([tenantId, name])
+  @@index([tenantId, phone])
+}
+
+model Bike {
+  id          String   @id @default(cuid())
+  tenantId    String
+  warehouseId String?
+  name        String
+  /// Load capacity in base units (half dozens): 80 dozen = 160.
+  capacity    Int
+  driverId    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse? @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  driver    Staff?     @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+/// People on the payroll (drivers, office staff). Optionally linked to a login.
+model Staff {
+  id            String    @id @default(cuid())
+  tenantId      String
+  userId        String?   @unique
+  name          String
+  role          StaffRole
+  phone         String?
+  monthlySalary Decimal   @default(0) @db.Decimal(14, 2)
+  joiningDate   DateTime? @db.Date
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  bikes         Bike[]
+  ledgerEntries LedgerEntry[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, role])
+}
+
+// ───────────────────────────── Purchasing ─────────────────────────────
+
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  tenantId     String
+  number       Int
+  companyId    String
+  warehouseId  String
+  orderDate    DateTime            @db.Date
+  expectedDate DateTime?           @db.Date
+  status       PurchaseOrderStatus @default(OPEN)
+  note         String?
+  requestId    String?
+  createdById  String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company             @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  warehouse     Warehouse           @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  lines         PurchaseOrderLine[]
+  goodsReceipts GoodsReceipt[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, companyId, orderDate])
+  @@index([tenantId, status])
+}
+
+model PurchaseOrderLine {
+  id              String  @id @default(cuid())
+  tenantId        String
+  purchaseOrderId String
+  productId       String
+  /// Base units.
+  quantity        Int
+  /// Per price unit, copied from the product when ordered.
+  rate            Decimal @db.Decimal(14, 2)
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder      @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Cascade)
+  product       Product            @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  receiptLines  GoodsReceiptLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, purchaseOrderId, productId])
+}
+
+/// Stock arriving from a company. Posting it creates batches, GOODS_RECEIPT stock movements and a
+/// CompanyBill. Received quantities can differ from the purchase order.
+model GoodsReceipt {
+  id              String   @id @default(cuid())
+  tenantId        String
+  number          Int
+  purchaseOrderId String?
+  companyId       String
+  warehouseId     String
+  receivedDate    DateTime @db.Date
+  /// Company's own invoice / delivery note number.
+  supplierRef     String?
+  note            String?
+  requestId       String?
+  createdById     String?
+  createdAt       DateTime @default(now())
+
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder?     @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Restrict)
+  company       Company            @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  warehouse     Warehouse          @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  lines         GoodsReceiptLine[]
+  companyBill   CompanyBill?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, companyId, receivedDate])
+  @@index([tenantId, purchaseOrderId])
+}
+
+model GoodsReceiptLine {
+  id                  String  @id @default(cuid())
+  tenantId            String
+  goodsReceiptId      String
+  purchaseOrderLineId String?
+  productId           String
+  /// Base units.
+  quantity            Int
+  /// Purchase rate per price unit.
+  rate                Decimal @db.Decimal(14, 2)
+  amount              Decimal @db.Decimal(14, 2)
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  goodsReceipt      GoodsReceipt       @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
+  purchaseOrderLine PurchaseOrderLine? @relation(fields: [tenantId, purchaseOrderLineId], references: [tenantId, id], onDelete: Restrict)
+  product           Product            @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  batch             Batch?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, goodsReceiptId])
+  @@index([tenantId, productId])
+}
+
+/// What we owe a company for one goods receipt. Paid/partial/unpaid/overdue status is derived from
+/// `netAmount` minus allocations and `dueDate`; it is not stored.
+model CompanyBill {
+  id             String        @id @default(cuid())
+  tenantId       String
+  number         Int
+  companyId      String
+  goodsReceiptId String
+  billDate       DateTime      @db.Date
+  dueDate        DateTime      @db.Date
+  grossAmount    Decimal       @db.Decimal(14, 2)
+  /// Sum of claims deducted on this bill (CompanyClaim.appliedToBillId).
+  claimDeduction Decimal       @default(0) @db.Decimal(14, 2)
+  /// grossAmount − claimDeduction; what payments are allocated against.
+  netAmount      Decimal       @db.Decimal(14, 2)
+  status         PostingStatus @default(POSTED)
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company                    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  goodsReceipt  GoodsReceipt               @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
+  allocations   CompanyPaymentAllocation[]
+  appliedClaims CompanyClaim[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, goodsReceiptId])
+  @@index([tenantId, companyId, dueDate])
+}
+
+model CompanyPayment {
+  id          String        @id @default(cuid())
+  tenantId    String
+  number      Int
+  companyId   String
+  paymentDate DateTime      @db.Date
+  method      PaymentMethod
+  amount      Decimal       @db.Decimal(14, 2)
+  /// Online transfer reference.
+  reference   String?
+  chequeId    String?
+  status      PostingStatus @default(POSTED)
+  reversedAt  DateTime?
+  note        String?
+  requestId   String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company     Company                    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  cheque      Cheque?                    @relation(fields: [tenantId, chequeId], references: [tenantId, id], onDelete: Restrict)
+  allocations CompanyPaymentAllocation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, chequeId])
+  @@index([tenantId, companyId, paymentDate])
+}
+
+/// Which company bills a company payment settles (oldest first by default, manual override).
+model CompanyPaymentAllocation {
+  id               String  @id @default(cuid())
+  tenantId         String
+  companyPaymentId String
+  companyBillId    String
+  companyId        String
+  amount           Decimal @db.Decimal(14, 2)
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  companyPayment CompanyPayment @relation(fields: [tenantId, companyPaymentId], references: [tenantId, id], onDelete: Restrict)
+  companyBill    CompanyBill    @relation(fields: [tenantId, companyBillId], references: [tenantId, id], onDelete: Restrict)
+  company        Company        @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, companyPaymentId, companyBillId])
+  @@index([tenantId, companyBillId])
+}
+
+/// A credit against a company (damage in delivery, damaged stock returned). The ledger credit is
+/// posted when the claim is logged; `appliedToBillId` records which company bill deducted it.
+model CompanyClaim {
+  id              String      @id @default(cuid())
+  tenantId        String
+  number          Int
+  companyId       String
+  productId       String
+  type            ClaimType
+  status          ClaimStatus @default(PENDING)
+  claimDate       DateTime    @db.Date
+  /// Base units.
+  quantity        Int
+  /// Per price unit (purchase rate by default; see SPEC §17 open question).
+  rate            Decimal     @db.Decimal(14, 2)
+  amount          Decimal     @db.Decimal(14, 2)
+  /// Delivery the damage came from, when known.
+  salesOrderId    String?
+  appliedToBillId String?
+  note            String?
+  requestId       String?
+  createdById     String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  company       Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  product       Product      @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  salesOrder    SalesOrder?  @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
+  appliedToBill CompanyBill? @relation(fields: [tenantId, appliedToBillId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, companyId, status])
+}
+
+// ───────────────────────────── Inventory ─────────────────────────────
+
+/// Receipt lot. Quantity is not stored: it is SUM(StockMovement.quantity) for the batch.
+/// batchNo / mfgDate / expiryDate exist for future expiry tracking and stay unused for snacks.
+model Batch {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  productId          String
+  warehouseId        String
+  goodsReceiptLineId String?
+  receivedDate       DateTime  @db.Date
+  batchNo            String?
+  mfgDate            DateTime? @db.Date
+  expiryDate         DateTime? @db.Date
+  createdAt          DateTime  @default(now())
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product          Product           @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  warehouse        Warehouse         @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  goodsReceiptLine GoodsReceiptLine? @relation(fields: [tenantId, goodsReceiptLineId], references: [tenantId, id], onDelete: Restrict)
+  stockMovements   StockMovement[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, goodsReceiptLineId])
+  @@index([tenantId, productId, warehouseId, receivedDate])
+}
+
+/// Append-only stock journal. Balance per product/warehouse/bucket = SUM(quantity).
+/// Reservations for booked orders are not movements; they are derived from open order lines.
+model StockMovement {
+  id            String            @id @default(cuid())
+  tenantId      String
+  type          StockMovementType
+  productId     String
+  warehouseId   String
+  batchId       String?
+  bucket        StockBucket       @default(SALEABLE)
+  /// Signed, base units. Never zero.
+  quantity      Int
+  occurredAt    DateTime          @default(now())
+  /// Source document, e.g. ("GoodsReceipt", id), ("SalesOrder", id), ("StockAdjustment", id).
+  referenceType String?
+  referenceId   String?
+  reversalOfId  String?
+  note          String?
+  requestId     String?
+  createdById   String?
+  createdAt     DateTime          @default(now())
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product    Product         @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  warehouse  Warehouse       @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  batch      Batch?          @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict)
+  reversalOf StockMovement?  @relation("StockMovementReversal", fields: [tenantId, reversalOfId], references: [tenantId, id], onDelete: Restrict)
+  reversedBy StockMovement[] @relation("StockMovementReversal")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, reversalOfId])
+  @@index([tenantId, productId, warehouseId, bucket])
+  @@index([tenantId, batchId])
+  @@index([tenantId, referenceType, referenceId])
+  @@index([tenantId, occurredAt])
+}
+
+/// Staff request; posts an ADJUSTMENT movement only when the owner approves.
+model StockAdjustment {
+  id            String                @id @default(cuid())
+  tenantId      String
+  productId     String
+  warehouseId   String
+  bucket        StockBucket           @default(SALEABLE)
+  /// Signed, base units.
+  quantity      Int
+  reason        StockAdjustmentReason
+  note          String?
+  status        ApprovalStatus        @default(PENDING)
+  requestedById String?
+  decidedById   String?
+  decidedAt     DateTime?
+  requestId     String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status])
+}
+
+// ───────────────────────────── Sales ─────────────────────────────
+
+model SalesOrder {
+  id                 String           @id @default(cuid())
+  tenantId           String
+  number             Int
+  customerId         String
+  warehouseId        String
+  orderDate          DateTime         @db.Date
+  deliveryDate       DateTime         @db.Date
+  status             SalesOrderStatus @default(BOOKED)
+  source             OrderSource      @default(OFFICE)
+  /// Set when the owner allowed the order past the customer's credit limit.
+  creditOverrideById String?
+  creditOverrideAt   DateTime?
+  note               String?
+  requestId          String?
+  createdById        String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer  Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  warehouse Warehouse         @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  lines     SalesOrderLine[]
+  bill      Bill?
+  claims    CompanyClaim[]
+  payments  CustomerPayment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, deliveryDate])
+  @@index([tenantId, customerId, orderDate])
+  @@index([tenantId, deliveryDate])
+}
+
+/// `companyId` is copied from the product so bills can be split by company without joins and stay
+/// correct if a product is ever moved. Rate and discount are snapshots at booking time.
+model SalesOrderLine {
+  id             String       @id @default(cuid())
+  tenantId       String
+  salesOrderId   String
+  productId      String
+  companyId      String
+  /// Base units.
+  quantity       Int
+  /// Sale rate per price unit.
+  rate           Decimal      @db.Decimal(14, 2)
+  discountType   DiscountType @default(NONE)
+  discountValue  Decimal      @default(0) @db.Decimal(14, 2)
+  grossAmount    Decimal      @db.Decimal(14, 2)
+  discountAmount Decimal      @default(0) @db.Decimal(14, 2)
+  taxAmount      Decimal      @default(0) @db.Decimal(14, 2)
+  /// grossAmount − discountAmount + taxAmount.
+  netAmount      Decimal      @db.Decimal(14, 2)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  salesOrder SalesOrder @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Cascade)
+  product    Product    @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  company    Company    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, salesOrderId, productId])
+  @@index([tenantId, productId])
+  @@index([tenantId, companyId])
+}
+
+/// One bill per sales order, possibly spanning several companies. Totals are for the current
+/// revision; every revision (original + each delivery correction) is kept in BillRevision.
+model Bill {
+  id              String        @id @default(cuid())
+  tenantId        String
+  number          Int
+  salesOrderId    String
+  customerId      String
+  billDate        DateTime      @db.Date
+  currentRevision Int           @default(1)
+  grossAmount     Decimal       @db.Decimal(14, 2)
+  discountAmount  Decimal       @default(0) @db.Decimal(14, 2)
+  taxAmount       Decimal       @default(0) @db.Decimal(14, 2)
+  netAmount       Decimal       @db.Decimal(14, 2)
+  /// Customer's pending balance just before this bill, snapshotted for printing.
+  previousBalance Decimal       @default(0) @db.Decimal(14, 2)
+  status          PostingStatus @default(POSTED)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  salesOrder  SalesOrder          @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
+  customer    Customer            @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  revisions   BillRevision[]
+  allocations PaymentAllocation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, salesOrderId])
+  @@index([tenantId, customerId, billDate])
+  @@index([tenantId, billDate])
+}
+
+/// Append-only, immutable snapshot of a bill at one revision. `lines` holds the printed lines
+/// (product, company, qty, rate, discount, amounts); `companyTotals` the per-company split.
+model BillRevision {
+  id             String   @id @default(cuid())
+  tenantId       String
+  billId         String
+  revision       Int
+  reason         String
+  grossAmount    Decimal  @db.Decimal(14, 2)
+  discountAmount Decimal  @db.Decimal(14, 2)
+  taxAmount      Decimal  @db.Decimal(14, 2)
+  netAmount      Decimal  @db.Decimal(14, 2)
+  lines          Json
+  companyTotals  Json
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bill   Bill   @relation(fields: [tenantId, billId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, billId, revision])
+}
+
+// ───────────────────────────── Payments ─────────────────────────────
+
+/// Cheque received from a customer or issued to a company.
+model Cheque {
+  id         String          @id @default(cuid())
+  tenantId   String
+  direction  ChequeDirection
+  chequeNo   String
+  bankName   String
+  chequeDate DateTime        @db.Date
+  amount     Decimal         @db.Decimal(14, 2)
+  status     ChequeStatus    @default(PENDING)
+  clearedAt  DateTime?
+  bouncedAt  DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customerPayment CustomerPayment?
+  companyPayment  CompanyPayment?
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, chequeDate])
+}
+
+model CustomerPayment {
+  id             String              @id @default(cuid())
+  tenantId       String
+  number         Int
+  customerId     String
+  paymentDate    DateTime            @db.Date
+  method         PaymentMethod
+  amount         Decimal             @db.Decimal(14, 2)
+  /// Online transfer reference.
+  reference      String?
+  chequeId       String?
+  collectedVia   PaymentCollectedVia @default(OFFICE)
+  /// Delivery the payment was collected on, for day-end entries.
+  salesOrderId   String?
+  status         PostingStatus       @default(POSTED)
+  reversedAt     DateTime?
+  reversalReason String?
+  note           String?
+  requestId      String?
+  createdById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer    Customer            @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  cheque      Cheque?             @relation(fields: [tenantId, chequeId], references: [tenantId, id], onDelete: Restrict)
+  salesOrder  SalesOrder?         @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
+  allocations PaymentAllocation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, chequeId])
+  @@index([tenantId, customerId, paymentDate])
+}
+
+/// Payment → bill → company slice. A payment covering a multi-company bill gets one row per company.
+model PaymentAllocation {
+  id                String  @id @default(cuid())
+  tenantId          String
+  customerPaymentId String
+  billId            String
+  companyId         String
+  amount            Decimal @db.Decimal(14, 2)
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customerPayment CustomerPayment @relation(fields: [tenantId, customerPaymentId], references: [tenantId, id], onDelete: Restrict)
+  bill            Bill            @relation(fields: [tenantId, billId], references: [tenantId, id], onDelete: Restrict)
+  company         Company         @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, customerPaymentId, billId, companyId])
+  @@index([tenantId, billId])
+}
+
+// ───────────────────────────── Accounting ─────────────────────────────
+
+/// Append-only money journal for customers, companies and staff.
+/// Balance = SUM(debit − credit). Customer: bill = debit, payment = credit (positive = owes us).
+/// Company: bill = credit, payment/claim = debit (negative = we owe them).
+/// Customer entries always carry `companyId` (enforced by a CHECK constraint).
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  tenantId      String
+  partyType     LedgerPartyType
+  customerId    String?
+  companyId     String?
+  staffId       String?
+  type          LedgerEntryType
+  entryDate     DateTime        @db.Date
+  debit         Decimal         @default(0) @db.Decimal(14, 2)
+  credit        Decimal         @default(0) @db.Decimal(14, 2)
+  description   String?
+  /// Source document, e.g. ("Bill", id), ("CustomerPayment", id), ("CompanyBill", id).
+  referenceType String?
+  referenceId   String?
+  reversalOfId  String?
+  requestId     String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  customer   Customer?     @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  company    Company?      @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  staff      Staff?        @relation(fields: [tenantId, staffId], references: [tenantId, id], onDelete: Restrict)
+  reversalOf LedgerEntry?  @relation("LedgerEntryReversal", fields: [tenantId, reversalOfId], references: [tenantId, id], onDelete: Restrict)
+  reversedBy LedgerEntry[] @relation("LedgerEntryReversal")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, reversalOfId])
+  @@index([tenantId, partyType, customerId, companyId, entryDate])
+  @@index([tenantId, partyType, companyId, entryDate])
+  @@index([tenantId, partyType, staffId, entryDate])
+  @@index([tenantId, referenceType, referenceId])
+}
