@@ -90,7 +90,9 @@ export const companyPaymentSchema = z
     }
   });
 
-export const CLAIM_TYPES = ["DELIVERY_DAMAGE", "RETURN_TO_COMPANY", "OTHER"] as const;
+// Damaged stock sent back to the company is a stock movement only (inventory.ts); its credit was
+// the damage claim, so it is not a claim type here.
+export const CLAIM_TYPES = ["DELIVERY_DAMAGE", "OTHER"] as const;
 
 export const claimSchema = z.object({
   requestId: requestIdSchema,

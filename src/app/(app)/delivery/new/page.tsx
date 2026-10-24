@@ -14,10 +14,11 @@ export const metadata: Metadata = { title: "Plan a trip" };
 
 export default async function NewTripPage({ searchParams }: PageProps<"/delivery/new">) {
   const sp = await searchParams;
+  // Session first: it makes the page dynamic before today's date is read.
+  const ctx = await requireTenantContext("operations.manage");
   const date =
     dateRangeSchema.parse({ from: sp.date }).from ??
     new Date(businessToday().getTime() + 86_400_000);
-  const ctx = await requireTenantContext("operations.manage");
   const [{ bikes, staff }, orders] = await Promise.all([
     tripFormOptions(ctx),
     bookedOrdersFor(ctx, date),

@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 import { Letterhead } from "@/components/print/print-frame";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
@@ -31,7 +33,8 @@ export function BillDocument({
   totalDue: { toString(): string };
   showCompany: boolean;
 }) {
-  const discount = lines.reduce((s, l) => s + Number(l.discountAmount), 0);
+  // Money is summed as decimals, never floats (CLAUDE.md rule 5).
+  const discount = lines.reduce((s, l) => s.add(l.discountAmount), new Decimal(0));
   const dz = (q: number) => formatDozens(q).replace(" dz", "");
   return (
     <article className="space-y-[0.6em] leading-snug">
@@ -79,7 +82,7 @@ export function BillDocument({
               <td className="py-[0.1em] pr-1 text-right tabular-nums">{dz(l.quantity)}</td>
               <td className="py-[0.1em] pr-1 text-right tabular-nums">{formatMoney(l.rate)}</td>
               <td className="py-[0.1em] pr-1 text-right tabular-nums">
-                {Number(l.discountAmount) ? formatMoney(l.discountAmount) : ""}
+                {new Decimal(l.discountAmount).isZero() ? "" : formatMoney(l.discountAmount)}
               </td>
               <td className="py-[0.1em] text-right tabular-nums">{formatMoney(l.netAmount)}</td>
             </tr>
@@ -89,7 +92,7 @@ export function BillDocument({
       <dl className="ml-auto grid w-[18em] grid-cols-[1fr_auto] gap-x-3 text-right">
         <dt>Total dozens</dt>
         <dd className="tabular-nums">{dz(lines.reduce((s, l) => s + l.quantity, 0))}</dd>
-        {discount ? (
+        {!discount.isZero() ? (
           <>
             <dt>Company discount</dt>
             <dd className="tabular-nums">{formatMoney(discount.toFixed(2))}</dd>

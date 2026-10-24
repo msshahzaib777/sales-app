@@ -1,4 +1,4 @@
-import { Bike, Map, Printer, UserRound, Users, Warehouse } from "lucide-react";
+import { Bike, History, Map, Printer, UserRound, Users, Warehouse } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -43,6 +43,12 @@ const SECTIONS = [
     title: "Users",
     description: "Invite staff, change roles, reset passwords.",
     icon: Users,
+  },
+  {
+    href: "/settings/audit",
+    title: "Audit log",
+    description: "Who changed what and when, with old and new values.",
+    icon: History,
   },
 ];
 

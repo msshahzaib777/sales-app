@@ -24,11 +24,22 @@ const STATUSES: ClaimStatus[] = ["PENDING", "APPLIED", "REVERSED"];
 
 export async function listClaims(
   ctx: ServiceCtx,
-  f: { companyId?: string; status?: string; page: number } & DateRange,
+  f: { companyId?: string; status?: string; q?: string; page: number } & DateRange,
 ) {
   assertCan(ctx.user.role, "payments.manage");
   const where: Prisma.CompanyClaimWhereInput = {
     ...(f.companyId ? { companyId: f.companyId } : {}),
+    ...(f.q
+      ? /^\d+$/.test(f.q)
+        ? { number: Number(f.q) }
+        : {
+            OR: [
+              { product: { name: { contains: f.q, mode: "insensitive" } } },
+              { product: { code: { contains: f.q, mode: "insensitive" } } },
+              { note: { contains: f.q, mode: "insensitive" } },
+            ],
+          }
+      : {}),
     ...(f.status && STATUSES.includes(f.status as ClaimStatus)
       ? { status: f.status as ClaimStatus }
       : {}),

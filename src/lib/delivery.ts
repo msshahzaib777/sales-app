@@ -149,3 +149,23 @@ export const TRIP_STATUS_LABEL = {
   RECONCILED: "Day-end done",
   CANCELLED: "Cancelled",
 } as const;
+
+export type RouteStop = {
+  customer: {
+    name: string;
+    routeSequence: number | null;
+    area: { name: string; sortOrder: number } | null;
+  };
+};
+
+/** Visiting order: area route order, then the customer's place on the route, then name. */
+export function byRoute(a: RouteStop, b: RouteStop): number {
+  const ca = a.customer;
+  const cb = b.customer;
+  return (
+    (ca.area?.sortOrder ?? 999) - (cb.area?.sortOrder ?? 999) ||
+    (ca.area?.name ?? "").localeCompare(cb.area?.name ?? "") ||
+    (ca.routeSequence ?? 9999) - (cb.routeSequence ?? 9999) ||
+    ca.name.localeCompare(cb.name)
+  );
+}

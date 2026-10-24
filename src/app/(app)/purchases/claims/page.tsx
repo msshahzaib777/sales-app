@@ -52,10 +52,11 @@ async function Claims({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const { page } = listParamsSchema.parse(sp);
+  const { q, page } = listParamsSchema.parse(sp);
   const ctx = await requireTenantContext("payments.manage");
   const [list, companies] = await Promise.all([
     listClaims(ctx, {
+      q,
       page,
       companyId: filterParam(sp, "companyId"),
       status: filterParam(sp, "claimStatus"),
@@ -68,9 +69,9 @@ async function Claims({
       <Notice notice={sp.notice} />
       <ListToolbar
         basePath="/purchases/claims"
-        params={{ q: undefined, status: "all" }}
+        params={{ q, status: "all" }}
         showStatus={false}
-        showSearch={false}
+        searchPlaceholder="Claim no., product or note"
         dateRange={{ from: filterParam(sp, "from"), to: filterParam(sp, "to") }}
         filters={[
           {

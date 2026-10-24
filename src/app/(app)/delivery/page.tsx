@@ -25,9 +25,10 @@ const STATUS_OPTIONS = [
 
 export default async function DeliveryPage({ searchParams }: PageProps<"/delivery">) {
   const sp = await searchParams;
-  const { page } = listParamsSchema.parse(sp);
+  const { q, page } = listParamsSchema.parse(sp);
   const ctx = await requireTenantContext("operations.manage");
   const list = await listTrips(ctx, {
+    q,
     page,
     status: filterParam(sp, "tripStatus"),
     ...parseDateRange(sp),
@@ -46,9 +47,9 @@ export default async function DeliveryPage({ searchParams }: PageProps<"/deliver
       <Notice notice={sp.notice} />
       <ListToolbar
         basePath="/delivery"
-        params={{ q: undefined, status: "all" }}
+        params={{ q, status: "all" }}
         showStatus={false}
-        showSearch={false}
+        searchPlaceholder="Trip no., bike or driver"
         dateRange={{ from: filterParam(sp, "from"), to: filterParam(sp, "to"), label: "Trip" }}
         filters={[
           {

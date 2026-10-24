@@ -2,10 +2,17 @@ import "server-only";
 
 import { ZodError } from "zod";
 
+import { Prisma } from "@/generated/prisma/client";
+
 import { ForbiddenError } from "./auth/permissions";
 import { type ActionState, echoValues } from "@/lib/action-state";
 
 import { ServiceError } from "./services/errors";
+
+/** A serializable transaction aborted by Postgres because of a concurrent change (safe to retry). */
+export function isWriteConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+}
 
 /**
  * Runs an action body and turns expected failures (validation, permission, business rules) into a
@@ -37,6 +44,13 @@ export async function runAction<T>(
     if (error instanceof ServiceError) return { status: "error", message: error.message, values };
     if (error instanceof ForbiddenError)
       return { status: "error", message: "You do not have permission to do this." };
+    if (isWriteConflict(error))
+      return {
+        status: "error",
+        message:
+          "Someone saved related records at the same moment. Nothing was saved; please try again.",
+        values,
+      };
     throw error;
   }
 }

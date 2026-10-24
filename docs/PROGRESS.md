@@ -2,6 +2,183 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 10: Phase 1 review — done
+
+I reviewed the whole codebase against the CLAUDE.md rules and Phase 1 of `docs/SPEC.md`. Fixes and
+additions in this task are marked **fixed** or **added**.
+
+### Findings and fixes
+
+**Bugs fixed**
+
+1. **Double credit for damaged stock returned to a company.** The claim form offered "Damaged
+   stock returned to company", which credited the company again for goods that day-end had
+   already claimed, and never took them out of damaged stock. **Fixed:** that claim type is gone
+   from the form. Damaged stock is now sent back from the product's stock card ("Send back"): it
+   leaves the damaged bucket with a `RETURN_TO_COMPANY` movement, and no money moves. It is
+   audited and idempotent.
+2. **Two trips dispatched at the same moment could both take the same stock**, and two day-end
+   saves could both pay off the same bill slice. **Fixed:** dispatch and day-end now run as
+   serializable transactions, like the other payment and receipt posts.
+3. **A concurrent-write abort showed an error page.** **Fixed:** `runAction` now turns it into
+   "Someone saved related records at the same moment. Nothing was saved; please try again", and
+   keeps the typed values.
+4. **The printed bill added discounts with JavaScript floats.** **Fixed:** it now uses decimals
+   (rule 5).
+5. **"Plan a trip" (and the new stock card) read today's date before the session**, which
+   Next.js flags while prerendering. **Fixed:** the session is read first.
+6. **Trip stops ignored the customer's visiting order** (`routeSequence`, set on the customer form
+   and in the import). **Fixed:** stops, the loading sheet, the planning list and day-end's "next
+   order" now go by area route order, then visiting order, then name (`byRoute`, unit-tested).
+7. **There was no way to create a real tenant**: only the demo seed made one, and the super admin
+   panel is Phase 5. **Added:** `pnpm tenant:create "Business name" "Owner name" owner@email`.
+   It creates the tenant, the owner (with a one-time password to change at first sign-in), the
+   unit conversions and an audit row. It is integration-tested.
+
+**Missing Phase 1 pieces, added**
+
+8. **Inventory screen** (`/inventory`, all roles; no costs shown):
+   - on hand, reserved, available, minimum and damaged per product;
+   - search, warehouse, company and "below minimum" filters;
+   - totals, and print.
+9. **Stock card** (`/inventory/[productId]`): every movement in a date range with running saleable
+   and damaged balances and links to the receipt or order. Damaged stock can be sent back here.
+10. **Audit log viewer** (Settings → Audit log, owner only, `audit.view`): filter by record type,
+    action, user, record id and date range; old and new values expand per row.
+11. **Search** on company bills, claims and delivery trips. Every transaction list now has search,
+    filters and a date range.
+
+**Rules hardened**
+
+12. **Append-only journals in the data layer.** The tenant data layer now refuses update, upsert
+    and delete on `LedgerEntry`, `StockMovement`, `BillRevision`, `AuditLog` and
+    `ProductPriceHistory`, with a clear error. Database triggers already enforced this; a new test
+    proves that even the raw client is refused.
+
+**Checked and found consistent (no change needed)**
+
+- Rule 1: raw Prisma is used only in the auth code (login, session, account). Every business
+  query goes through `createTenantDb`, and raw SQL is blocked there.
+- Rule 2:
+  - no code edits or deletes a journal row;
+  - corrections are reversal rows (`reverseLedgerFor`, stock `REVERSAL`, `CHEQUE_BOUNCE`);
+  - company bills post at gross with claims credited separately, so nothing is counted twice.
+- Rule 3: every customer ledger entry has `companyId`, enforced by a CHECK constraint and checked
+  again in the new journal test.
+- Rule 4: quantities are integer half dozens everywhere. `UnitConversion` exists and is seeded.
+- Rule 5: money is `Decimal(14,2)` in the database and `decimal.js` / `Prisma.Decimal` in code.
+  The only float uses left are Excel cell values (a display format) and text-box parsing in the
+  company payment form.
+- Rule 6: every create, update, post and reversal in the services writes an audit row in the
+  same transaction.
+- Rule 7: every create form sends a `requestId`, and services return the existing record on retry.
+  Order, payment and trip claims use status conditions so double clicks cannot post twice.
+- Rule 8:
+  - every service checks the permission (`assertCan`), and every page checks it too;
+  - staff never get purchase rates (products, purchase orders, receipts and claims hide them
+    without `financials.view`);
+  - the claims, company bills, company ledger, statement and payments pages are for owner and
+    accountant only.
+- Rule 9: `Batch` has batch number, manufacturing and expiry dates; tax fields exist and are off;
+  `SalesOrder.source` is OFFICE, WHATSAPP or BOOKER_APP.
+
+**Tests added**
+
+- `journals.int.test.ts` (9 tests) runs a realistic week through every posting path:
+  - receipts and a cancelled receipt;
+  - orders and a cancelled order;
+  - dispatch;
+  - day-end with returns and damage;
+  - office and delivery payments, a bounced cheque and a reversed payment;
+  - a company payment, and a damage claim deducted on the next company bill;
+  - damaged stock sent back.
+
+  It then checks against hand-worked totals that:
+  - stock on hand = received − dispatched + returned per product, damage sits in its own bucket,
+    and reserved counts only open orders;
+  - the inventory screen and the stock card (running balances and opening from a date) agree with
+    the journal;
+  - every customer entry has a company and no entry is zero;
+  - customer pending = opening + revised bills − payments that still stand;
+  - each bill's ledger postings = the bill after day-end = the sum of its company sections;
+  - allocations never exceed a bill slice, and the bill-by-bill debt adds up to the ledger balance;
+  - statements (all companies and per company) and company receivables add up to the same totals;
+  - company payable = opening + bills − payments − claims, on the ledger and its screen, with the
+    claim deducted on the next bill.
+
+- `actions.test.ts`: the concurrent-write message, business errors, and that unexpected errors are
+  rethrown.
+- `tenant.test.ts` and `tenant.int.test.ts`: append-only checks in the data layer and in the
+  database.
+
+**Tests:** 223 in total, all passing; the suite was also run three times in a row to check that
+serializable transactions don't make it flaky.
+
+### Phase 1 completion checklist
+
+SPEC §16, Phase 1: "tenant and user setup, roles, master data with Excel import, purchase receipts
+and company bills, inventory, sales orders, A5 bill printing, day-end entry of deliveries, returns,
+damage and payments, customer and company ledgers, audit log."
+
+| Item                                           | Status          | Where                                                                                                                                                                                            |
+| ---------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tenant and user setup                          | Done            | `pnpm tenant:create` for a new tenant and owner (Task 10); Settings → Users (invite, role, deactivate, reset password)                                                                           |
+| Roles: owner, accountant, staff, super admin   | Done            | `src/server/auth/permissions.ts`, checked on the server                                                                                                                                          |
+| Master data                                    | Done            | Warehouses, areas, bikes, staff, companies (opening balance, booker, terms), products (rates with history, discount slabs, minimum level), customers (opening balance per company, credit limit) |
+| Excel import                                   | Done            | Products and customers, with preview (Task 4)                                                                                                                                                    |
+| Purchase orders, receipts, company bills       | Done            | Purchases; due dates, claims deducted on the next bill                                                                                                                                           |
+| Company payments and ledger                    | Done            | Oldest bills first or manual; bill-wise status; overdue; Excel                                                                                                                                   |
+| Inventory                                      | Done            | Stock per product (Task 10), stock card, damaged stock sent back                                                                                                                                 |
+| Stock adjustments (request / approve)          | Phase 2         | `StockAdjustment` table exists; the seed has one pending                                                                                                                                         |
+| Sales orders                                   | Done            | Keyboard-first entry, credit limit with owner approval, stock reservation                                                                                                                        |
+| A5 bill printing                               | Done            | A5 default; A4, half A4, A6, custom; 2 per A4; logo; split by company; bulk print                                                                                                                |
+| Dispatch                                       | Done (simple)   | Trips per bike and driver, loading sheet; load suggestions are Phase 2                                                                                                                           |
+| Day-end: deliveries, returns, damage, payments | Done            | Bills revised automatically, claims, payments split by company                                                                                                                                   |
+| Customer payments, cheques                     | Done            | Office payments, cleared or bounced cheques, reversal, flag                                                                                                                                      |
+| Customer ledger (all companies, per company)   | Done            | Statement with print, PDF and Excel                                                                                                                                                              |
+| Company ledger and company × all customers     | Done            | Company ledger, statement, customer balances                                                                                                                                                     |
+| Audit log                                      | Done            | Written on every change; viewer added in Task 10                                                                                                                                                 |
+| Seed demo tenant                               | Done            | 2 warehouses, 3 companies, 20 products, 30 customers, 4 bikes, plus a trip and orders                                                                                                            |
+| Before go-live: one real week matches paper    | **Owner to do** | SPEC §16 "done when"                                                                                                                                                                             |
+
+### Open items, by phase
+
+**Not Phase 1 (planned later):**
+
+- Phase 2:
+  - delivery planning with load suggestions and drag-and-drop stop ordering (stops follow area
+    route order and each customer's visiting order today);
+  - driver cash hand-in with short or excess against the driver;
+  - expenses and payroll (placeholder page);
+  - stock adjustment approval screens;
+  - cheque register by due date;
+  - one-click rescheduling of undelivered orders.
+- Phase 3: dashboard (placeholder page), reports (placeholder page), suggested order quantities,
+  profit and loss, ageing.
+- Phase 4: WhatsApp notifications.
+- Phase 5:
+  - self sign-up, setup wizard, subscriptions, super admin panel;
+  - per-tenant time zone (Pakistan time is the default today);
+  - database row-level security. Isolation today is the tenant data layer plus composite
+    foreign keys that refuse cross-tenant references.
+
+**Worth doing before real use:**
+
+- **Correcting a saved day-end** (reversal of its stock, claim, bill revision and payments) is not
+  built. A wrong entry needs a manual fix.
+- **Login lockout** after repeated wrong passwords, and 2-step verification for owners
+  (SPEC §13), are not built.
+- **Refunds** of a customer advance are not built.
+- **Auto-save of draft forms** (SPEC §13 weak internet) is not built. Retries are safe
+  (`requestId`), but a closed tab loses a half-typed order.
+- **Daily backups** belong to the hosting setup (Neon or Supabase point-in-time restore); a
+  "tenant exports all data" button is not built.
+- **CI:** there is no GitHub Actions workflow yet. lint, typecheck, test and build run only
+  locally.
+
+**Owner questions still open** (SPEC §17): driver cash short policy, ageing buckets, suggested
+order rule, the slab discount after returns, target tenants and price.
+
 ## Task 9: Customer ledgers and payments — done
 
 **Built**

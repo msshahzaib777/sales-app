@@ -11,7 +11,6 @@ import { type ActionState, idleState } from "@/lib/action-state";
 
 const TYPES = [
   { value: "DELIVERY_DAMAGE", label: "Damaged in delivery" },
-  { value: "RETURN_TO_COMPANY", label: "Damaged stock returned to company" },
   { value: "OTHER", label: "Other" },
 ];
 
