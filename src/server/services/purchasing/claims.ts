@@ -3,7 +3,7 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import type { ClaimStatus, ClaimType } from "@/generated/prisma/enums";
 import { businessToday } from "@/lib/dates";
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 import { claimSchema, reverseSchema } from "@/lib/validation/purchasing";
 
 import { writeAudit } from "../../audit";
@@ -83,7 +83,7 @@ export async function createClaim(ctx: ServiceCtx, input: unknown) {
         : product.purchaseRate;
     const amount = calculateLineAmounts({
       quantity: data.quantity,
-      baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+      baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
       rate,
     }).netAmount;
     if (amount.lte(0)) throw new ServiceError("The claim amount must be more than zero.");

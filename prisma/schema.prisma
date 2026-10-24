@@ -4,7 +4,7 @@
 // - Every business table has `tenantId` and `@@unique([tenantId, id])`. References between
 //   business tables are composite foreign keys on (tenantId, xId), so the database itself refuses
 //   a row that points at another tenant's record.
-// - Quantities are Int in the product's base unit (half dozen for snacks). Rates are per the
+// - Quantities are Int in the product's base unit (packet for snacks; 12 to a dozen). Rates are per the
 //   product's price unit (dozen); `UnitConversion` maps units to base units.
 // - Money is Decimal(14,2). Signed ledger convention: balance = SUM(debit - credit) per party.
 //   Positive = the party owes us (customer); negative = we owe the party (company).
@@ -482,7 +482,7 @@ model ProductDiscountTier {
   id            String       @id @default(cuid())
   tenantId      String
   productId     String
-  /// Base units (half dozens): 25 dozen = 50.
+  /// Base units (packets): 25 dozen = 300.
   minQuantity   Int
   discountType  DiscountType
   /// Percent (0–100) or PKR per price unit, depending on `discountType`.
@@ -582,7 +582,7 @@ model Bike {
   tenantId    String
   warehouseId String?
   name        String
-  /// Load capacity in base units (half dozens): 80 dozen = 160.
+  /// Load capacity in base units (packets): 80 dozen = 960.
   capacity    Int
   driverId    String?
   isActive    Boolean  @default(true)

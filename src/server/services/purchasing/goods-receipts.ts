@@ -2,7 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import { businessToday } from "@/lib/dates";
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 import { goodsReceiptSchema, reverseSchema } from "@/lib/validation/purchasing";
 
 import { writeAudit } from "../../audit";
@@ -180,7 +180,7 @@ export async function createGoodsReceipt(ctx: ServiceCtx, input: unknown) {
             : (poLine?.rate ?? product.purchaseRate);
         const { netAmount } = calculateLineAmounts({
           quantity: line.quantity,
-          baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+          baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
           rate,
         });
         return { product, poLine, quantity: line.quantity, rate, amount: netAmount };

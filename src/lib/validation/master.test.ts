@@ -23,8 +23,8 @@ describe("productSchema", () => {
       purchaseRate: "1200",
       saleRate: "1320.5",
       discountValue: "200",
-      minStockLevel: 25,
-      slabs: [{ fromDozens: 50, value: "250" }],
+      minStockLevel: 150,
+      slabs: [{ fromDozens: 300, value: "250" }],
     });
     expect(p.effectiveFrom.toISOString()).toBe("2026-10-24T00:00:00.000Z");
   });
@@ -104,8 +104,8 @@ describe("other schemas", () => {
     ).toBe(false);
   });
 
-  it("bike capacity in dozens → half dozens", () => {
-    expect(bikeSchema.parse({ name: "Bike 1", capacity: "90" }).capacity).toBe(180);
+  it("bike capacity in dozens → packets", () => {
+    expect(bikeSchema.parse({ name: "Bike 1", capacity: "90" }).capacity).toBe(1080);
     expect(bikeSchema.safeParse({ name: "Bike 1", capacity: "0" }).success).toBe(false);
   });
 

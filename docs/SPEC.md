@@ -60,7 +60,7 @@ All master records belong to one tenant, and can be deactivated instead of delet
 | Staff | Name, role, phone, monthly salary, joining date | Drivers and office staff |
 | Expense category | Name | Rent, salary, petrol, maintenance, utilities, labor; tenant can add more |
 
-Quantities are stored internally in the smallest unit (half dozen), so dozens and half dozens never cause rounding errors.
+Quantities are stored internally in the smallest unit (packet; 12 packets = 1 dozen), so dozens, half dozens and loose packets never cause rounding errors. Orders are in dozens and half dozens; damage and returns are counted in packets.
 
 ## 4. Purchasing and company ledger
 

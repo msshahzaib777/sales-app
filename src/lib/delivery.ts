@@ -2,7 +2,7 @@ import Decimal from "decimal.js";
 
 import { calculateLineAmounts, type DiscountType } from "./pricing";
 import type { OrderStatus, PricedLine } from "./sales";
-import { HALF_DOZENS_PER_DOZEN } from "./units";
+import { PACKETS_PER_DOZEN } from "./units";
 
 // Dispatch and day-end rules (SPEC §7), shared by the server and the day-end screen. Pure.
 
@@ -59,7 +59,7 @@ export function deliveredLines(lines: BookedLine[], results: LineResult[]): Pric
       const quantity = l.quantity - (r?.returned ?? 0) - (r?.damaged ?? 0);
       const amounts = calculateLineAmounts({
         quantity,
-        baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+        baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
         rate: l.rate,
         discountType: l.discountType,
         discountValue: l.discountValue,
@@ -134,7 +134,7 @@ export function takeFromBatches(
   return { slices, unbatched: left };
 }
 
-/** Total half dozens per product over several orders (a trip's loading sheet). */
+/** Total packets per product over several orders (a trip's loading sheet). */
 export function loadByProduct(
   lines: { productId: string; quantity: number }[],
 ): Map<string, number> {

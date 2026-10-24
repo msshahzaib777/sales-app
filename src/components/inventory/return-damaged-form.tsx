@@ -33,7 +33,14 @@ export function ReturnDamagedForm({
         </span>
       </p>
       <div className="grid gap-3 sm:grid-cols-4">
-        <TextField state={state} name="quantity" label="Dozens" inputMode="decimal" required />
+        <TextField
+          state={state}
+          name="quantity"
+          label="Packets"
+          hint="12 packets = 1 dozen"
+          inputMode="numeric"
+          required
+        />
         <TextField
           state={state}
           name="returnDate"

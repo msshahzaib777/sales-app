@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type ActionState, idleState } from "@/lib/action-state";
-import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 
 type Row = {
   id: string;
@@ -21,7 +21,7 @@ type Row = {
   onHand: number;
 };
 
-const asDozens = (half: number) => String(half / HALF_DOZENS_PER_DOZEN);
+const asDozens = (half: number) => String(half / PACKETS_PER_DOZEN);
 
 /**
  * The stock already in the warehouse on the first day, product by product, in dozens.

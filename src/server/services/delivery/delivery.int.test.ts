@@ -162,10 +162,10 @@ describe("planning a trip", () => {
     await addOrdersToTrip(t.staff, { tripId: tr.id, orderIds: [b.id] });
     const view = await getTrip(t.staff, tr.id);
     expect(view.orders).toHaveLength(2);
-    expect(view.totals.load).toBe(24);
+    expect(view.totals.load).toBe(144);
     expect(view.load.map((p) => [p.code, p.quantity])).toEqual([
-      ["CB01", 20],
-      ["GC01", 4],
+      ["CB01", 120],
+      ["GC01", 24],
     ]);
 
     // The same order cannot go on two trips.
@@ -206,8 +206,8 @@ describe("dispatch", () => {
     const tr = await trip([a.id]);
     await dispatchTrip(t.staff, { id: tr.id });
 
-    expect(await onHand(t.chips.id)).toBe(80);
-    expect(await onHand(t.nimko.id)).toBe(96);
+    expect(await onHand(t.chips.id)).toBe(480);
+    expect(await onHand(t.nimko.id)).toBe(576);
     const entries = await t.ctx.db.ledgerEntry.findMany({
       where: { partyType: "CUSTOMER", customerId: t.ali.id, type: "SALES_BILL" },
     });
@@ -248,7 +248,7 @@ describe("dispatch", () => {
     await expect(dispatchTrip(t.staff, { id: tr.id })).rejects.toThrow(
       /Not enough stock.*Item CB01/,
     );
-    expect(await onHand(t.chips.id)).toBe(100);
+    expect(await onHand(t.chips.id)).toBe(600);
 
     await t.ctx.db.customer.update({ where: { id: t.bilal.id }, data: { creditLimit: 100 } });
     const over = await book(t.bilal.id, [[t.nimko.id, "2"]]);
@@ -275,26 +275,26 @@ describe("day-end entry", () => {
       requestId: randomUUID(),
       orderId: a.id,
       lines: [
-        { productId: t.chips.id, returned: "2", damaged: "1" },
+        { productId: t.chips.id, returned: "24", damaged: "12" },
         { productId: t.nimko.id, returned: "", damaged: "" },
       ],
       cash: "1000",
     });
     expect(result.status).toBe("PARTIALLY_DELIVERED");
 
-    // Stock: 100 − 20 dispatched + 4 returned; 2 half dozens in damaged stock.
-    expect(await onHand(t.chips.id)).toBe(84);
+    // Stock (packets): 600 − 120 dispatched + 24 returned; 12 in damaged stock.
+    expect(await onHand(t.chips.id)).toBe(504);
     const damaged = await t.ctx.db.stockMovement.aggregate({
       where: { productId: t.chips.id, bucket: "DAMAGED" },
       _sum: { quantity: true },
     });
-    expect(damaged._sum.quantity).toBe(2);
+    expect(damaged._sum.quantity).toBe(12);
 
     // Claim against Crunchy at purchase cost: 1 dozen × 100.
     const claim = await t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
     expect([claim.type, claim.quantity, claim.amount.toFixed(2)]).toEqual([
       "DELIVERY_DAMAGE",
-      2,
+      12,
       "100.00",
     ]);
     const companyLedger = await t.ctx.db.ledgerEntry.findMany({
@@ -306,7 +306,7 @@ describe("day-end entry", () => {
     const view = await getBillView(t.staff, a.id);
     expect(view.bill.revision).toBe(2);
     expect(view.bill.netAmount.toFixed(2)).toBe("1672.00");
-    expect(view.lines.find((l) => l.productId === t.chips.id)!.quantity).toBe(14);
+    expect(view.lines.find((l) => l.productId === t.chips.id)!.quantity).toBe(84);
     expect(view.sections[0]!.previous.toFixed(2)).toBe("3000.00");
     const revision = await t.ctx.db.ledgerEntry.findFirstOrThrow({
       where: { customerId: t.ali.id, type: "BILL_REVISION" },
@@ -349,7 +349,7 @@ describe("day-end entry", () => {
     const refused = {
       requestId,
       orderId: b.id,
-      lines: [{ productId: t.nimko.id, returned: "3", damaged: "0" }],
+      lines: [{ productId: t.nimko.id, returned: "36", damaged: "0" }],
       chequeAmount: "250",
       chequeNo: "001122",
       bankName: "HBL",
@@ -372,7 +372,7 @@ describe("day-end entry", () => {
       "PENDING",
       "001122",
     ]);
-    expect(await onHand(t.nimko.id)).toBe(96);
+    expect(await onHand(t.nimko.id)).toBe(576);
 
     const view = await getTrip(t.staff, tr.id);
     expect(view.status).toBe("RECONCILED");
@@ -391,7 +391,7 @@ describe("day-end entry", () => {
     await expect(
       saveDayEnd(t.staff, {
         orderId: a.id,
-        lines: [{ productId: t.chips.id, returned: "8", damaged: "3" }],
+        lines: [{ productId: t.chips.id, returned: "96", damaged: "36" }],
       }),
     ).rejects.toThrow(/more than the quantity sent/);
     await expect(
@@ -418,7 +418,7 @@ describe("undoing a day-end entry", () => {
     // Entered wrongly: 2 dz chips returned, 1 dz damaged, 1000 cash.
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "2", damaged: "1" }],
+      lines: [{ productId: t.chips.id, returned: "24", damaged: "12" }],
       cash: "1000",
     });
     return { a, tr };
@@ -439,8 +439,8 @@ describe("undoing a day-end entry", () => {
     );
     await undoDayEnd(t.ctx, { id: a.id, reason: "typed the wrong order" });
 
-    // Stock as dispatched: 100 − 20 chips, nothing damaged.
-    expect(await onHand(t.chips.id)).toBe(80);
+    // Stock as dispatched: 100 − 20 dozen chips, nothing damaged.
+    expect(await onHand(t.chips.id)).toBe(480);
     expect(await damagedStock(t.chips.id)).toBe(0);
     // Claim cancelled, company ledger back to just the receipt.
     const claim = await t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
@@ -484,7 +484,7 @@ describe("undoing a day-end entry", () => {
 
   it("refuses when the damaged stock was sent back, a claim was deducted, or a cheque cleared", async () => {
     const { a } = await entered();
-    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "1", returnDate: DAY });
+    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "12", returnDate: DAY });
     await expect(undoDayEnd(t.ctx, { id: a.id, reason: "late fix" })).rejects.toThrow(
       /already been sent back/,
     );

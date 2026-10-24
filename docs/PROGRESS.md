@@ -63,6 +63,26 @@ From the owner's notes after trying Phase 1. Built one item at a time.
    - Tested in `payments.test.ts` and `payments.int.test.ts` (incl. idempotent retry, bounce,
      removal rules, DB check, permissions), and in a browser run.
 
+6. **Damage and returns in packets — done.** The base unit is now the **packet** (12 = 1 dozen;
+   a half dozen = 6), instead of the half dozen. `PACKETS_PER_DOZEN` in `src/lib/units.ts`; rates
+   stay per dozen, so a loose packet is priced at rate ÷ 12.
+   - Migration `packets_base_unit` multiplies every stored quantity by 6: stock movements and
+     adjustments, order lines (incl. returned and damaged), purchase and receipt lines, claims,
+     bike capacity, minimum stock, discount slabs, and the quantities inside price-history slabs
+     and bill revision snapshots. The append-only triggers on those three tables are switched off
+     only for this restatement and back on in the same migration. Unit conversions now read
+     PACKET = 1, HALF_DOZEN = 6, DOZEN = 12. Checked on a copy of demo data: every total is
+     exactly 6×, and bill snapshots still match their order lines.
+   - Orders, purchases, opening stock, slabs and capacity are still entered in whole or half
+     dozens.
+   - Typed in packets: day-end returned and damaged (with "= 2.5 dz" shown under each box),
+     damaged stock sent back to the company, and damage claims.
+   - Display: whole and half dozens as before ("3.5 dz"); loose packets as "2 dz 10 pk" (bill,
+     loading sheet, day-end, stock screens).
+   - Tests updated to packets, plus new ones for loose packets (pricing, re-pricing at day-end,
+     display). Checked in a browser: day-end with 5 returned and 3 damaged packets, and the
+     revised bill print.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

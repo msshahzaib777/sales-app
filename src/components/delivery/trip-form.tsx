@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
-import { formatDozens } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 
 import { LoadText } from "./trip-badge";
 
@@ -174,7 +174,8 @@ export function TripForm({
             <option value="">Choose a bike</option>
             {bikes.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name} · {b.capacity / 2} dz{b.warehouse ? ` · ${b.warehouse.name}` : ""}
+                {b.name} · {b.capacity / PACKETS_PER_DOZEN} dz
+                {b.warehouse ? ` · ${b.warehouse.name}` : ""}
               </option>
             ))}
           </NativeSelect>

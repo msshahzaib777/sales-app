@@ -159,8 +159,8 @@ async function week() {
   await saveDayEnd(ctx, {
     orderId: a.id,
     lines: [
-      { productId: chips.id, returned: "1", damaged: "" },
-      { productId: nimko.id, returned: "", damaged: "1" },
+      { productId: chips.id, returned: "12", damaged: "" },
+      { productId: nimko.id, returned: "", damaged: "12" },
     ],
     cash: "1000",
   });
@@ -214,32 +214,32 @@ beforeAll(async () => {
 describe("stock journal", () => {
   it("balances are received − dispatched + returned, and damage sits in its own bucket", async () => {
     const pos = await stockPositions(ctx.db, w.wh.id, [w.chips.id, w.nimko.id]);
-    // Chips: 100 received − 30 dispatched + 2 returned = 72 half dozens.
-    expect(pos.get(w.chips.id)).toEqual({ onHand: 72, reserved: 0, available: 72 });
-    // Nimko: 60 + 20 received (the cancelled 10 nets to zero) − 8 dispatched = 72; 12 reserved.
-    expect(pos.get(w.nimko.id)).toEqual({ onHand: 72, reserved: 12, available: 60 });
+    // Chips: 100 received − 30 dispatched + 2 returned = 72 dozen (432 packets).
+    expect(pos.get(w.chips.id)).toEqual({ onHand: 432, reserved: 0, available: 432 });
+    // Nimko: 60 + 20 received (the cancelled 10 nets to zero) − 8 dispatched = 72 dozen; 12 dozen reserved.
+    expect(pos.get(w.nimko.id)).toEqual({ onHand: 432, reserved: 72, available: 360 });
 
     const damaged = await ctx.db.stockMovement.groupBy({
       by: ["productId"],
       where: { bucket: "DAMAGED" },
       _sum: { quantity: true },
     });
-    expect(damaged.map((g) => [g.productId, g._sum.quantity])).toEqual([[w.nimko.id, 2]]);
+    expect(damaged.map((g) => [g.productId, g._sum.quantity])).toEqual([[w.nimko.id, 12]]);
   });
 
   it("the inventory screen and the stock card agree with the journal", async () => {
     const list = await listStock(ctx, { page: 1 });
     const row = (id: string) => list.rows.find((r) => r.id === id)!;
     expect([row(w.chips.id).onHand, row(w.chips.id).damaged, row(w.chips.id).low]).toEqual([
-      72,
+      432,
       0,
       false,
     ]);
-    expect([row(w.nimko.id).available, row(w.nimko.id).damaged]).toEqual([60, 2]);
+    expect([row(w.nimko.id).available, row(w.nimko.id).damaged]).toEqual([360, 12]);
     expect((await listStock(ctx, { page: 1, low: true })).total).toBe(0);
 
     const card = await getStockCard(ctx, w.nimko.id, {});
-    expect(card.closing).toEqual({ saleable: 72, damaged: 2 });
+    expect(card.closing).toEqual({ saleable: 432, damaged: 12 });
     // Running balance = cumulative sum of the movements shown.
     let saleable = 0;
     for (const r of card.rows) {
@@ -250,8 +250,8 @@ describe("stock journal", () => {
     const fromDispatch = await getStockCard(ctx, w.chips.id, {
       from: new Date("2026-10-22T00:00:00Z"),
     });
-    expect(fromDispatch.opening.saleable).toBe(100);
-    expect(fromDispatch.closing.saleable).toBe(72);
+    expect(fromDispatch.opening.saleable).toBe(600);
+    expect(fromDispatch.closing.saleable).toBe(432);
   });
 });
 
@@ -353,14 +353,14 @@ describe("damaged stock sent back to the company", () => {
   it("leaves the damaged bucket without a second credit to the company", async () => {
     const before = await getCompanyLedger(ctx, w.golden.id, {});
     await expect(
-      returnDamagedStock(ctx, { productId: w.nimko.id, quantity: "2", returnDate: "2026-10-24" }),
+      returnDamagedStock(ctx, { productId: w.nimko.id, quantity: "24", returnDate: "2026-10-24" }),
     ).rejects.toThrow(/Only 1 dz/);
     const requestId = randomUUID();
-    const input = { productId: w.nimko.id, quantity: "1", returnDate: "2026-10-24", requestId };
+    const input = { productId: w.nimko.id, quantity: "12", returnDate: "2026-10-24", requestId };
     await returnDamagedStock(ctx, input);
     await returnDamagedStock(ctx, input);
     const card = await getStockCard(ctx, w.nimko.id, {});
-    expect([card.damagedNow, card.closing.saleable]).toEqual([0, 72]);
+    expect([card.damagedNow, card.closing.saleable]).toEqual([0, 432]);
     const after = await getCompanyLedger(ctx, w.golden.id, {});
     expect(money(after.summary.payableNow)).toBe(money(before.summary.payableNow));
   });
@@ -380,16 +380,16 @@ describe("opening stock", () => {
     expect((await setOpeningStock(ctx, sheet)).changed).toBe(0);
     const onHand = async () =>
       (await stockPositions(ctx.db, w.wh.id, [w.chips.id])).get(w.chips.id)!.onHand;
-    expect(await onHand()).toBe(start + 40);
+    expect(await onHand()).toBe(start + 240);
 
     // Lowered to 15 dz: only the difference is posted.
     await setOpeningStock(ctx, {
       stockDate: "2026-10-19",
       lines: [{ productId: w.chips.id, quantity: "15" }],
     });
-    expect(await onHand()).toBe(start + 30);
+    expect(await onHand()).toBe(start + 180);
     const rows = await openingStockSheet(ctx, {});
-    expect(rows.find((r) => r.id === w.chips.id)!.opening).toBe(30);
+    expect(rows.find((r) => r.id === w.chips.id)!.opening).toBe(180);
 
     // No money moved for the company, and the stock sits in one opening batch.
     const after = await getCompanyLedger(ctx, w.crunchy.id, {});
@@ -423,7 +423,7 @@ describe("opening stock", () => {
         productId: w.nimko.id,
         warehouseId: w.wh.id,
         batchId: opening.batchId,
-        quantity: -2,
+        quantity: -12,
       },
     });
     await expect(

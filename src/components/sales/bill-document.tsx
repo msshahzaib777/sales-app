@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { Letterhead } from "@/components/print/print-frame";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
-import { formatDozens } from "@/lib/units";
+import { formatDozensCell } from "@/lib/units";
 import type { BillView } from "@/server/services/sales/bills";
 import type { PrintProfile } from "@/server/services/settings";
 
@@ -41,7 +41,7 @@ export function BillDocument({
 }) {
   // Money is summed as decimals, never floats (CLAUDE.md rule 5).
   const discount = lines.reduce((s, l) => s.add(l.discountAmount), new Decimal(0));
-  const dz = (q: number) => formatDozens(q).replace(" dz", "");
+  const dz = formatDozensCell;
   return (
     <article className="space-y-[0.6em] leading-snug">
       <Letterhead

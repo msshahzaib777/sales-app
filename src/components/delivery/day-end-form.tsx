@@ -12,17 +12,22 @@ import { type ActionState, fieldError, idleState, submittedValue } from "@/lib/a
 import { deliveredLines, type BookedLine } from "@/lib/delivery";
 import { formatMoney } from "@/lib/format";
 import { minimumPayment } from "@/lib/sales";
-import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { formatDozens } from "@/lib/units";
 
 export type DayEndLine = BookedLine & { code: string; name: string; companyName: string };
 
-/** "1.5" → 3 half dozens; blank → 0; anything else → null. */
-function halfDozens(text: string): number | null {
-  const t = text.trim();
+/** Packets as typed: "30" → 30; blank → 0; anything else → null. */
+function packets(text: string): number | null {
+  const t = text.trim().replace(/,/g, "");
   if (t === "") return 0;
-  if (!/^\d{1,7}(\.\d+)?$/.test(t)) return null;
-  const half = Number(t) * HALF_DOZENS_PER_DOZEN;
-  return Number.isInteger(half) ? half : null;
+  return /^\d{1,7}$/.test(t) ? Number(t) : null;
+}
+
+/** "30" → "2.5 dz" under a packets box, so the entry can be checked against the bill. */
+function PacketsHint({ value }: { value: number | null }) {
+  return value ? (
+    <div className="text-muted-foreground mt-0.5 text-xs tabular-nums">= {formatDozens(value)}</div>
+  ) : null;
 }
 
 /**
@@ -56,8 +61,8 @@ export function DayEndForm({
     const q = qty[l.productId] ?? { returned: "", damaged: "" };
     return {
       productId: l.productId,
-      returned: halfDozens(q.returned),
-      damaged: halfDozens(q.damaged),
+      returned: packets(q.returned),
+      damaged: packets(q.damaged),
     };
   });
   const invalid = results.some(
@@ -116,7 +121,7 @@ export function DayEndForm({
       <section aria-labelledby="lines-heading" className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="lines-heading" className="font-medium">
-            Products (dozens; leave blank when all were delivered)
+            Products: returns and damage in packets (12 = 1 dozen); blank when all were delivered
           </h2>
           <Button
             type="button"
@@ -125,10 +130,7 @@ export function DayEndForm({
             onClick={() =>
               setQty(
                 Object.fromEntries(
-                  lines.map((l) => [
-                    l.productId,
-                    { returned: String(l.quantity / HALF_DOZENS_PER_DOZEN), damaged: "" },
-                  ]),
+                  lines.map((l) => [l.productId, { returned: String(l.quantity), damaged: "" }]),
                 ),
               )
             }
@@ -168,27 +170,29 @@ export function DayEndForm({
                     <td className="px-3 py-1.5">
                       <Input
                         name="line.returned"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         autoComplete="off"
                         className="w-20"
                         value={q.returned}
                         autoFocus={i === 0}
-                        aria-label={`${l.name} returned (dozens)`}
+                        aria-label={`${l.name} returned (packets)`}
                         aria-invalid={bad ? true : undefined}
                         onChange={(e) => set(l.productId, "returned", e.target.value)}
                       />
+                      <PacketsHint value={r.returned} />
                     </td>
                     <td className="px-3 py-1.5">
                       <Input
                         name="line.damaged"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         autoComplete="off"
                         className="w-20"
                         value={q.damaged}
-                        aria-label={`${l.name} damaged (dozens)`}
+                        aria-label={`${l.name} damaged (packets)`}
                         aria-invalid={bad ? true : undefined}
                         onChange={(e) => set(l.productId, "damaged", e.target.value)}
                       />
+                      <PacketsHint value={r.damaged} />
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {bad ? (

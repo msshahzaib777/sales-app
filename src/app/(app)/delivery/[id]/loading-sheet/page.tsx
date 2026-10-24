@@ -5,7 +5,7 @@ import { Letterhead, PrintStyles, PrintToolbar } from "@/components/print/print-
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { statementPageCss } from "@/lib/print";
-import { formatDozens } from "@/lib/units";
+import { formatDozens, formatDozensCell } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
 import { getTrip } from "@/server/services/delivery/trips";
 import { getPrintProfile } from "@/server/services/settings";
@@ -70,7 +70,7 @@ export default async function LoadingSheetPage({
                   <tr key={p.productId} className="break-inside-avoid">
                     <td className={cell}>{p.code}</td>
                     <td className={cell}>{p.name}</td>
-                    <td className={num}>{formatDozens(p.quantity).replace(" dz", "")}</td>
+                    <td className={num}>{formatDozensCell(p.quantity)}</td>
                     <td className={`${cell} text-center`}>☐</td>
                   </tr>,
                 ];
@@ -108,7 +108,7 @@ export default async function LoadingSheetPage({
                     #{o.number}
                     {o.bill ? <div>Bill #{o.bill.number}</div> : null}
                   </td>
-                  <td className={num}>{formatDozens(o.quantity).replace(" dz", "")}</td>
+                  <td className={num}>{formatDozensCell(o.quantity)}</td>
                   <td className={num}>{formatMoney(o.bill?.netAmount)}</td>
                 </tr>
               ))}
@@ -117,7 +117,7 @@ export default async function LoadingSheetPage({
                   Total
                 </td>
                 <td className="border-t border-black px-[0.3em] py-[0.2em] text-right tabular-nums">
-                  {formatDozens(trip.totals.load).replace(" dz", "")}
+                  {formatDozensCell(trip.totals.load)}
                 </td>
                 <td className="border-t border-black px-[0.3em] py-[0.2em] text-right tabular-nums">
                   {formatMoney(trip.totals.bills)}

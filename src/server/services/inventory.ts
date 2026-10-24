@@ -9,6 +9,7 @@ import { formatDozens } from "@/lib/units";
 import {
   dateSchema,
   dozensSchema,
+  packetsSchema,
   idSchema,
   optionalText,
   requestIdSchema,
@@ -24,12 +25,12 @@ import { stockPositions } from "./sales/positions";
 
 // Inventory (SPEC §5): stock per product per warehouse, always rebuilt from the stock journal.
 // On hand = saleable movements; reserved = booked and planned orders; available = on hand −
-// reserved; damaged = the damaged bucket. Quantities in half dozens. No costs: staff see this.
+// reserved; damaged = the damaged bucket. Quantities in packets. No costs: staff see this.
 
 const returnDamagedSchema = z.object({
   requestId: requestIdSchema,
   productId: idSchema,
-  quantity: dozensSchema("quantity", { min: 1 }),
+  quantity: packetsSchema("quantity", { min: 1 }),
   returnDate: dateSchema("date"),
   note: optionalText(300),
 });

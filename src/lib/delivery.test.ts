@@ -13,7 +13,7 @@ import {
 const chips = {
   productId: "p1",
   companyId: "c1",
-  quantity: 20, // 10 dozen
+  quantity: 120, // 10 dozen
   rate: "228",
   discountType: "AMOUNT_PER_UNIT" as const,
   discountValue: "8",
@@ -21,7 +21,7 @@ const chips = {
 const nimko = {
   productId: "p2",
   companyId: "c2",
-  quantity: 4,
+  quantity: 24,
   rate: "230",
   discountType: "NONE" as const,
   discountValue: "0",
@@ -29,8 +29,8 @@ const nimko = {
 
 describe("day-end quantities", () => {
   it("accepts returns and damage up to what was sent", () => {
-    expect(checkLineResults([chips], [{ productId: "p1", returned: 4, damaged: 2 }])).toEqual([]);
-    expect(checkLineResults([chips], [{ productId: "p1", returned: 15, damaged: 6 }])[0]).toMatch(
+    expect(checkLineResults([chips], [{ productId: "p1", returned: 24, damaged: 12 }])).toEqual([]);
+    expect(checkLineResults([chips], [{ productId: "p1", returned: 90, damaged: 36 }])[0]).toMatch(
       /more than/,
     );
     expect(checkLineResults([chips], [{ productId: "p1", returned: -1, damaged: 0 }])).toHaveLength(
@@ -45,15 +45,21 @@ describe("day-end quantities", () => {
     const lines = deliveredLines(
       [chips, nimko],
       [
-        { productId: "p1", returned: 4, damaged: 1 }, // 7.5 dozen kept
-        { productId: "p2", returned: 4, damaged: 0 }, // all back
+        { productId: "p1", returned: 24, damaged: 6 }, // 7.5 dozen kept
+        { productId: "p2", returned: 24, damaged: 0 }, // all back
       ],
     );
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ productId: "p1", quantity: 15 });
+    expect(lines[0]).toMatchObject({ productId: "p1", quantity: 90 });
     expect(lines[0]!.grossAmount.toFixed(2)).toBe("1710.00"); // 7.5 × 228
     expect(lines[0]!.discountAmount.toFixed(2)).toBe("60.00"); // 7.5 × 8
     expect(lines[0]!.netAmount.toFixed(2)).toBe("1650.00");
+  });
+
+  it("re-prices loose packets kept", () => {
+    const [line] = deliveredLines([chips], [{ productId: "p1", returned: 1, damaged: 2 }]);
+    // 117 packets = 9.75 dozen × (228 − 8)
+    expect([line!.quantity, line!.netAmount.toFixed(2)]).toEqual([117, "2145.00"]);
   });
 
   it("works out the order status", () => {
@@ -65,8 +71,8 @@ describe("day-end quantities", () => {
       deliveryStatus(
         [chips, nimko],
         [
-          { productId: "p1", returned: 20, damaged: 0 },
-          { productId: "p2", returned: 3, damaged: 1 },
+          { productId: "p1", returned: 120, damaged: 0 },
+          { productId: "p2", returned: 23, damaged: 1 },
         ],
       ),
     ).toBe("RETURNED");
@@ -123,8 +129,8 @@ describe("stock out", () => {
 
   it("adds up a trip's load per product", () => {
     expect([...loadByProduct([chips, nimko, { productId: "p1", quantity: 3 }])]).toEqual([
-      ["p1", 23],
-      ["p2", 4],
+      ["p1", 123],
+      ["p2", 24],
     ]);
   });
 });

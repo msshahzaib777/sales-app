@@ -13,7 +13,7 @@ export const ORDER_SOURCES = ["OFFICE", "WHATSAPP", "BOOKER_APP"] as const;
 
 export const salesOrderLineSchema = z.object({
   productId: idSchema,
-  quantity: dozensSchema("quantity", { min: 1 }),
+  quantity: dozensSchema("quantity", { min: 0.5 }),
 });
 
 export const salesOrderSchema = z

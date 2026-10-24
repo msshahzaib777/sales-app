@@ -49,11 +49,12 @@ export async function createTenantWithOwner(prisma: PrismaClient, input: unknown
         mustChangePassword: true,
       },
     });
-    // Snacks: half dozen is the base unit, rates are per dozen (CLAUDE.md rule 4).
+    // Snacks: packet is the base unit (12 to a dozen), rates are per dozen (CLAUDE.md rule 4).
     await tx.unitConversion.createMany({
       data: [
-        { tenantId: tenant.id, baseUnit: "HALF_DOZEN", unit: "HALF_DOZEN", baseUnitsPerUnit: 1 },
-        { tenantId: tenant.id, baseUnit: "HALF_DOZEN", unit: "DOZEN", baseUnitsPerUnit: 2 },
+        { tenantId: tenant.id, baseUnit: "PACKET", unit: "PACKET", baseUnitsPerUnit: 1 },
+        { tenantId: tenant.id, baseUnit: "PACKET", unit: "HALF_DOZEN", baseUnitsPerUnit: 6 },
+        { tenantId: tenant.id, baseUnit: "PACKET", unit: "DOZEN", baseUnitsPerUnit: 12 },
       ],
     });
     await writeAudit(tx, owner, {

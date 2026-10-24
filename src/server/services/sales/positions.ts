@@ -12,7 +12,7 @@ export type StockPosition = { onHand: number; reserved: number; available: numbe
 /**
  * Stock per product in a warehouse (SPEC §5): on hand = sum of saleable movements; reserved = lines
  * of booked/planned orders (optionally not counting one order, e.g. the one being edited);
- * available = on hand − reserved. All in half dozens.
+ * available = on hand − reserved. All in packets.
  */
 export async function stockPositions(
   tx: Reader,

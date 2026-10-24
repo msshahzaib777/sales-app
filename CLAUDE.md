@@ -31,8 +31,10 @@ The full requirements are in `docs/SPEC.md`. Read the relevant section before st
    posts with `companyId` null, as do payments, bounces and reversals that settle it. It counts in
    the customer's total, shows as "Old balance", is paid first and is left out of every company
    figure. A DB CHECK allows null only for those entry types.
-4. **Quantities** are stored as integers in the smallest unit (half dozen). Convert to dozens
-   only for display. Keep a `UnitConversion` table so cartons/pieces can be added later.
+4. **Quantities** are stored as integers in the smallest unit: the packet (12 packets = 1 dozen).
+   Orders and purchases are entered in whole or half dozens; damage and returns in packets.
+   Convert to dozens only for display (`formatDozens`). Keep a `UnitConversion` table so
+   cartons/pieces can be added later.
 5. **Money** uses `Decimal` (Prisma `Decimal @db.Decimal(14,2)`), never JS floats for storage.
    Currency is PKR.
 6. **Audit log:** every create/update/delete on orders, bills, payments, stock, rates and

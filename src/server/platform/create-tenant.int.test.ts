@@ -21,7 +21,7 @@ describe("creating a tenant with its owner", () => {
       true,
     ]);
     expect(await verifyPassword(temporaryPassword, owner.passwordHash)).toBe(true);
-    expect(await prisma.unitConversion.count({ where: { tenantId: tenant.id } })).toBe(2);
+    expect(await prisma.unitConversion.count({ where: { tenantId: tenant.id } })).toBe(3);
     expect(
       await prisma.auditLog.count({ where: { tenantId: tenant.id, entityType: "Tenant" } }),
     ).toBe(1);

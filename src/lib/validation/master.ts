@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN, PACKETS_PER_HALF_DOZEN } from "@/lib/units";
 
 // Master data validation, shared by forms, server actions and the Excel/CSV import.
 // Form values arrive as strings; these schemas trim them, turn "" into null, and convert money to
-// exact decimal strings and dozens to integer half dozens (CLAUDE.md rules 4 and 5).
+// exact decimal strings and dozens to integer packets (CLAUDE.md rules 4 and 5).
 
 const MONEY_PATTERN = /^-?\d{1,12}(\.\d{1,2})?$/;
 
@@ -77,19 +77,36 @@ export const signedMoneySchema = (label: string) =>
     )
     .transform((v) => v ?? "0");
 
-/** Dozens as typed (whole or .5) → integer half dozens. */
+/**
+ * Dozens as typed (whole or .5) → integer packets. `min` is in dozens (e.g. 0.5 = at least half a
+ * dozen).
+ */
 export const dozensSchema = (label: string, { min = 0 } = {}) =>
   z.preprocess(
     numberText,
     z
       .string({ error: `Enter the ${label}` })
       .regex(/^\d{1,7}(\.\d+)?$/, `Enter the ${label} in dozens`)
-      .transform((v) => Number(v) * HALF_DOZENS_PER_DOZEN)
-      .refine((half) => Number.isInteger(half), `The ${label} must be in whole or half dozens`)
       .refine(
-        (half) => half >= min,
-        `The ${label} must be more than ${min / HALF_DOZENS_PER_DOZEN} dozen`,
+        (v) => Number.isInteger(Number(v) * 2),
+        `The ${label} must be in whole or half dozens`,
+      )
+      .transform((v) => (Number(v) * 2 * PACKETS_PER_HALF_DOZEN) as number)
+      .refine(
+        (packets) => packets >= min * PACKETS_PER_DOZEN,
+        `The ${label} must be at least ${min} dozen`,
       ),
+  );
+
+/** Packets as typed (a whole number; 12 packets = 1 dozen): damage and returns. */
+export const packetsSchema = (label: string, { min = 0 } = {}) =>
+  z.preprocess(
+    numberText,
+    z.coerce
+      .number({ error: `Enter the ${label} in packets` })
+      .int(`The ${label} must be a whole number of packets`)
+      .min(min, min > 0 ? `Enter the ${label} in packets` : `The ${label} cannot be negative`)
+      .max(9_999_999, `The ${label} is too large`),
   );
 
 const intSchema = (label: string, min: number, max: number) =>
@@ -165,7 +182,7 @@ export const companySchema = z.object({
 export const DISCOUNT_TYPES = ["NONE", "AMOUNT_PER_UNIT", "PERCENT"] as const;
 
 export const discountSlabSchema = z.object({
-  fromDozens: dozensSchema("slab quantity", { min: 1 }),
+  fromDozens: dozensSchema("slab quantity", { min: 0.5 }),
   value: moneySchema("slab discount"),
 });
 
@@ -252,7 +269,7 @@ export const bikeSchema = z.object({
   requestId: requestIdSchema,
   name: requiredText("bike name or number", 60),
   warehouseId: optionalIdSchema,
-  capacity: dozensSchema("capacity", { min: 2 }),
+  capacity: dozensSchema("capacity", { min: 1 }),
   driverId: optionalIdSchema,
 });
 

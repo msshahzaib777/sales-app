@@ -13,7 +13,7 @@ import {
 import { businessToday } from "@/lib/dates";
 import { calculateLineAmounts, type DiscountType } from "@/lib/pricing";
 import { billTotals } from "@/lib/sales";
-import { formatDozens, HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 import { dayEndSchema } from "@/lib/validation/delivery";
 import { reverseSchema } from "@/lib/validation/purchasing";
 
@@ -195,7 +195,7 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
           const rate = line.product.purchaseRate;
           const amount = calculateLineAmounts({
             quantity: r.damaged,
-            baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+            baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
             rate,
           }).netAmount;
           if (amount.gt(0)) {

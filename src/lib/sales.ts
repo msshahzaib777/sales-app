@@ -6,7 +6,7 @@ import {
   type DiscountType,
   resolveDiscount,
 } from "./pricing";
-import { HALF_DOZENS_PER_DOZEN } from "./units";
+import { PACKETS_PER_DOZEN } from "./units";
 
 // Sales order rules shared by the server (what is stored) and the order-entry screen (what the user
 // sees while typing), so both always agree. Pure: no database, no Prisma.
@@ -47,7 +47,7 @@ export function priceLine(product: PricedProduct, quantity: number): PricedLine 
   );
   const amounts = calculateLineAmounts({
     quantity,
-    baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+    baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
     rate: product.saleRate,
     discountType: discount.discountType,
     discountValue: discount.discountValue,

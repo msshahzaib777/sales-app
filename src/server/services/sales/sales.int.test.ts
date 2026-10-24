@@ -122,7 +122,7 @@ describe("booking an order", () => {
     );
     const full = await getSalesOrder(t.ctx, result.id);
     const chipsLine = full.lines.find((l) => l.productId === t.chips.id)!;
-    expect(chipsLine).toMatchObject({ companyId: t.crunchy.id, quantity: 7 });
+    expect(chipsLine).toMatchObject({ companyId: t.crunchy.id, quantity: 42 });
     expect([chipsLine.discountAmount.toFixed(2), chipsLine.netAmount.toFixed(2)]).toEqual([
       "14.00",
       "784.00",
@@ -142,24 +142,24 @@ describe("booking an order", () => {
 
   it("reserves stock: available drops, editing does not double count, cancelling frees it", async () => {
     const before = (await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!;
-    expect(before).toEqual({ onHand: 60, reserved: 0, available: 60 });
+    expect(before).toEqual({ onHand: 360, reserved: 0, available: 360 });
     const r = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "5" }]));
     expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)).toEqual({
-      onHand: 60,
-      reserved: 10,
-      available: 50,
+      onHand: 360,
+      reserved: 60,
+      available: 300,
     });
     const ctxForEdit = await orderEntryContext(t.ctx, t.customer.id, { excludeOrderId: r.id });
-    expect(ctxForEdit.products.find((p) => p.id === t.chips.id)!.available).toBe(60);
+    expect(ctxForEdit.products.find((p) => p.id === t.chips.id)!.available).toBe(360);
     await updateSalesOrder(t.staff, r.id, order([{ productId: t.chips.id, quantity: "6" }]));
-    expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!.reserved).toBe(12);
+    expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!.reserved).toBe(72);
     await cancelSalesOrder(t.staff, { id: r.id });
     expect((await stockPositions(t.ctx.db, t.main.id)).get(t.chips.id)!.reserved).toBe(0);
   });
 
   it("reports products booked beyond available stock (and still books them)", async () => {
     const r = await createSalesOrder(t.staff, order([{ productId: t.nimko.id, quantity: "12" }]));
-    expect(r.shortages).toEqual([{ productId: t.nimko.id, name: "Item GC01", short: 4 }]);
+    expect(r.shortages).toEqual([{ productId: t.nimko.id, name: "Item GC01", short: 24 }]);
   });
 
   it("refuses products from another warehouse and requires a warehouse for customers without an area", async () => {
@@ -244,7 +244,7 @@ describe("editing and bill revisions", () => {
     const audit = await prisma.auditLog.findFirstOrThrow({
       where: { entityId: r.id, action: "UPDATE" },
     });
-    expect(audit.oldValue).toMatchObject({ lines: [{ quantity: 4 }] });
+    expect(audit.oldValue).toMatchObject({ lines: [{ quantity: 24 }] });
 
     await prisma.salesOrder.update({ where: { id: r.id }, data: { status: "DISPATCHED" } });
     await expect(
@@ -307,7 +307,7 @@ describe("order entry context", () => {
       ["Golden", "1000.00"],
     ]);
     expect(c.products.map((p) => p.code)).toEqual(["CB01", "GC01"]);
-    expect(c.products[0]).toMatchObject({ available: 56, tiers: [{ minQuantity: 50 }] });
-    expect(c.lastOrder?.lines).toEqual([{ productId: t.chips.id, quantity: 4 }]);
+    expect(c.products[0]).toMatchObject({ available: 336, tiers: [{ minQuantity: 300 }] });
+    expect(c.lastOrder?.lines).toEqual([{ productId: t.chips.id, quantity: 24 }]);
   });
 });

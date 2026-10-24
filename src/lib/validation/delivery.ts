@@ -4,11 +4,11 @@ import {
   blankAs,
   blankToUndefined,
   dateSchema,
-  dozensSchema,
   idSchema,
   optionalDateSchema,
   optionalMoneySchema,
   optionalText,
+  packetsSchema,
   requestIdSchema,
 } from "./master";
 
@@ -41,11 +41,11 @@ export const tripDriverSchema = z.object({
 
 export const tripOrderSchema = z.object({ tripId: idSchema, orderId: idSchema });
 
-const dozensOrZero = (label: string) => blankAs(dozensSchema(label), 0);
+const packetsOrZero = (label: string) => blankAs(packetsSchema(label), 0);
 const amount = (label: string) =>
   optionalMoneySchema(label).transform((v) => (v === null || Number(v) === 0 ? null : v));
 
-/** One order's day-end entry from the signed bill. Quantities in dozens, amounts in rupees. */
+/** One order's day-end entry from the signed bill. Returns and damage in packets, amounts in rupees. */
 export const dayEndSchema = z
   .object({
     requestId: requestIdSchema,
@@ -54,8 +54,8 @@ export const dayEndSchema = z
       .array(
         z.object({
           productId: idSchema,
-          returned: dozensOrZero("returned quantity"),
-          damaged: dozensOrZero("damaged quantity"),
+          returned: packetsOrZero("returned quantity"),
+          damaged: packetsOrZero("damaged quantity"),
         }),
       )
       .max(200)

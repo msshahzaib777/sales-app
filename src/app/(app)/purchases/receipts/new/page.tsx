@@ -4,7 +4,7 @@ import { BackLink, EmptyState, PageHeader } from "@/components/layout/page-heade
 import { GoodsReceiptForm } from "@/components/purchasing/goods-receipt-form";
 import { businessToday, toDateInput } from "@/lib/dates";
 import { filterParam } from "@/lib/list-params";
-import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN } from "@/lib/units";
 import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveGoodsReceiptAction } from "@/server/purchasing-actions";
@@ -17,7 +17,7 @@ import { ServiceError } from "@/server/services/errors";
 
 export const metadata: Metadata = { title: "Receive goods" };
 
-const dz = (half: number) => String(half / HALF_DOZENS_PER_DOZEN);
+const dz = (half: number) => String(half / PACKETS_PER_DOZEN);
 
 export default async function NewGoodsReceiptPage({
   searchParams,
