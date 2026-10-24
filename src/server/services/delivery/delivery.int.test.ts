@@ -309,7 +309,7 @@ describe("day-end entry", () => {
     });
     expect([revision.companyId, revision.credit.toFixed(2)]).toEqual([t.crunchy.id, "588.00"]);
 
-    // Cash 1000 split by what is owed per company: Crunchy 4372, Golden 1300.
+    // Cash 1000 pays the oldest debt first: the opening balances (Crunchy 3000, Golden 1000).
     const payment = await t.ctx.db.customerPayment.findFirstOrThrow({
       where: { salesOrderId: a.id },
       include: { allocations: true },
@@ -323,10 +323,10 @@ describe("day-end entry", () => {
       where: { customerId: t.ali.id, type: "CUSTOMER_PAYMENT" },
     });
     expect(Object.fromEntries(credits.map((c) => [c.companyId, c.credit.toFixed(2)]))).toEqual({
-      [t.crunchy.id]: "770.80",
-      [t.golden.id]: "229.20",
+      [t.crunchy.id]: "750.00",
+      [t.golden.id]: "250.00",
     });
-    expect(payment.allocations).toHaveLength(2);
+    expect(payment.allocations).toHaveLength(0);
 
     // Pending now: 4000 + 1672 − 1000.
     expect((await customerPending(t.ctx.db, t.ali.id)).total.toFixed(2)).toBe("4672.00");

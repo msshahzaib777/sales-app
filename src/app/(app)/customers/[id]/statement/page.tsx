@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
 
 import { RequirePermission } from "@/components/layout/no-access";
-import { orNotFound } from "@/components/master/page-helpers";
+import { LinkButton, orNotFound } from "@/components/master/page-helpers";
 import { PrintStyles, PrintToolbar } from "@/components/print/print-frame";
 import { StatementRangeForm } from "@/components/print/range-form";
 import { StatementDocument } from "@/components/print/statement-document";
+import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import { businessToday } from "@/lib/dates";
+import { businessToday, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { filterParam } from "@/lib/list-params";
 import { statementPageCss } from "@/lib/print";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { companyOptions } from "@/server/services/master/companies";
 import { defaultLedgerRange, parseDateRange } from "@/server/services/purchasing/filters";
@@ -38,11 +40,25 @@ async function Statement({ params, searchParams }: PageProps<"/customers/[id]/st
     getPrintProfile(ctx),
   ]);
   const { customer } = statement;
+  const exportQuery = new URLSearchParams({
+    ...(companyId ? { companyId } : {}),
+    ...(range.from ? { from: toDateInput(range.from) } : {}),
+    ...(range.to ? { to: toDateInput(range.to) } : {}),
+  }).toString();
 
   return (
     <div className="print-root">
       <PrintStyles css={statementPageCss(profile.print)} />
-      <PrintToolbar back={{ href: "/customers", label: "Customers" }} hint="Prints on A4" />
+      <PrintToolbar back={{ href: "/customers", label: "Customers" }} hint="Prints on A4">
+        <Button asChild variant="outline" size="sm">
+          <a href={`/customers/${id}/statement/export?${exportQuery}`}>Download Excel</a>
+        </Button>
+        {can(ctx.user.role, "payments.manage") ? (
+          <LinkButton href={`/payments/new?customerId=${id}`} variant="outline">
+            Receive payment
+          </LinkButton>
+        ) : null}
+      </PrintToolbar>
       <StatementRangeForm range={range}>
         <div className="space-y-1">
           <label htmlFor="companyId" className="text-muted-foreground text-xs font-medium">

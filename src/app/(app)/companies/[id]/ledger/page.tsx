@@ -70,6 +70,9 @@ async function Ledger({
             <LinkButton href={`/companies/${company.id}/statement?${query}`} variant="outline">
               Printable statement
             </LinkButton>
+            <LinkButton href={`/companies/${company.id}/receivables?${query}`} variant="outline">
+              Customer balances
+            </LinkButton>
             <Button asChild variant="outline">
               <a href={`/companies/${company.id}/ledger/export?${query}`}>Download Excel</a>
             </Button>

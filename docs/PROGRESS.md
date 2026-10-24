@@ -2,6 +2,90 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 9: Customer ledgers and payments — done
+
+**Built**
+
+- **Receive payment** (`/payments/new`, owner and accountant):
+  - pick the customer (type name, shop, phone or area); the screen shows what they owe in total
+    and per company, a flag warning (bounced cheque), and every unpaid debt: opening balance per
+    company and each bill's company slices;
+  - cash, cheque (number, bank, date) or online transfer (reference), date and note;
+  - **Oldest debt first** (default): the screen previews exactly how the amount will be applied,
+    using the same code as the server (`src/lib/payments.ts`);
+  - **Split by company** (manual override): an amount per company, which must add up to the
+    payment; within each company it pays the opening balance, then that company's bills oldest
+    first;
+  - "Post and receive next" for a pile of payments; retries never post twice (`requestId`).
+- **Allocation rule** (SPEC §8), shared with day-end payments:
+  1. Debt the bills don't explain (opening balances) is the oldest, so it is paid first, split by
+     company in proportion.
+  2. Then posted bills, oldest first. Paying part of a bill with several companies splits it in
+     proportion to each company's unpaid amount on that bill.
+  3. Anything left is an advance with the companies of the customer's latest bill (or the order's
+     companies at day-end). When the customer has never had a bill, the screen asks for a split by
+     company.
+  4. An earlier advance counts as paying the oldest bill slices first, so it is never applied twice.
+- **Payments list** (`/payments`): search (number, customer, shop, cheque number, reference),
+  method, cheque status, received at office or at delivery, posted or reversed, date range, and
+  the total. "Cheques waiting to clear" is one click.
+- **Payment page** (`/payments/[id]`): amount credited per company, bills it was applied to, the
+  order it was collected on.
+  - **Cheque cleared:** marks the cheque cleared.
+  - **Cheque bounced** (with a reason): reverses the payment with `CHEQUE_BOUNCE` ledger entries,
+    so the customer owes it again and the bills are unpaid again. The customer is **flagged** with
+    the reason, and the flag shows on the customers list, the order screen and the payment screen.
+  - **Reverse payment** (with a reason): for a payment entered by mistake. Not allowed once a
+    cheque has cleared.
+  - "Remove flag" on the customer page (owner and accountant), audited.
+- **Ledger views**, all with a date range, print / PDF and Excel:
+  - **Customer, all companies** and **customer × company:** the statement from Task 7
+    (`/customers/[id]/statement`), now with "Download Excel" and "Receive payment";
+  - **Company, all customers** (`/companies/[id]/receivables`, "Customer balances" on the company
+    ledger): each customer's opening, bills, received and what they owe for that company, with
+    totals. Each name opens that customer's statement for the company.
+- Every post, reversal, cheque status change and flag change is audited.
+
+**Changed:** day-end payments now use the same oldest-debt-first rule (before, they were split by
+each company's balance). The day-end test was updated.
+
+**Tests:** 207 in total.
+
+- Unit (`payments.test.ts`, 7): effective debt with opening balance and with an earlier advance;
+  oldest first across opening balance, full and part bills; split of a part bill by company; advance;
+  manual company split; split must add up.
+- Integration (`payments.int.test.ts`, 7):
+  - office cash across opening balance and a two-company bill, to the paisa, until everything is
+    paid;
+  - manual company split, with an advance that shows as negative owed;
+  - advance needs a company when nothing was ever billed; idempotency; staff refused;
+  - bounced cheque reverses, restores the debt and the bill, flags the customer, cannot bounce
+    twice; flag removed (staff refused);
+  - cleared cheque cannot bounce or be reversed; cash reversal; list filters;
+  - customer statement (all and one company) and company receivables (with an opening date) agree
+    with the ledger; staff refused.
+- Browser run of the production build as the accountant:
+  - cash payment with the preview matching what was posted;
+  - a cheque (the form won't send without its number), then bounced; the customer is flagged;
+  - statement and customer balances downloaded as Excel, customer balances printed as an A4 PDF;
+  - staff get "No access" on payments.
+
+### Design choices that are not obvious
+
+1. **Opening balances are paid first.** They are older than any bill, and they have no bill to
+   allocate to, so the payment credits the company's ledger without an allocation row.
+2. **The manual override is per company, not per bill.** What matters to the ledgers is how much
+   each company gets. Within a company, bills are still paid oldest first.
+3. **A bounced cheque is a reversal, not a new negative payment.** The mirror entries point back to
+   the original (`reversalOfId`) and use the `CHEQUE_BOUNCE` type, so the statement says why the
+   balance went up.
+
+**Open / next**
+
+- Cheques are tracked by status only. A cheque register by due date and reminders come with
+  Phase 2 cheque tracking.
+- Refunds of an advance to a customer are not built.
+
 ## Task 8: Simple dispatch and day-end reconciliation — done
 
 **Built**
@@ -44,9 +128,9 @@ Running log of what has been built, decisions taken, and open items. Newest firs
   - the **bill is revised automatically**: lines are re-priced on what the customer kept, a new
     `BillRevision` is saved, and the reduction is credited per company (`BILL_REVISION`);
   - **payments** are posted as customer payments (collected via delivery, with a cheque record for
-    cheques). Each is **split by company** in proportion to what the customer owes each company,
-    then applied to that company's oldest unpaid bill slices. When nothing is owed (an advance),
-    it is split over this order's companies;
+    cheques), split by company with the oldest-debt-first rule (Task 9 changed this from a split
+    by each company's balance). When nothing is owed (an advance), it is split over this order's
+    companies;
   - the order becomes **Delivered**, **Partly delivered** or **Returned**, and the trip becomes
     **Day-end done** once every order is entered;
   - a retried save (same `requestId`) does nothing, and a second entry for the same order is refused.
@@ -83,10 +167,9 @@ Running log of what has been built, decisions taken, and open items. Newest firs
    answer (open question below).
 2. **Damage is not charged to the customer.** It is our delivery loss, claimed from the company at
    purchase cost, so the bill drops by the damaged quantity just like a return.
-3. **Payments split by what is owed per company, not by this bill.** Customers usually pay the
-   previous bill when the next order arrives (SPEC §8), so the split follows each company's
-   pending balance. Bill allocations go oldest first within each company; anything left (opening
-   balance, advance) still credits that company's ledger.
+3. **Payments pay the oldest debt, not this bill.** Customers usually pay the previous bill when
+   the next order arrives (SPEC §8). Since Task 9 this follows the shared oldest-debt-first rule
+   (see Task 9).
 4. **Over capacity is a warning, not a block.** Bikes are sometimes loaded heavier, and Phase 2
    brings load suggestions.
 

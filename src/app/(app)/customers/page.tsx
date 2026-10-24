@@ -86,6 +86,14 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
                 ) : (
                   <span className="font-medium">{c.name}</span>
                 )}
+                {c.isFlagged ? (
+                  <span
+                    className="text-destructive ml-2 text-xs font-medium"
+                    title={c.flagReason ?? ""}
+                  >
+                    Flagged
+                  </span>
+                ) : null}
                 {c.shopName ? <div className="text-muted-foreground">{c.shopName}</div> : null}
               </Td>
               <Td>{customerTypeLabel(c.type)}</Td>
