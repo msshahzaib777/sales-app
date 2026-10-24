@@ -42,3 +42,20 @@ export async function verifyPassword(password: string, stored: string): Promise<
   );
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
+
+// No 0/O, 1/l/I, so it can be read out over the phone or typed from WhatsApp without mistakes.
+const TEMP_LETTERS = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
+const TEMP_DIGITS = "23456789";
+
+/** A one-time password for an invited user or a reset, e.g. "kXm4-p7Qa-Rt3z". */
+export function generateTemporaryPassword(): string {
+  const all = TEMP_LETTERS + TEMP_DIGITS;
+  const bytes = randomBytes(12);
+  const chars = [...bytes].map((b) => all[b % all.length]!);
+  // Guarantee at least one letter and one digit (the password policy).
+  chars[0] = TEMP_LETTERS[bytes[0]! % TEMP_LETTERS.length]!;
+  chars[5] = TEMP_DIGITS[bytes[5]! % TEMP_DIGITS.length]!;
+  return [chars.slice(0, 4), chars.slice(4, 8), chars.slice(8, 12)]
+    .map((g) => g.join(""))
+    .join("-");
+}

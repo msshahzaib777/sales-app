@@ -241,22 +241,27 @@ model Tenant {
 
 /// A login. SUPER_ADMIN users are platform-level and have no tenant; everyone else has exactly one.
 model User {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  email        String    @unique
-  name         String
-  passwordHash String
-  role         Role
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  tenantId           String?
+  email              String    @unique
+  name               String
+  passwordHash       String
+  role               Role
+  isActive           Boolean   @default(true)
+  /// Set for invited users and after a reset; they must choose a new password after signing in.
+  mustChangePassword Boolean   @default(true)
+  /// Stored in the session token; bumping it (password change, deactivation) ends existing sessions.
+  sessionVersion     Int       @default(0)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   staff     Staff?
   auditLogs AuditLog[]
 
-  @@index([tenantId])
+  /// Target for tenant-checked references (Staff.userId).
+  @@unique([tenantId, id])
 }
 
 /// Append-only. `tenantId` is null only for platform-level (super admin) actions.
@@ -555,11 +560,12 @@ model Staff {
   updatedAt     DateTime  @updatedAt
 
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user          User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user          User?         @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
   bikes         Bike[]
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, userId])
   @@index([tenantId, role])
 }
 

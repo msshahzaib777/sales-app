@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hashPassword, verifyPassword } from "./password";
+import { generateTemporaryPassword, hashPassword, verifyPassword } from "./password";
 
 describe("password hashing", () => {
   it("verifies the right password and rejects a wrong one", async () => {
@@ -16,5 +16,17 @@ describe("password hashing", () => {
 
   it("rejects malformed hashes", async () => {
     await expect(verifyPassword("x", "bcrypt$abc")).resolves.toBe(false);
+  });
+});
+
+describe("generateTemporaryPassword", () => {
+  it("meets the password policy and is different every time", async () => {
+    const { newPasswordSchema } = await import("@/lib/validation/auth");
+    const passwords = new Set(Array.from({ length: 50 }, () => generateTemporaryPassword()));
+    expect(passwords.size).toBe(50);
+    for (const p of passwords) {
+      expect(p).toMatch(/^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$/);
+      expect(newPasswordSchema.safeParse(p).success).toBe(true);
+    }
   });
 });

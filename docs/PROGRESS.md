@@ -2,6 +2,105 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 3: Auth, tenants and roles — done
+
+**Built**
+
+- **Login** with Auth.js v5 (credentials, JWT sessions): `src/auth.ts`, login page `/login`, sign out
+  in the sidebar.
+  - The token holds only the user id and a session version. Every request re-reads the user from
+    the database (`src/server/auth/session.ts`), so role changes, deactivation, password resets
+    and a suspended tenant take effect immediately.
+  - Sessions end after 8 hours without activity.
+  - Wrong-password responses take the same time whether or not the email exists.
+- **Tenant-scoped data layer** (`src/server/db/tenant.ts`).
+  - `createTenantDb(tenantId)` adds `tenantId` to every Prisma operation: filters, unique lookups,
+    creates, upserts and updates. It refuses another tenant's id and blocks raw SQL, including
+    inside transactions.
+  - App code gets it through `requireTenantContext(permission?)`, which takes the tenant from the
+    session.
+  - A unit test fails if a model with `tenantId` is added to the schema without being registered.
+- **Permissions** (`src/server/auth/permissions.ts`): a role → permission table plus `can` and
+  `assertCan`, checked in services and server actions.
+  - Staff never get `financials.view` (profit, margin, purchase cost), `ledgers.view` or
+    `rates.manage`.
+  - Owner only: users, settings, stock-adjustment approval, credit-limit override, audit log.
+  - The sidebar hides items the role can't use, and pages check again on the server
+    (`RequirePermission`).
+- **Users page** (`/settings/users`, owner only): add a user, change role, deactivate or reactivate,
+  reset password.
+  - There's no email yet, so adding a user creates a one-time temporary password (shown once, with
+    "Copy for WhatsApp"). The user must choose their own password at first sign-in
+    (`/account/password`).
+  - Owners can't change their own role or deactivate themselves. The last active owner can't be
+    removed; these checks run in serializable transactions so two owners can't race.
+- **Audit log helper** (`src/server/audit.ts`): `writeAudit(tx, user, {...})` runs inside the same
+  transaction as the change. It strips secrets (password hashes, tokens) and turns Decimals and
+  dates into strings. User changes and sign-ins are audited.
+  **Rule from now on: every mutation calls `writeAudit` in its transaction.**
+- **Server-action helpers.** `runAction()` (`src/server/actions.ts`) turns validation, permission and
+  business-rule errors into form messages and re-shows what the user typed (never passwords).
+  Shared Zod schemas live in `src/lib/validation/*`.
+- **Super admin** signs in to a placeholder `/admin` (the panel comes in Phase 5) and cannot open
+  tenant pages.
+- **Schema:** `User.mustChangePassword`, `User.sessionVersion`, and `Staff.userId` is now a
+  tenant-checked composite foreign key (two migrations).
+
+**Tests:** 72 in total.
+
+- Unit tests: permissions, scoping rules, audit sanitising, password policy, temporary passwords,
+  form helpers.
+- Integration tests run against a real Postgres test database (`TEST_DATABASE_URL`):
+  - `src/server/db/tenant.int.test.ts` proves tenant A can never read or change tenant B's data,
+    for every kind of operation: findMany, findFirst, findUnique by id and compound key, count,
+    aggregate, groupBy, includes, update, updateMany, delete, deleteMany, upsert, create and
+    nested create, raw SQL and transactions. It also shows that the database refuses cross-tenant
+    references.
+  - `src/server/services/users.int.test.ts` covers invites, roles, deactivation, resets, the
+    last-owner rule, cross-tenant user management and login.
+- Browser check of the production build (Playwright, run by hand):
+  - login, wrong password, invite, first-login password change;
+  - staff menus and "No access" pages;
+  - deactivation ending an open session immediately;
+  - sign out, and the super admin redirect;
+  - on a shared PC, the next user never sees the previous user's cached pages.
+
+### Design choices that are not obvious
+
+1. **Services pass `tenantId` in create data.** Prisma's generated types still require it, and
+   making them optional would take fragile type-level tricks. The data layer checks that it equals
+   the session's tenant and refuses anything else. So write
+   `tx.customer.create({ data: { tenantId: ctx.user.tenantId, ... } })`. Nested creates inherit it
+   automatically.
+2. **Next.js 16 Cache Components is on.** A page that reads the session must sit inside a
+   `<Suspense>` boundary. The `(app)` layout already wraps every page in one, after a session
+   check, so pages can call `requireTenantContext()` directly. The sidebar is part of the static
+   shell and loads instantly.
+3. **Sign-in and sign-out do a full page load** (`window.location.assign`) instead of a client-side
+   navigation. This throws away Next's client cache, so a cached page or redirect from one user
+   can never show to the next user on a shared office PC (found and fixed during browser testing).
+4. **After a password change the user signs in again.** Changing a password bumps
+   `sessionVersion`, which ends every session, including the current one. Re-issuing a session
+   inside the same action proved unreliable with Auth.js: its session read re-wrote the old cookie
+   after the new one. One extra sign-in is simple and predictable.
+5. **Pages use a "No access" message, not `forbidden()`**, because Next's `forbidden()` is still
+   experimental.
+6. **Email is globally unique** because login is by email alone. Adding a user with an email that
+   is used in another tenant fails with "already in use". That reveals the email exists somewhere,
+   which is acceptable for now.
+
+**Open / next**
+
+- Brute-force protection (rate limiting or lockout after failed sign-ins) is not built yet. Worth
+  adding before the app is exposed publicly.
+- Optional 2-step verification for owners (SPEC §13) is not built.
+- Per-tenant configurable roles (SPEC §2) use a fixed role table for now.
+- There are no Playwright tests in the repo yet. The browser checks above were run by hand; turn
+  them into Playwright tests with the order-entry flow.
+- CI is not set up (the workflow is ready to add once you say so). It should provide a
+  `TEST_DATABASE_URL` Postgres service so the integration tests run.
+- Postgres row-level security as a second layer is still open.
+
 ## Task 2 follow-up: discount slabs — done
 
 - Owner's answers recorded in SPEC §17: discounts are a fixed PKR amount per dozen with quantity

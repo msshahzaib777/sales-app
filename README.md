@@ -34,7 +34,12 @@ Docker, or a free Neon/Supabase database).
    cp .env.example .env
    ```
 
-   Edit `DATABASE_URL` in `.env` if your database differs from the default.
+   Edit `DATABASE_URL` in `.env` if your database differs from the default, and set
+   `AUTH_SECRET` (generate one with `openssl rand -base64 32`).
+
+   Tests need a second, disposable database (`TEST_DATABASE_URL`, default `sales_app_test`).
+   Create it once, e.g. `createdb sales_app_test`, or with Docker:
+   `docker exec sales-db createdb -U sales sales_app_test`.
 
 4. **Run migrations and seed demo data:**
 
@@ -51,8 +56,9 @@ Docker, or a free Neon/Supabase database).
 
    Open <http://localhost:3000>.
 
-Demo logins (password `Demo@12345`): `owner@demo.test`, `accountant@demo.test`,
-`staff@demo.test`, and `admin@platform.test` (super admin). Login arrives with Task 3.
+Sign in with a demo login (password `Demo@12345`): `owner@demo.test`, `accountant@demo.test`,
+`staff@demo.test`, or `admin@platform.test` (super admin). Owners add more users under
+**Settings → Users**.
 
 ## Scripts
 
@@ -63,7 +69,7 @@ Demo logins (password `Demo@12345`): `owner@demo.test`, `accountant@demo.test`,
 | `pnpm start`       | Serve the production build                                |
 | `pnpm lint`        | ESLint                                                    |
 | `pnpm typecheck`   | Generate route types and run `tsc --noEmit`               |
-| `pnpm test`        | Run Vitest unit tests once                                |
+| `pnpm test`        | Unit + integration tests (needs `TEST_DATABASE_URL`)      |
 | `pnpm format`      | Format with Prettier (`format:check` to verify only)      |
 | `pnpm db:migrate`  | Create/apply migrations in development, regenerate client |
 | `pnpm db:deploy`   | Apply migrations in production (`prisma migrate deploy`)  |
@@ -86,7 +92,9 @@ src/app/(app)/          app pages sharing the sidebar layout
 src/components/ui/      shadcn/ui components
 src/components/layout/  sidebar and page shell
 src/lib/                shared helpers (e.g. half-dozen quantity conversion)
-src/server/db/          Prisma client; the tenant-scoped data layer goes here
+src/server/db/          Prisma client and the tenant-scoped data layer (tenant.ts)
+src/server/auth/        Auth.js login, session, permissions, passwords
+src/auth.ts             Auth.js configuration
 src/server/services/    business logic with unit tests
 src/generated/prisma/   generated Prisma client (git-ignored)
 ```
@@ -98,5 +106,5 @@ network. Components land in `src/components/ui`.
 
 ## Deployment
 
-Target is Vercel + managed Postgres (Neon or Supabase). Set `DATABASE_URL` (and `AUTH_SECRET`
-once auth lands) in the Vercel project, and run `pnpm db:deploy` as part of each release.
+Target is Vercel + managed Postgres (Neon or Supabase). Set `DATABASE_URL` and `AUTH_SECRET` in
+the Vercel project, and run `pnpm db:deploy` as part of each release.

@@ -397,6 +397,7 @@ async function main() {
           name: "Platform Admin",
           role: "SUPER_ADMIN",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       const owner = await tx.user.create({
@@ -406,6 +407,7 @@ async function main() {
           name: "Muhammad Laraib",
           role: "OWNER",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       await tx.user.create({
@@ -415,6 +417,7 @@ async function main() {
           name: "Ayesha Siddiqui",
           role: "ACCOUNTANT",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       const staffUser = await tx.user.create({
@@ -424,6 +427,7 @@ async function main() {
           name: "Kamran Javed",
           role: "STAFF",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       const createdById = owner.id;
