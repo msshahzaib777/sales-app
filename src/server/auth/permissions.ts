@@ -32,6 +32,8 @@ export const PERMISSIONS = [
   "orders.overrideCreditLimit",
   /** Read the audit log. */
   "audit.view",
+  /** Cancel posted documents that move stock (e.g. a goods receipt entered by mistake). */
+  "documents.reverse",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

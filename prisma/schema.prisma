@@ -80,6 +80,12 @@ enum PostingStatus {
   REVERSED
 }
 
+enum CompanyBillKind {
+  GOODS_RECEIPT
+  /// What was owed when the tenant started using the app; payments can be applied to it.
+  OPENING_BALANCE
+}
+
 enum ClaimType {
   /// Damaged during our delivery; charged back to the company.
   DELIVERY_DAMAGE
@@ -642,19 +648,22 @@ model PurchaseOrderLine {
 /// Stock arriving from a company. Posting it creates batches, GOODS_RECEIPT stock movements and a
 /// CompanyBill. Received quantities can differ from the purchase order.
 model GoodsReceipt {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   tenantId        String
   number          Int
   purchaseOrderId String?
   companyId       String
   warehouseId     String
-  receivedDate    DateTime @db.Date
+  receivedDate    DateTime      @db.Date
   /// Company's own invoice / delivery note number.
   supplierRef     String?
+  status          PostingStatus @default(POSTED)
+  reversedAt      DateTime?
+  reversalReason  String?
   note            String?
   requestId       String?
   createdById     String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime      @default(now())
 
   tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   purchaseOrder PurchaseOrder?     @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Restrict)
@@ -693,29 +702,32 @@ model GoodsReceiptLine {
   @@index([tenantId, productId])
 }
 
-/// What we owe a company for one goods receipt. Paid/partial/unpaid/overdue status is derived from
-/// `netAmount` minus allocations and `dueDate`; it is not stored.
+/// What we owe a company for one goods receipt, or (kind OPENING_BALANCE, one per company) the
+/// opening balance. Paid/partial/unpaid/overdue status is derived from `netAmount` minus
+/// allocations and `dueDate`; it is not stored.
 model CompanyBill {
-  id             String        @id @default(cuid())
+  id             String          @id @default(cuid())
   tenantId       String
   number         Int
   companyId      String
-  goodsReceiptId String
-  billDate       DateTime      @db.Date
-  dueDate        DateTime      @db.Date
-  grossAmount    Decimal       @db.Decimal(14, 2)
+  kind           CompanyBillKind @default(GOODS_RECEIPT)
+  /// Null for the opening-balance bill.
+  goodsReceiptId String?
+  billDate       DateTime        @db.Date
+  dueDate        DateTime        @db.Date
+  grossAmount    Decimal         @db.Decimal(14, 2)
   /// Sum of claims deducted on this bill (CompanyClaim.appliedToBillId).
-  claimDeduction Decimal       @default(0) @db.Decimal(14, 2)
+  claimDeduction Decimal         @default(0) @db.Decimal(14, 2)
   /// grossAmount − claimDeduction; what payments are allocated against.
-  netAmount      Decimal       @db.Decimal(14, 2)
-  status         PostingStatus @default(POSTED)
+  netAmount      Decimal         @db.Decimal(14, 2)
+  status         PostingStatus   @default(POSTED)
   createdById    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company       Company                    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
-  goodsReceipt  GoodsReceipt               @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
+  goodsReceipt  GoodsReceipt?              @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
   allocations   CompanyPaymentAllocation[]
   appliedClaims CompanyClaim[]
 
@@ -726,23 +738,24 @@ model CompanyBill {
 }
 
 model CompanyPayment {
-  id          String        @id @default(cuid())
-  tenantId    String
-  number      Int
-  companyId   String
-  paymentDate DateTime      @db.Date
-  method      PaymentMethod
-  amount      Decimal       @db.Decimal(14, 2)
+  id             String        @id @default(cuid())
+  tenantId       String
+  number         Int
+  companyId      String
+  paymentDate    DateTime      @db.Date
+  method         PaymentMethod
+  amount         Decimal       @db.Decimal(14, 2)
   /// Online transfer reference.
-  reference   String?
-  chequeId    String?
-  status      PostingStatus @default(POSTED)
-  reversedAt  DateTime?
-  note        String?
-  requestId   String?
-  createdById String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  reference      String?
+  chequeId       String?
+  status         PostingStatus @default(POSTED)
+  reversalReason String?
+  reversedAt     DateTime?
+  note           String?
+  requestId      String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company     Company                    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
@@ -794,6 +807,7 @@ model CompanyClaim {
   /// Delivery the damage came from, when known.
   salesOrderId    String?
   appliedToBillId String?
+  reversedAt      DateTime?
   note            String?
   requestId       String?
   createdById     String?

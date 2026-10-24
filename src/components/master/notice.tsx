@@ -1,6 +1,7 @@
 const NOTICES: Record<string, string> = {
   saved: "Saved.",
   deleted: "Deleted.",
+  posted: "Posted.",
 };
 
 /** One-line confirmation after a redirect (?notice=saved). */

@@ -552,6 +552,20 @@ async function main() {
             createdById,
           },
         });
+        // The opening balance as a bill, so payments can be applied to it (oldest debt first).
+        await tx.companyBill.create({
+          data: {
+            tenantId,
+            number: nextNumber("COMPANY_BILL"),
+            companyId: company.id,
+            kind: "OPENING_BALANCE",
+            billDate: day(-30),
+            dueDate: day(-30),
+            grossAmount: c.openingBalance,
+            netAmount: c.openingBalance,
+            createdById,
+          },
+        });
 
         for (const p of c.products) {
           const product = await tx.product.create({

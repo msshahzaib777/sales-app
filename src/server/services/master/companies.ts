@@ -8,7 +8,12 @@ import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
 import { ServiceError } from "../errors";
 import { changedFields, PAGE_SIZE, paged, type ServiceCtx, withUniqueMessage } from "./common";
-import { companyPayables, getOpeningBalance, setOpeningBalance } from "./opening-balances";
+import {
+  companyPayables,
+  getOpeningBalance,
+  setOpeningBalance,
+  syncCompanyOpeningBill,
+} from "./opening-balances";
 
 const DUPLICATE = "A company with this name already exists.";
 
@@ -93,6 +98,7 @@ export async function createCompany(ctx: ServiceCtx, input: unknown) {
       openingBalance,
       businessToday(),
     );
+    await syncCompanyOpeningBill(tx, ctx, created.id, openingBalance, businessToday());
     await writeAudit(tx, ctx.user, {
       action: "CREATE",
       entityType: "Company",
@@ -129,6 +135,7 @@ export async function updateCompany(ctx: ServiceCtx, id: string, input: unknown)
       openingBalance,
       businessToday(),
     );
+    if (opening) await syncCompanyOpeningBill(tx, ctx, id, openingBalance, businessToday());
     const diff = changedFields(before, after);
     if (opening) {
       diff.oldValue.openingBalance = opening.from;

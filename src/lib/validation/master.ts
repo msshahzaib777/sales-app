@@ -9,7 +9,7 @@ import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
 const MONEY_PATTERN = /^-?\d{1,12}(\.\d{1,2})?$/;
 
 /** "" | undefined → undefined; trims strings; removes thousands separators in numbers. */
-const blankToUndefined = (value: unknown) => {
+export const blankToUndefined = (value: unknown) => {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "number") return String(value);
   if (typeof value !== "string") return value;
@@ -106,13 +106,13 @@ const optionalIntSchema = (label: string, min: number, max: number) =>
   z.preprocess(numberText, intSchema(label, min, max).optional()).transform((v) => v ?? null);
 
 /** A blank form field (or a missing value) means `fallback`. */
-function blankAs<T extends z.ZodType>(schema: T, fallback: z.output<T>) {
+export function blankAs<T extends z.ZodType>(schema: T, fallback: z.output<T>) {
   return z
     .preprocess(blankToUndefined, schema.optional())
     .transform((v) => (v ?? fallback) as z.output<T>);
 }
 
-const idSchema = z.string().min(1).max(40);
+export const idSchema = z.string().min(1).max(40);
 const optionalIdSchema = z
   .preprocess(blankToUndefined, idSchema.optional())
   .transform((v) => v ?? null);
@@ -128,7 +128,7 @@ export const dateSchema = (label: string) =>
       .refine((d) => !Number.isNaN(d.getTime()), `Enter a valid ${label}`),
   );
 
-const optionalDateSchema = (label: string) =>
+export const optionalDateSchema = (label: string) =>
   z.preprocess(blankToUndefined, dateSchema(label).optional()).transform((v) => v ?? null);
 
 export const requestIdSchema = z.preprocess(blankToUndefined, z.uuid().optional());

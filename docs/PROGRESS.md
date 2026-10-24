@@ -2,6 +2,111 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 5: Purchasing and company ledger — done
+
+**Built** (all under **Purchases**, with tabs; services in `src/server/services/purchasing/`)
+
+- **Purchase orders:**
+  - create by typing quantities (dozens) against the company's product list;
+  - edit or cancel while nothing has been received; close a partly received order once the rest
+    won't come;
+  - the order page shows ordered vs received per product (+2 dz over, −2 dz short): the variance
+    report from SPEC §4;
+  - status is Open → Partly received → Received (or Closed / Cancelled).
+- **Goods receipts:**
+  - from a purchase order (remaining quantities pre-filled) or without one; received quantities
+    can be less or more than ordered;
+  - posting, in one transaction: saves the receipt, adds a **batch** and a `GOODS_RECEIPT` **stock
+    movement** per line, creates the **company bill** at the purchase rate with **due date =
+    received date + payment terms** (owner/accountant may type another), **deducts pending
+    damage claims**, **credits the company ledger**, and updates the purchase order's status;
+  - a mistaken receipt can be **cancelled by reversal** (owner only, with a reason): mirror stock
+    movements, a reversing ledger entry, bill marked cancelled, claims back to pending. It is
+    refused once any of that stock was used or anything was paid on the bill.
+- **Company bills:**
+  - paid / partial / unpaid / overdue with "due N days ago" (derived, never stored);
+  - list filters for open, overdue, paid, company and date range, with outstanding and overdue
+    totals;
+  - the bill page shows lines, claims deducted, payments and a due-date change (audited).
+- **Company payments:**
+  - cash, cheque (number, bank, date) or online (reference); full, partial or more than owed
+    (the rest is kept as an advance);
+  - applied to the **oldest due bills first** by default, or split by hand ("Choose bills", with
+    a "Fill oldest first" helper);
+  - a payment can be **reversed** with a reason (mistake or bounced cheque), which makes its bills
+    unpaid again.
+- **Damage claims:**
+  - a credit against the company at purchase cost (owner's answer), debited to the ledger when
+    logged, and **deducted on the company's next bill**;
+  - pending claims can be cancelled (by reversal).
+- **Company ledger** (`/companies/[id]/ledger`, linked from the Payable column on Companies):
+  - every bill, payment, claim, opening balance and reversal with a running "we owe" balance;
+  - date range (default: 1st of last month to today) with the opening balance brought forward;
+  - summary (we owe now, open bills, overdue, claims waiting) and bill-wise status;
+  - **Print / PDF** (print layout) and **Download Excel** (.xlsx).
+- **Permissions:**
+  - staff can create purchase orders and receive goods, but never see rates, amounts or bills
+    (purchase cost), and their rates/due dates are ignored;
+  - bills, payments, claims and ledgers are for owner and accountant;
+  - cancelling a receipt needs the new owner-only `documents.reverse` permission.
+- **Every post and reversal is audited; every create takes a `requestId`** (idempotent).
+
+**Tests:** 142 in total.
+
+- Unit (`calc.test.ts`): oldest-first allocation, manual allocation checks, bill status and
+  days overdue, claim deduction, purchase order status, running balance.
+- Integration (`purchasing.int.test.ts`, 22 tests):
+  - receipts: stock, batches, bills and due dates;
+  - staff can't set rates or due dates;
+  - claims deducted on the next bill;
+  - payments: auto/manual/advance, reversal;
+  - receipt cancellation and its guards;
+  - document numbering, idempotency, cross-tenant attempts;
+  - the ledger, plus an invariant check: ledger balance = open bills − pending claims − advances.
+- Browser run of the production build covering:
+  - owner PO → staff receipt with over/under delivery;
+  - claim deducted on the next bill;
+  - manual payment split;
+  - ledger and Excel download;
+  - payment reversal and receipt cancellation;
+  - the staff view.
+
+### Design choices that are not obvious
+
+1. **The opening balance is a bill.** A company's opening balance is a `CompanyBill` of kind
+   `OPENING_BALANCE`, kept equal to the opening balance, due on the date it was entered. Without
+   it, payments "oldest first" skipped the oldest debt (found in browser testing: the ledger
+   showed 185,000 more owed than the open bills).
+   - The opening balance can't be lowered below what was already paid against it.
+   - A migration created these bills for existing data.
+   - Customer opening balances (Task 9) should get the same treatment.
+2. **The ledger is credited with the bill's gross amount, not the net.** Claims are already debited
+   when logged, so the deduction on the bill is only for matching. Ledger balance = open bills −
+   pending claims − unallocated payments (tested).
+3. **Claims are applied whole, oldest first, never more than the bill.** A claim bigger than the bill
+   waits for the next one. Claims do not move stock here; damaged stock movements come with
+   day-end reconciliation (Task 8).
+4. **Receipt posting and payments run in serializable transactions.** Two at once can't deduct
+   the same claim or over-pay the same bill; Postgres aborts one, and a retry is harmless thanks
+   to `requestId`.
+5. **Document numbers** come from `DocumentSequence` via an upsert-increment inside the posting
+   transaction (row-locked until commit).
+6. **Staff and rates.** Staff purchase orders and receipts are priced at the PO line rate or
+   the product's purchase rate. The rate inputs are not even sent to their browser.
+7. **Reversals.** Reversal ledger entries are type `REVERSAL` with `reversalOfId` (unique, so
+   nothing is reversed twice). Bill and payment rows keep their history with status `REVERSED`.
+
+**Open / next**
+
+- Damaged stock returned to the company is logged as a claim type, but the stock movement
+  (−damaged stock) comes with Task 8 / inventory.
+- Cheque clearing for issued cheques (pending → cleared) is Phase 2 cheque tracking; cheques are
+  recorded now.
+- A company-wide "ordered vs received" report across purchase orders (SPEC §4 reports) can join
+  the Reports section in Phase 3; per order it's on the order page now.
+- The daily owner report listing overdue bills comes with the dashboard (Phase 3); the overdue
+  filter and "due N days ago" already exist.
+
 ## Task 4: Master data screens — done
 
 **Built**

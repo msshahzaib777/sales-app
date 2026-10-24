@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { ListToolbar } from "@/components/list/list-toolbar";
@@ -89,7 +90,15 @@ export default async function CompaniesPage({ searchParams }: PageProps<"/compan
               <Td className="text-right tabular-nums">{c.paymentTermsDays} days</Td>
               <Td className="text-right tabular-nums">{c._count.products}</Td>
               {showPayable ? (
-                <Td className="text-right font-medium tabular-nums">{formatMoney(c.payable)}</Td>
+                <Td className="text-right font-medium tabular-nums">
+                  <Link
+                    href={`/companies/${c.id}/ledger`}
+                    className="underline-offset-4 hover:underline"
+                    aria-label={`Ledger of ${c.name}: ${formatMoney(c.payable)}`}
+                  >
+                    {formatMoney(c.payable)}
+                  </Link>
+                </Td>
               ) : null}
               <Td>
                 <StatusBadge isActive={c.isActive} />

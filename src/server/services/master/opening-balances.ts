@@ -3,6 +3,8 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 
 import type { TenantTx } from "../../db/tenant";
+import { ServiceError } from "../errors";
+import { nextDocumentNumber } from "../posting";
 import type { ServiceCtx } from "./common";
 
 // Opening balances are OPENING_BALANCE ledger entries, never a column (journal is the truth).
@@ -112,4 +114,59 @@ export async function companyPayables(tx: Pick<TenantTx, "ledgerEntry">, company
     _sum: { debit: true, credit: true },
   });
   return new Map(groups.map((g) => [g.companyId!, D(g._sum.credit ?? 0).sub(g._sum.debit ?? 0)]));
+}
+
+/**
+ * Keeps the company's opening-balance bill equal to its opening balance, so payments can be applied
+ * to it like any other bill (oldest first: it is the oldest debt). Refuses to go below what has
+ * already been paid against it.
+ */
+export async function syncCompanyOpeningBill(
+  tx: TenantTx,
+  ctx: ServiceCtx,
+  companyId: string,
+  target: DecimalValue,
+  date: Date,
+) {
+  const amount = D(target);
+  const bill = await tx.companyBill.findFirst({ where: { companyId, kind: "OPENING_BALANCE" } });
+  if (bill) {
+    const paid = await tx.companyPaymentAllocation.aggregate({
+      where: { companyBillId: bill.id, companyPayment: { status: "POSTED" } },
+      _sum: { amount: true },
+    });
+    const paidAmount = D(paid._sum.amount ?? 0);
+    if (amount.lt(paidAmount)) {
+      throw new ServiceError(
+        `Payments of ${paidAmount.toFixed(2)} were already applied to the opening balance, so it cannot be less than that.`,
+      );
+    }
+    if (amount.gt(0) || paidAmount.gt(0)) {
+      await tx.companyBill.update({
+        where: { id: bill.id },
+        data: { grossAmount: amount, netAmount: amount, status: "POSTED" },
+      });
+    } else {
+      // Nothing owed any more; keep the row (reversed payments may point at it) but close it.
+      await tx.companyBill.update({
+        where: { id: bill.id },
+        data: { grossAmount: 0, netAmount: 0, status: "REVERSED" },
+      });
+    }
+    return;
+  }
+  if (amount.lte(0)) return;
+  await tx.companyBill.create({
+    data: {
+      tenantId: ctx.user.tenantId,
+      number: await nextDocumentNumber(tx, ctx, "COMPANY_BILL"),
+      companyId,
+      kind: "OPENING_BALANCE",
+      billDate: date,
+      dueDate: date,
+      grossAmount: amount,
+      netAmount: amount,
+      createdById: ctx.user.id,
+    },
+  });
 }
