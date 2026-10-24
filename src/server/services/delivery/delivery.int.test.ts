@@ -16,6 +16,7 @@ import { createWarehouse } from "../master/warehouses";
 import { returnDamagedStock } from "../inventory";
 import { clearCheque } from "../payments/customer-payments";
 import { settleClaim } from "../purchasing/claims";
+import { damageReport } from "../reports/damage";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { getBillView } from "../sales/bills";
 import { createSalesOrder } from "../sales/orders";
@@ -630,5 +631,40 @@ describe("settling a day-end damage claim", () => {
         })
       )._sum.quantity,
     ).toBe(12);
+  });
+});
+
+describe("damage report", () => {
+  it("lists day-end damage by trip date with filters; value only for roles that see cost", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "2"]]);
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "", damaged: "5" }],
+    });
+    const range = { from: new Date(`${DAY}T00:00:00.000Z`), to: new Date(`${DAY}T00:00:00.000Z`) };
+
+    const owner = await damageReport(t.ctx, range);
+    expect(owner.rows.map((r) => [r.driverName, r.productCode, r.quantity])).toEqual([
+      ["Aslam", "CB01", 5],
+    ]);
+    expect([owner.totals.claimed.toFixed(2), owner.rows[0]!.claim?.status]).toEqual([
+      "41.67", // 5 packets at 100 a dozen
+      "AWAITING",
+    ]);
+
+    const staff = await damageReport(t.staff, range);
+    expect([staff.showValue, staff.rows[0]!.claim, staff.totals.claimed.toFixed(2)]).toEqual([
+      false,
+      null,
+      "0.00",
+    ]);
+
+    expect((await damageReport(t.ctx, { ...range, productId: t.nimko.id })).rows).toHaveLength(0);
+    expect((await damageReport(t.ctx, { ...range, driverId: t.driver.id })).rows).toHaveLength(1);
+    expect((await damageReport(t.ctx, { ...range, tripId: tr.id })).rows).toHaveLength(1);
+    const before = new Date("2026-10-01T00:00:00.000Z");
+    expect((await damageReport(t.ctx, { from: before, to: before })).rows).toHaveLength(0);
   });
 });

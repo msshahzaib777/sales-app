@@ -99,6 +99,20 @@ From the owner's notes after trying Phase 1. Built one item at a time.
    - Tested in `delivery.int.test.ts` (accept less, reject, limits, permissions, deduction on the
      next bill) and in a browser run.
 
+8. **Damage report — done.** Reports → Damage report (`/reports/damage`; anyone with
+   operations access).
+   - Everything damaged in delivery (from day-end), by trip date: date, trip, driver, order and
+     customer, product, company, quantity (dozens and packets). Totals, plus summaries by driver
+     and by product.
+   - Period buttons: this week / last week (Monday to Sunday) / this month / last month, or any
+     from–to dates. Filters: driver, trip, product, company.
+   - Owner and accountant also see each claim's value (purchase cost), its status (pending,
+     accepted, deducted, rejected) and any smaller accepted amount; staff never see these.
+   - Print / PDF on A4, and Download Excel with the same filters and rows.
+   - `damageReport` in `src/server/services/reports/damage.ts`, `periodRange` in `src/lib/dates.ts`.
+     Tested in `delivery.int.test.ts` and `dates.test.ts`, and in a browser run (owner and staff,
+     PDF and Excel).
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,
