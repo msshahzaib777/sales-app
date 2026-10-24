@@ -2,6 +2,105 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 8: Simple dispatch and day-end reconciliation — done
+
+**Built**
+
+- **Delivery trips** (`/delivery`): one bike's run on a date, with a driver.
+  - **Plan a trip** (`/delivery/new`): pick the date, the bike and the driver. The bike's usual
+    driver is filled in, and only orders from the bike's warehouse are listed.
+  - Tick that date's booked orders, grouped by area. The load updates while you tick, against the
+    bike's capacity, and turns red when over it.
+  - The ticked orders become **Planned**. Until dispatch, orders can be added or removed (back to
+    Booked) and the trip can be cancelled.
+  - Moving a planned order to another delivery date takes it off its trip.
+  - The trip list has status and date filters, and shows load, orders, bill total and how many
+    orders have their day-end entered.
+- **Loading sheet** (`/delivery/[id]/loading-sheet`, A4):
+  - product totals by company, with a tick box to mark each loaded;
+  - stops in visiting order (by area route order, then customer) with address, phone, order,
+    dozens and bill amount.
+  - "Print bills" opens all the trip's bills in one print run (the Task 7 bulk print page).
+- **Dispatch** (one transaction):
+  - refuses if the warehouse is short of any product (naming each, with what is needed and on
+    hand), or if an order still waits for owner credit approval;
+  - takes stock out oldest batch first;
+  - posts each bill to the customer ledger, one `SALES_BILL` entry per company slice;
+  - freezes "previous pending" (overall and per company, in the new `Bill.previousByCompany`);
+  - marks the orders **Dispatched**;
+  - the trip is claimed first, so a double click never dispatches twice.
+- **Day-end entry** (`/delivery/[id]/day-end/[orderId]`, one order at a time from its signed bill):
+  - per product: returned and damaged dozens (halves allowed). "Customer refused all" fills every
+    line as returned;
+  - cash, online (with reference) and cheque (number, bank, date) collected;
+  - the screen shows the bill after returns and damage, previous pending, total due, collected and
+    still pending while you type;
+  - keyboard-first: Enter goes to the next box, Ctrl+Enter saves;
+  - saving opens the trip's next order still to enter, and returns to the trip after the last one.
+- **What saving an order's day-end does** (one transaction, audited):
+  - returned stock goes back to saleable stock (to the batch it left from);
+  - damaged stock moves to the damaged bucket, and a **company claim** is created at purchase cost
+    (SPEC §17), crediting the company ledger, with the claim linked to the order;
+  - the **bill is revised automatically**: lines are re-priced on what the customer kept, a new
+    `BillRevision` is saved, and the reduction is credited per company (`BILL_REVISION`);
+  - **payments** are posted as customer payments (collected via delivery, with a cheque record for
+    cheques). Each is **split by company** in proportion to what the customer owes each company,
+    then applied to that company's oldest unpaid bill slices. When nothing is owed (an advance),
+    it is split over this order's companies;
+  - the order becomes **Delivered**, **Partly delivered** or **Returned**, and the trip becomes
+    **Day-end done** once every order is entered;
+  - a retried save (same `requestId`) does nothing, and a second entry for the same order is refused.
+- The order page shows its trip, a link to day-end, and delivered quantities once entered.
+- Seed: the delivered demo order now sits on a finished trip with a revised bill. Tomorrow's 13
+  booked orders are ready to plan.
+
+**Tests:** 193 in total.
+
+- Unit (`delivery.test.ts`): day-end quantity checks, re-pricing on what was kept, order status,
+  payment split to the paisa, oldest-batch stock out, load per product.
+- Integration (`delivery.int.test.ts`, 7 tests):
+  - planning, adding, removing and cancelling; the same order on two trips; other date or
+    warehouse refused; trip idempotency;
+  - dispatch stock, ledger per company and frozen previous pending (bill view);
+  - short stock and credit approval block dispatch;
+  - day-end with returns, damage claim, bill revision, cash split by company and the running
+    balance;
+  - refused order with a cheque as an advance; trip closes; retries and double entry;
+  - quantity validation.
+- Browser run of the production build as staff:
+  - planned 9 orders on a bike (over capacity shown), loading sheet as an A4 PDF;
+  - removed an order and added it back, then dispatched;
+  - day-end by keyboard with returns, damage and cash;
+  - a refused order with a cheque, where the missing cheque number is caught and typed values kept;
+  - the remaining orders saved in a row, and the trip closed;
+  - the revised bill checked.
+
+### Design choices that are not obvious
+
+1. **Re-pricing keeps the booked rate and per-dozen discount.** If returns take a line below a
+   discount slab, the customer keeps the slab's discount on what they kept. This is simpler to
+   explain on the bill. If the company withdraws the slab in that case, this needs the owner's
+   answer (open question below).
+2. **Damage is not charged to the customer.** It is our delivery loss, claimed from the company at
+   purchase cost, so the bill drops by the damaged quantity just like a return.
+3. **Payments split by what is owed per company, not by this bill.** Customers usually pay the
+   previous bill when the next order arrives (SPEC §8), so the split follows each company's
+   pending balance. Bill allocations go oldest first within each company; anything left (opening
+   balance, advance) still credits that company's ledger.
+4. **Over capacity is a warning, not a block.** Bikes are sometimes loaded heavier, and Phase 2
+   brings load suggestions.
+
+**Open / next**
+
+- **Driver cash hand-in** (expected vs handed in, short or excess against the driver) is Phase 2.
+  The trip page already totals cash, cheque and online collected.
+- **Correcting a saved day-end** is not built yet. It needs reversals of stock, claim, bill
+  revision and payments. Until then, a wrong entry needs a manual adjustment.
+- **Rescheduling undelivered orders** in one click is not built; book the order again (Repeat last
+  order).
+- **Question for the owner:** when returns take a line below a discount slab, should the slab
+  discount be removed?
+
 ## Task 7: Bill printing — done
 
 **Built**
@@ -75,8 +174,7 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 
 - Bills that are not dispatched still show "previous pending" live (see Task 6). They are frozen
   at dispatch in Task 8.
-- "Print all bills of a trip" will be added to the delivery plan in Task 8, using the same
-  `/orders/print` page.
+- "Print all bills of a trip" was added to the trip page in Task 8.
 - Excel export of the customer statement comes with the reports in a later task. The company
   ledger already exports.
 
@@ -166,8 +264,7 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 **Open / next**
 
 - Paper sizes, margins, 2 bills per A4 and the logo were done in Task 7.
-- Dispatch (stock out, ledger posting, freezing previous pending) and the Planned status are
-  Task 8.
+- Dispatch and the Planned status were done in Task 8.
 - Two orders for the same customer booked at the same moment could each pass the credit check.
   This is rare at one office; dispatch can re-check later.
 

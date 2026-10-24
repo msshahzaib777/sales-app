@@ -5,6 +5,11 @@ const NOTICES: Record<string, string> = {
   booked: "Order booked.",
   cancelled: "Order cancelled. Its stock is free again.",
   approved: "Approved past the credit limit.",
+  removed: "Removed from the trip. The order is booked again.",
+  "trip-planned": "Trip planned. Print the loading sheet and bills, then dispatch.",
+  "trip-cancelled": "Trip cancelled. Its orders are booked again.",
+  dispatched: "Dispatched. Stock is out and the bills are posted to the customer ledgers.",
+  "day-end-saved": "Day-end saved.",
 };
 
 /** One-line confirmation after a redirect (?notice=saved). */

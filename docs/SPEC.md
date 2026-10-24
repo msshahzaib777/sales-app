@@ -310,6 +310,7 @@ These choices were made as reasonable defaults and need your confirmation.
 - [x] Does the company also reimburse the sale value of delivery damage, or only replace the stock at purchase rate? **Answered:** purchase cost only.
 - [ ] Suggested order: is minimum level minus available stock enough, or should it also use recent sales?
 - [ ] Driver cash short: deduct from salary automatically, or only when the owner chooses?
+- [ ] When returns at delivery take a line below a discount slab, should the slab discount be removed from what the customer kept? (Default for now: no, the booked discount stays.)
 - [ ] Ageing buckets: are 0–7, 8–15, 16–30, 31–60 and 60+ days right for your customers?
 - [ ] Which target tenants after you (snacks only, or any FMCG distributor), and what annual price?
 - [ ] Preferred tech stack and hosting, or should a recommendation be added?
