@@ -11,7 +11,7 @@ import { assertCan, can } from "../../auth/permissions";
 import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
 import { found, nextDocumentNumber, postCompanyLedger, reverseLedgerFor } from "../posting";
-import { calculateLineAmounts } from "../pricing";
+import { calculateLineAmounts } from "@/lib/pricing";
 import type { DateRange } from "./filters";
 
 // Company claims (damage in delivery, damaged stock returned, other): a credit against the

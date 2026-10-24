@@ -1,6 +1,9 @@
-import { Prisma } from "@/generated/prisma/client";
+import Decimal from "decimal.js";
 
-type Decimal = Prisma.Decimal;
+// Line pricing, shared by the server (stored amounts) and the order-entry screen (live totals), so
+// both always agree. Uses decimal.js directly (the library behind Prisma's Decimal) so it can run
+// in the browser without the Prisma client.
+
 type DecimalInput = Decimal | number | string;
 
 export type DiscountType = "NONE" | "PERCENT" | "AMOUNT_PER_UNIT";
@@ -26,8 +29,8 @@ export type LineAmounts = {
   netAmount: Decimal;
 };
 
-const D = (value: DecimalInput) => new Prisma.Decimal(value);
-const money = (value: Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+const D = (value: DecimalInput) => new Decimal(value);
+const money = (value: Decimal) => value.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
 /**
  * Amounts for one order/bill line. Each component is rounded to paisa (2 dp, half up) before it is

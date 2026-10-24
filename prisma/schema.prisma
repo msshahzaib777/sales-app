@@ -921,23 +921,26 @@ model StockAdjustment {
 // ───────────────────────────── Sales ─────────────────────────────
 
 model SalesOrder {
-  id                 String           @id @default(cuid())
-  tenantId           String
-  number             Int
-  customerId         String
-  warehouseId        String
-  orderDate          DateTime         @db.Date
-  deliveryDate       DateTime         @db.Date
-  status             SalesOrderStatus @default(BOOKED)
-  source             OrderSource      @default(OFFICE)
+  id                  String           @id @default(cuid())
+  tenantId            String
+  number              Int
+  customerId          String
+  warehouseId         String
+  orderDate           DateTime         @db.Date
+  deliveryDate        DateTime         @db.Date
+  status              SalesOrderStatus @default(BOOKED)
+  source              OrderSource      @default(OFFICE)
+  /// The order would take the customer past their credit limit and was entered by someone who
+  /// cannot allow that; it waits for the owner (dispatch refuses it until approved).
+  needsCreditApproval Boolean          @default(false)
   /// Set when the owner allowed the order past the customer's credit limit.
-  creditOverrideById String?
-  creditOverrideAt   DateTime?
-  note               String?
-  requestId          String?
-  createdById        String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  creditOverrideById  String?
+  creditOverrideAt    DateTime?
+  note                String?
+  requestId           String?
+  createdById         String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer  Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
@@ -987,8 +990,9 @@ model SalesOrderLine {
   @@index([tenantId, companyId])
 }
 
-/// One bill per sales order, possibly spanning several companies. Totals are for the current
-/// revision; every revision (original + each delivery correction) is kept in BillRevision.
+/// One bill per sales order, possibly spanning several companies, created when the order is booked.
+/// Totals are for the current revision; every version (booking, each edit before dispatch, each
+/// delivery correction) is kept in BillRevision. It posts to the customer ledger at dispatch.
 model Bill {
   id              String        @id @default(cuid())
   tenantId        String
@@ -1003,6 +1007,9 @@ model Bill {
   netAmount       Decimal       @db.Decimal(14, 2)
   /// Customer's pending balance just before this bill, snapshotted for printing.
   previousBalance Decimal       @default(0) @db.Decimal(14, 2)
+  /// When the bill was posted to the customer ledger (at dispatch). Null while the order can still
+  /// change: the bill is then a printable draft of the order.
+  postedAt        DateTime?
   status          PostingStatus @default(POSTED)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt

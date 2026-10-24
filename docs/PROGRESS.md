@@ -2,6 +2,98 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 6: Sales orders and bills — done
+
+**Built**
+
+- **Keyboard-first order entry** (`/orders/new`):
+  - type the customer (name, shop, phone or area) and press Enter;
+  - type a product code or name, Enter, type dozens (3.5 = 3½ dozen), Enter; you're back in the
+    product search for the next line;
+  - **Ctrl+Enter** books the order. "Book and enter next" opens a blank order straight away, and
+    "Repeat last order" copies the customer's previous order.
+  - Plain Enter never submits by accident.
+- **Customer panel:**
+  - pending now (total and per company), other open orders, this order (per company), "after this
+    order" and the credit limit;
+  - flagged customers (bounced cheque) are marked.
+- **Lines:**
+  - products from any company in the customer's warehouse (from their area; customers without an
+    area choose a warehouse);
+  - **available stock** (on hand − reserved) beside each line, with a "Short" badge when booking
+    more;
+  - sale rate from the product with the **company discount applied automatically**, including the
+    quantity slab the line reaches;
+  - amounts update while typing. The browser and the server use the same pricing code
+    (`src/lib/pricing.ts`, `src/lib/sales.ts`, now on plain `decimal.js`), and the server prices
+    again when saving.
+- **Credit limit:** the check is pending + other open orders + this order.
+  - Staff can still book past the limit; the order is marked **"Needs owner approval"** and the
+    owner approves it on the order page.
+  - The owner booking past the limit must tick "Allow past the credit limit".
+  - Overrides are stored (`creditOverrideById/At`) and audited.
+- **Statuses:** Booked → Planned → Dispatched → Delivered / Partly delivered / Returned (or
+  Cancelled). The state machine is in `src/lib/sales.ts`; Planned and Dispatched are set by
+  delivery (Task 8). Booked and planned orders **reserve stock** and can be edited or cancelled;
+  after dispatch only day-end entry changes them.
+- **Bills:**
+  - one bill per order (several companies allowed), created at booking;
+  - every version is kept as a **bill revision** (booked, each edit, later each delivery
+    correction), and the order page lists them;
+  - the bill page (`/orders/[id]/bill`) prints as A5, **full or split by company** (one page per
+    company), showing **previous pending, this bill and total due**; in the split view each figure
+    is that company's slice of the customer ledger.
+- **Orders list:** search (number, customer, shop, phone), status (including "open"), area,
+  "needs owner approval", delivery date range, and a count and amount total.
+- **Idempotency:** new orders carry a client `requestId`, so a retried "Book order" returns the
+  order already booked. Every create, edit, cancel and approval is audited, with old and new lines.
+
+**Tests:** 159 in total.
+
+- Unit: line pricing with slabs, bill totals per company, credit check, status machine.
+- Integration (`sales.int.test.ts`, 12 tests):
+  - pricing and company snapshot, and nothing posted at booking;
+  - reservation (book / edit / cancel);
+  - shortages;
+  - warehouse rules;
+  - idempotency;
+  - staff-versus-owner credit rules and approval;
+  - edits adding revisions, and no edits after dispatch;
+  - bill view totals overall and per company;
+  - the entry-screen context.
+- Browser run of the production build covering:
+  - a keyboard-only order;
+  - the credit warning for staff and for the owner, and approval;
+  - an edit with a revision and "repeat last order";
+  - full and split bills;
+  - cancel.
+
+### Design choices that are not obvious
+
+1. **The bill posts to the customer ledger at dispatch, not at booking.** Booking creates the bill
+   (number, printable, revision 1), but nothing goes into the stock or money journals until goods
+   leave (Task 8 sets `Bill.postedAt`, posts `SALES_BILL` per company and the dispatch stock
+   movements). So edits and cancellations before dispatch need no reversals. Until posting, the
+   bill shows "Draft until dispatch" and its "previous pending" is the live balance; at dispatch it
+   is frozen (overall in `Bill.previousBalance`, per company in the revision's `companyTotals`).
+2. **The credit check counts open orders.** Booked/planned bills that are not yet posted count
+   towards the limit, so two orders in a row can't each slip under it.
+3. **Booking beyond available stock is allowed, with a warning.** Stock often arrives the next
+   morning before dispatch. Dispatch (Task 8) will refuse to send more than is on hand.
+4. **Edits replace the order lines but never the bill history.** The lines table is current state;
+   `BillRevision` (append-only) keeps every version, and the audit log keeps old and new lines.
+5. **Previous pending per company.** The split bill uses the customer × company ledger slice, so
+   each company's page shows what the customer owes for that company only (CLAUDE.md rule 3).
+
+**Open / next**
+
+- Paper sizes, margins, 2 bills per A4, logo and "print all bills of a trip" are Task 7. The bill
+  is A5 for now.
+- Dispatch (stock out, ledger posting, freezing previous pending) and the Planned status are
+  Task 8.
+- Two orders for the same customer booked at the same moment could each pass the credit check.
+  This is rare at one office; dispatch can re-check later.
+
 ## Task 5: Purchasing and company ledger — done
 
 **Built** (all under **Purchases**, with tabs; services in `src/server/services/purchasing/`)

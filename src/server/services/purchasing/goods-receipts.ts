@@ -16,7 +16,7 @@ import {
   postCompanyLedger,
   reverseLedgerFor,
 } from "../posting";
-import { calculateLineAmounts } from "../pricing";
+import { calculateLineAmounts } from "@/lib/pricing";
 import { addDays, claimsToDeduct } from "./calc";
 import type { DateRange } from "./filters";
 import { refreshPurchaseOrderStatus } from "./purchase-orders";
