@@ -83,6 +83,22 @@ From the owner's notes after trying Phase 1. Built one item at a time.
      display). Checked in a browser: day-end with 5 returned and 3 damaged packets, and the
      revised bill print.
 
+7. **Damage claims settled by the user — done.** (migration `claim_settlement`)
+   - Damage entered at day-end now creates a claim **Pending: settle with company** (status
+     `AWAITING`), valued at purchase cost, with **no money moved**.
+   - On Purchases → Claims (owner and accountant), each pending claim has an "Amount the company
+     accepted" box (filled with the claimed value), a note, and **Accept** or **Reject**:
+     - Accept (in full or a smaller amount, never more than claimed) posts the credit to the
+       company ledger, and the claim is deducted on the company's next bill automatically.
+     - Reject moves no money; the damaged stock stays in the damaged bucket.
+     - The list shows "claimed X" when less was accepted, and the settlement note. Audited.
+   - Claims logged by hand on the claims screen are still posted at once, and existing claims
+     stay as they were (`claimedAmount` backfilled).
+   - Undo day-end also cancels a still-pending claim; a pending claim can be cancelled (logged by
+     mistake) as well as rejected.
+   - Tested in `delivery.int.test.ts` (accept less, reject, limits, permissions, deduction on the
+     next bill) and in a browser run.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

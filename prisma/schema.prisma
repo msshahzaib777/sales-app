@@ -104,10 +104,14 @@ enum ClaimType {
 }
 
 enum ClaimStatus {
-  /// Logged; credit already in the company ledger, not yet deducted on a company bill.
+  /// Damage from day-end, waiting for the user to settle it with the company. No money moved yet.
+  AWAITING
+  /// Accepted (or logged by hand); credit in the company ledger, not yet deducted on a company bill.
   PENDING
   /// Deducted on a company bill (`appliedToBillId`).
   APPLIED
+  /// The company did not accept it. No money moved.
+  REJECTED
   REVERSED
 }
 
@@ -836,7 +840,13 @@ model CompanyClaim {
   quantity        Int
   /// Per price unit (purchase rate by default; see SPEC §17 open question).
   rate            Decimal     @db.Decimal(14, 2)
+  /// What we credit the company: the claimed value, or the smaller amount accepted at settlement.
   amount          Decimal     @db.Decimal(14, 2)
+  /// What was claimed (quantity × rate), kept when a smaller amount is accepted.
+  claimedAmount   Decimal?    @db.Decimal(14, 2)
+  settledAt       DateTime?
+  settledById     String?
+  settlementNote  String?
   /// Delivery the damage came from, when known.
   salesOrderId    String?
   appliedToBillId String?

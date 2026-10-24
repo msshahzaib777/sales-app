@@ -106,6 +106,21 @@ export const claimSchema = z.object({
   note: optionalText(500),
 });
 
+/** Settling a day-end damage claim with the company. */
+export const settleClaimSchema = z
+  .object({
+    id: idSchema,
+    decision: z.enum(["ACCEPT", "ACCEPT_LESS", "REJECT"], {
+      error: "Choose what the company said",
+    }),
+    amount: optionalMoneySchema("accepted amount"),
+    note: optionalText(300),
+  })
+  .superRefine((d, ctx) => {
+    if (d.decision === "ACCEPT_LESS" && !d.amount)
+      ctx.addIssue({ code: "custom", path: ["amount"], message: "Enter the accepted amount" });
+  });
+
 export const reverseSchema = z.object({
   id: idSchema,
   reason: z.preprocess(blankToUndefined, z.string({ error: "Say why" }).min(3, "Say why").max(300)),

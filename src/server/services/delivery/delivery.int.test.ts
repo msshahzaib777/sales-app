@@ -15,6 +15,7 @@ import { createStaff } from "../master/staff";
 import { createWarehouse } from "../master/warehouses";
 import { returnDamagedStock } from "../inventory";
 import { clearCheque } from "../payments/customer-payments";
+import { settleClaim } from "../purchasing/claims";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { getBillView } from "../sales/bills";
 import { createSalesOrder } from "../sales/orders";
@@ -290,17 +291,19 @@ describe("day-end entry", () => {
     });
     expect(damaged._sum.quantity).toBe(12);
 
-    // Claim against Crunchy at purchase cost: 1 dozen × 100.
+    // Claim against Crunchy at purchase cost: 1 dozen × 100, waiting to be settled; no money yet.
     const claim = await t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
-    expect([claim.type, claim.quantity, claim.amount.toFixed(2)]).toEqual([
+    expect([claim.type, claim.status, claim.quantity, claim.amount.toFixed(2)]).toEqual([
       "DELIVERY_DAMAGE",
+      "AWAITING",
       12,
       "100.00",
     ]);
-    const companyLedger = await t.ctx.db.ledgerEntry.findMany({
-      where: { partyType: "COMPANY", companyId: t.crunchy.id, type: "COMPANY_CLAIM" },
-    });
-    expect(companyLedger[0]!.debit.toFixed(2)).toBe("100.00");
+    const claimCredits = () =>
+      t.ctx.db.ledgerEntry.findMany({
+        where: { partyType: "COMPANY", companyId: t.crunchy.id, type: "COMPANY_CLAIM" },
+      });
+    expect(await claimCredits()).toHaveLength(0);
 
     // Bill: 7 dozen chips kept (7 × 196) + nimko 300.
     const view = await getBillView(t.staff, a.id);
@@ -490,7 +493,10 @@ describe("undoing a day-end entry", () => {
     );
 
     const second = await entered();
-    void second;
+    const secondClaim = await t.ctx.db.companyClaim.findFirstOrThrow({
+      where: { salesOrderId: second.a.id },
+    });
+    await settleClaim(t.ctx, { id: secondClaim.id, decision: "ACCEPT" });
     await createGoodsReceipt(t.ctx, {
       companyId: t.crunchy.id,
       receivedDate: DAY,
@@ -552,5 +558,77 @@ describe("driver", () => {
   it("must be an active staff member when given", async () => {
     const a = await book(t.ali.id, [[t.chips.id, "1"]]);
     await expect(trip([a.id], { driverId: "missing" })).rejects.toThrow(/active driver/);
+  });
+});
+
+describe("settling a day-end damage claim", () => {
+  const damaged = async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "2"]]);
+    const tr = await createTrip(t.staff, { tripDate: DAY, bikeId: t.bike.id, orderIds: [a.id] });
+    await dispatchTrip(t.staff, { id: tr.id });
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "", damaged: "12" }],
+    });
+    return t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
+  };
+  const credits = async () =>
+    (
+      await t.ctx.db.ledgerEntry.findMany({
+        where: { partyType: "COMPANY", type: "COMPANY_CLAIM" },
+      })
+    ).map((e) => e.debit.toFixed(2));
+
+  it("accepts a smaller amount: only that is credited, and deducted on the next bill", async () => {
+    const claim = await damaged();
+    await expect(
+      settleClaim(t.ctx, { id: claim.id, decision: "ACCEPT_LESS", amount: "150" }),
+    ).rejects.toThrow(/more than the 100.00 claimed/);
+    await expect(settleClaim(t.staff, { id: claim.id, decision: "ACCEPT" })).rejects.toThrow(
+      ForbiddenError,
+    );
+    const settled = await settleClaim(t.ctx, {
+      id: claim.id,
+      decision: "ACCEPT_LESS",
+      amount: "80",
+      note: "Company paid for 80",
+    });
+    expect([settled.status, settled.amount.toFixed(2), settled.claimedAmount?.toFixed(2)]).toEqual([
+      "PENDING",
+      "80.00",
+      "100.00",
+    ]);
+    expect(await credits()).toEqual(["80.00"]);
+    await expect(settleClaim(t.ctx, { id: claim.id, decision: "REJECT" })).rejects.toThrow(
+      /already settled/,
+    );
+    const receipt = await createGoodsReceipt(t.ctx, {
+      companyId: t.crunchy.id,
+      receivedDate: DAY,
+      lines: [{ productId: t.chips.id, quantity: "5" }],
+    });
+    expect(receipt.companyBill.claimDeduction.toFixed(2)).toBe("80.00");
+  });
+
+  it("a rejected claim moves no money and is never deducted", async () => {
+    const claim = await damaged();
+    const rejected = await settleClaim(t.ctx, { id: claim.id, decision: "REJECT" });
+    expect(rejected.status).toBe("REJECTED");
+    expect(await credits()).toEqual([]);
+    const receipt = await createGoodsReceipt(t.ctx, {
+      companyId: t.crunchy.id,
+      receivedDate: DAY,
+      lines: [{ productId: t.chips.id, quantity: "5" }],
+    });
+    expect(receipt.companyBill.claimDeduction.toFixed(2)).toBe("0.00");
+    // The damaged stock stays damaged either way.
+    expect(
+      (
+        await t.ctx.db.stockMovement.aggregate({
+          where: { productId: t.chips.id, bucket: "DAMAGED" },
+          _sum: { quantity: true },
+        })
+      )._sum.quantity,
+    ).toBe(12);
   });
 });

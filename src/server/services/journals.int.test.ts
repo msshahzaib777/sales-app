@@ -29,6 +29,7 @@ import {
   customerDebt,
   reverseCustomerPayment,
 } from "./payments/customer-payments";
+import { settleClaim } from "./purchasing/claims";
 import { getCompanyLedger } from "./purchasing/company-ledger";
 import { cancelGoodsReceipt, createGoodsReceipt } from "./purchasing/goods-receipts";
 import { createCompanyPayment } from "./purchasing/payments";
@@ -191,7 +192,11 @@ async function week() {
   });
   await reverseCustomerPayment(ctx, { id: wrong.id, reason: "wrong customer" });
 
-  // We pay Crunchy 5000; the damage claim (nimko, Golden) is deducted on Golden's next bill.
+  // The damage claim (nimko, Golden) is accepted in full, then deducted on Golden's next bill.
+  const damageClaim = await ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
+  await settleClaim(ctx, { id: damageClaim.id, decision: "ACCEPT" });
+
+  // We pay Crunchy 5000.
   await createCompanyPayment(ctx, {
     companyId: crunchy.id,
     paymentDate: "2026-10-23",

@@ -9,7 +9,7 @@ import { purchaseLineSchema } from "@/lib/validation/purchasing";
 import { runAction } from "./actions";
 import { requireTenantContext } from "./auth/session";
 import { updateBillDueDate } from "./services/purchasing/bills";
-import { cancelClaim, createClaim } from "./services/purchasing/claims";
+import { cancelClaim, settleClaim, createClaim } from "./services/purchasing/claims";
 import { cancelGoodsReceipt, createGoodsReceipt } from "./services/purchasing/goods-receipts";
 import { createCompanyPayment, reverseCompanyPayment } from "./services/purchasing/payments";
 import {
@@ -207,6 +207,30 @@ export async function cancelClaimAction(
     const ctx = await requireTenantContext("payments.manage");
     await cancelClaim(ctx, { id, reason: formData.get("reason") });
     return { message: "Claim cancelled." };
+  }, formData);
+  if (result.status === "success") revalidatePath("/purchases/claims");
+  return result;
+}
+
+export async function settleClaimAction(
+  id: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("payments.manage");
+    const claim = await settleClaim(ctx, {
+      id,
+      decision: formData.get("decision"),
+      amount: formData.get("amount"),
+      note: formData.get("note"),
+    });
+    return {
+      message:
+        claim.status === "REJECTED"
+          ? "Claim rejected. No money moved."
+          : `Claim accepted for ${claim.amount.toFixed(2)}; it is deducted on the company's next bill.`,
+    };
   }, formData);
   if (result.status === "success") revalidatePath("/purchases/claims");
   return result;
