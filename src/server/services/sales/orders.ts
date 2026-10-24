@@ -102,7 +102,7 @@ async function orderWarehouse(
 }
 
 /** Bill revision rows: an immutable snapshot of what the bill says at this point. */
-async function writeBillRevision(
+export async function writeBillRevision(
   tx: TenantTx,
   ctx: ServiceCtx,
   billId: string,
@@ -351,9 +351,13 @@ export async function updateSalesOrder(
       await tx.salesOrderLine.createMany({
         data: lineRows(ctx, lines).map((l) => ({ ...l, salesOrderId: id })),
       });
+      // A planned order moved to another day leaves its trip and goes back to booked.
+      const leavesTrip =
+        before.tripId !== null && before.deliveryDate.getTime() !== data.deliveryDate.getTime();
       const after = await tx.salesOrder.update({
         where: { id },
         data: {
+          ...(leavesTrip ? { tripId: null, status: "BOOKED" as const } : {}),
           orderDate: data.orderDate,
           deliveryDate: data.deliveryDate,
           source: data.source,
@@ -418,7 +422,7 @@ export async function cancelSalesOrder(ctx: ServiceCtx, input: unknown) {
       throw new ServiceError("Only booked or planned orders can be cancelled.");
     const after = await tx.salesOrder.update({
       where: { id },
-      data: { status: "CANCELLED", needsCreditApproval: false },
+      data: { status: "CANCELLED", needsCreditApproval: false, tripId: null },
     });
     // The bill was never posted (that happens at dispatch), so cancelling it touches no ledger.
     if (order.bill)
@@ -544,6 +548,7 @@ export async function getSalesOrder(ctx: ServiceCtx, id: string) {
       include: {
         customer: { include: { area: { select: { name: true } } } },
         warehouse: { select: { name: true } },
+        trip: { select: { id: true, number: true, tripDate: true } },
         lines: {
           include: {
             product: { select: { code: true, name: true } },

@@ -1,13 +1,14 @@
 import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
-import type { ClaimStatus } from "@/generated/prisma/enums";
+import type { ClaimStatus, ClaimType } from "@/generated/prisma/enums";
 import { businessToday } from "@/lib/dates";
 import { HALF_DOZENS_PER_DOZEN } from "@/lib/units";
 import { claimSchema, reverseSchema } from "@/lib/validation/purchasing";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
+import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
 import { found, nextDocumentNumber, postCompanyLedger, reverseLedgerFor } from "../posting";
@@ -17,7 +18,7 @@ import type { DateRange } from "./filters";
 // Company claims (damage in delivery, damaged stock returned, other): a credit against the
 // company. The ledger debit is posted when the claim is logged; the company's next bill deducts
 // it (goods-receipts.ts). Valued at purchase cost only (owner's answer, SPEC §17).
-// Stock effects of damage are posted by day-end reconciliation (Task 8), not here.
+// Damage in delivery is logged by day-end entry (delivery/day-end.ts), which also moves the stock.
 
 const STATUSES: ClaimStatus[] = ["PENDING", "APPLIED", "REVERSED"];
 
@@ -76,30 +77,16 @@ export async function createClaim(ctx: ServiceCtx, input: unknown) {
     }).netAmount;
     if (amount.lte(0)) throw new ServiceError("The claim amount must be more than zero.");
 
-    const claim = await tx.companyClaim.create({
-      data: {
-        tenantId: ctx.user.tenantId,
-        number: await nextDocumentNumber(tx, ctx, "COMPANY_CLAIM"),
-        companyId: data.companyId,
-        productId: product.id,
-        type: data.type,
-        claimDate: data.claimDate,
-        quantity: data.quantity,
-        rate,
-        amount,
-        note: data.note,
-        requestId: data.requestId,
-        createdById: ctx.user.id,
-      },
-    });
-    await postCompanyLedger(tx, ctx, {
+    const claim = await logClaim(tx, ctx, {
       companyId: data.companyId,
-      type: "COMPANY_CLAIM",
-      entryDate: data.claimDate,
-      debit: amount,
-      description: `Claim #${claim.number}: ${product.name}${data.note ? ` (${data.note})` : ""}`,
-      referenceType: "CompanyClaim",
-      referenceId: claim.id,
+      product,
+      type: data.type,
+      claimDate: data.claimDate,
+      quantity: data.quantity,
+      rate,
+      amount,
+      note: data.note,
+      requestId: data.requestId,
     });
     await writeAudit(tx, ctx.user, {
       action: "POST",
@@ -110,6 +97,55 @@ export async function createClaim(ctx: ServiceCtx, input: unknown) {
     });
     return claim;
   });
+}
+
+/**
+ * Saves a claim and posts its credit to the company ledger, inside the caller's transaction. Used
+ * by the claims screen and by day-end entry (damage in delivery).
+ */
+export async function logClaim(
+  tx: TenantTx,
+  ctx: ServiceCtx,
+  c: {
+    companyId: string;
+    product: { id: string; name: string };
+    type: ClaimType;
+    claimDate: Date;
+    quantity: number;
+    rate: Prisma.Decimal;
+    amount: Prisma.Decimal;
+    note: string | null;
+    salesOrderId?: string;
+    requestId?: string;
+  },
+) {
+  const claim = await tx.companyClaim.create({
+    data: {
+      tenantId: ctx.user.tenantId,
+      number: await nextDocumentNumber(tx, ctx, "COMPANY_CLAIM"),
+      companyId: c.companyId,
+      productId: c.product.id,
+      type: c.type,
+      claimDate: c.claimDate,
+      quantity: c.quantity,
+      rate: c.rate,
+      amount: c.amount,
+      salesOrderId: c.salesOrderId ?? null,
+      note: c.note,
+      requestId: c.requestId,
+      createdById: ctx.user.id,
+    },
+  });
+  await postCompanyLedger(tx, ctx, {
+    companyId: c.companyId,
+    type: "COMPANY_CLAIM",
+    entryDate: c.claimDate,
+    debit: c.amount,
+    description: `Claim #${claim.number}: ${c.product.name}${c.note ? ` (${c.note})` : ""}`,
+    referenceType: "CompanyClaim",
+    referenceId: claim.id,
+  });
+  return claim;
 }
 
 /** Cancels a pending claim (already deducted claims stay; the bill was built with them). */

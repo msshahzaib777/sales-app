@@ -169,6 +169,15 @@ enum SalesOrderStatus {
   CANCELLED
 }
 
+/// Planned: orders assigned to a bike, can still change. Dispatched: stock out and bills posted.
+/// Reconciled: every order's day-end result entered. Cancelled: a planned trip called off.
+enum TripStatus {
+  PLANNED
+  DISPATCHED
+  RECONCILED
+  CANCELLED
+}
+
 enum OrderSource {
   OFFICE
   WHATSAPP
@@ -254,6 +263,7 @@ model Tenant {
   stockMovements       StockMovement[]
   stockAdjustments     StockAdjustment[]
   salesOrders          SalesOrder[]
+  deliveryTrips        DeliveryTrip[]
   salesOrderLines      SalesOrderLine[]
   bills                Bill[]
   billRevisions        BillRevision[]
@@ -346,6 +356,7 @@ model Warehouse {
   stockMovements   StockMovement[]
   stockAdjustments StockAdjustment[]
   salesOrders      SalesOrder[]
+  deliveryTrips    DeliveryTrip[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -578,9 +589,10 @@ model Bike {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  warehouse Warehouse? @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
-  driver    Staff?     @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse?     @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  driver    Staff?         @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  trips     DeliveryTrip[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -603,9 +615,10 @@ model Staff {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user          User?         @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user          User?          @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
   bikes         Bike[]
+  trips         DeliveryTrip[]
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
@@ -938,6 +951,36 @@ model StockAdjustment {
 
 // ───────────────────────────── Sales ─────────────────────────────
 
+/// One bike's delivery run on a date (Phase 1: simple assignment; load suggestions come in Phase 2).
+model DeliveryTrip {
+  id           String     @id @default(cuid())
+  tenantId     String
+  number       Int
+  tripDate     DateTime   @db.Date
+  warehouseId  String
+  bikeId       String
+  driverId     String
+  status       TripStatus @default(PLANNED)
+  dispatchedAt DateTime?
+  reconciledAt DateTime?
+  note         String?
+  requestId    String?
+  createdById  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  warehouse Warehouse    @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  bike      Bike         @relation(fields: [tenantId, bikeId], references: [tenantId, id], onDelete: Restrict)
+  driver    Staff        @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
+  orders    SalesOrder[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, tripDate])
+}
+
 model SalesOrder {
   id                  String           @id @default(cuid())
   tenantId            String
@@ -954,6 +997,13 @@ model SalesOrder {
   /// Set when the owner allowed the order past the customer's credit limit.
   creditOverrideById  String?
   creditOverrideAt    DateTime?
+  /// Delivery trip the order is planned on or went out with.
+  tripId              String?
+  /// Day-end result entered (delivered / returned / damaged and payments collected).
+  reconciledAt        DateTime?
+  reconciledById      String?
+  /// Client-generated id of the day-end entry; a retried save does not post twice.
+  reconcileRequestId  String?
   note                String?
   requestId           String?
   createdById         String?
@@ -963,6 +1013,7 @@ model SalesOrder {
   tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   customer  Customer          @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
   warehouse Warehouse         @relation(fields: [tenantId, warehouseId], references: [tenantId, id], onDelete: Restrict)
+  trip      DeliveryTrip?     @relation(fields: [tenantId, tripId], references: [tenantId, id], onDelete: Restrict)
   lines     SalesOrderLine[]
   bill      Bill?
   claims    CompanyClaim[]
@@ -971,7 +1022,9 @@ model SalesOrder {
   @@unique([tenantId, id])
   @@unique([tenantId, number])
   @@unique([tenantId, requestId])
+  @@unique([tenantId, reconcileRequestId])
   @@index([tenantId, status, deliveryDate])
+  @@index([tenantId, tripId])
   @@index([tenantId, customerId, orderDate])
   @@index([tenantId, deliveryDate])
 }
@@ -980,22 +1033,26 @@ model SalesOrder {
 /// correct if a product is ever moved. Rate and discount are snapshots at booking time; the
 /// discount fields hold whichever applied (base discount or the quantity slab reached).
 model SalesOrderLine {
-  id             String       @id @default(cuid())
-  tenantId       String
-  salesOrderId   String
-  productId      String
-  companyId      String
-  /// Base units.
-  quantity       Int
+  id               String       @id @default(cuid())
+  tenantId         String
+  salesOrderId     String
+  productId        String
+  companyId        String
+  /// Base units, as ordered.
+  quantity         Int
+  /// Day-end result in base units: not delivered and back to stock / damaged in delivery.
+  /// Delivered = quantity − returned − damaged.
+  returnedQuantity Int          @default(0)
+  damagedQuantity  Int          @default(0)
   /// Sale rate per price unit.
-  rate           Decimal      @db.Decimal(14, 2)
-  discountType   DiscountType @default(NONE)
-  discountValue  Decimal      @default(0) @db.Decimal(14, 2)
-  grossAmount    Decimal      @db.Decimal(14, 2)
-  discountAmount Decimal      @default(0) @db.Decimal(14, 2)
-  taxAmount      Decimal      @default(0) @db.Decimal(14, 2)
+  rate             Decimal      @db.Decimal(14, 2)
+  discountType     DiscountType @default(NONE)
+  discountValue    Decimal      @default(0) @db.Decimal(14, 2)
+  grossAmount      Decimal      @db.Decimal(14, 2)
+  discountAmount   Decimal      @default(0) @db.Decimal(14, 2)
+  taxAmount        Decimal      @default(0) @db.Decimal(14, 2)
   /// grossAmount − discountAmount + taxAmount.
-  netAmount      Decimal      @db.Decimal(14, 2)
+  netAmount        Decimal      @db.Decimal(14, 2)
 
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   salesOrder SalesOrder @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Cascade)
@@ -1012,25 +1069,27 @@ model SalesOrderLine {
 /// Totals are for the current revision; every version (booking, each edit before dispatch, each
 /// delivery correction) is kept in BillRevision. It posts to the customer ledger at dispatch.
 model Bill {
-  id              String        @id @default(cuid())
-  tenantId        String
-  number          Int
-  salesOrderId    String
-  customerId      String
-  billDate        DateTime      @db.Date
-  currentRevision Int           @default(1)
-  grossAmount     Decimal       @db.Decimal(14, 2)
-  discountAmount  Decimal       @default(0) @db.Decimal(14, 2)
-  taxAmount       Decimal       @default(0) @db.Decimal(14, 2)
-  netAmount       Decimal       @db.Decimal(14, 2)
+  id                String        @id @default(cuid())
+  tenantId          String
+  number            Int
+  salesOrderId      String
+  customerId        String
+  billDate          DateTime      @db.Date
+  currentRevision   Int           @default(1)
+  grossAmount       Decimal       @db.Decimal(14, 2)
+  discountAmount    Decimal       @default(0) @db.Decimal(14, 2)
+  taxAmount         Decimal       @default(0) @db.Decimal(14, 2)
+  netAmount         Decimal       @db.Decimal(14, 2)
   /// Customer's pending balance just before this bill, snapshotted for printing.
-  previousBalance Decimal       @default(0) @db.Decimal(14, 2)
+  previousBalance   Decimal       @default(0) @db.Decimal(14, 2)
+  /// Per company: [{ companyId, amount }], frozen at dispatch with `previousBalance`.
+  previousByCompany Json?
   /// When the bill was posted to the customer ledger (at dispatch). Null while the order can still
   /// change: the bill is then a printable draft of the order.
-  postedAt        DateTime?
-  status          PostingStatus @default(POSTED)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  postedAt          DateTime?
+  status            PostingStatus @default(POSTED)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   salesOrder  SalesOrder          @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)

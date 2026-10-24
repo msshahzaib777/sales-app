@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+
+import { Prisma } from "@/generated/prisma/client";
 
 import { ConfirmAction } from "@/components/form/confirm-action";
 import { DataTable, Td, Th } from "@/components/list/data-table";
@@ -47,6 +50,26 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
         />
         <Notice notice={notice} />
         <OrderStatusBadge status={order.status} needsCreditApproval={order.needsCreditApproval} />
+        {order.trip ? (
+          <p className="mt-2 text-sm">
+            On{" "}
+            <Link href={`/delivery/${order.trip.id}`} className="underline underline-offset-4">
+              trip #{order.trip.number}
+            </Link>{" "}
+            ({formatDate(order.trip.tripDate)})
+            {order.status === "DISPATCHED" ? (
+              <>
+                {" · "}
+                <Link
+                  href={`/delivery/${order.trip.id}/day-end/${order.id}`}
+                  className="underline underline-offset-4"
+                >
+                  enter day-end
+                </Link>
+              </>
+            ) : null}
+          </p>
+        ) : null}
         {order.creditOverrideAt ? (
           <p className="mt-2 text-sm">
             Allowed past the credit limit on {formatDateTime(order.creditOverrideAt)}.
@@ -63,6 +86,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
             {companies.length > 1 ? <Th>Company</Th> : null}
             <Th className="text-right">Dozens</Th>
             {open ? <Th className="text-right">Available</Th> : null}
+            {order.reconciledAt ? <Th className="text-right">Delivered</Th> : null}
             <Th className="text-right">Rate / dz</Th>
             <Th>Discount</Th>
             <Th className="text-right">Amount</Th>
@@ -75,6 +99,11 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
               <Td>{l.product.name}</Td>
               {companies.length > 1 ? <Td>{l.company.name}</Td> : null}
               <Td className="text-right tabular-nums">{formatDozens(l.quantity)}</Td>
+              {order.reconciledAt ? (
+                <Td className="text-right tabular-nums">
+                  {formatDozens(l.quantity - l.returnedQuantity - l.damagedQuantity)}
+                </Td>
+              ) : null}
               {open ? (
                 <Td className="text-right tabular-nums">
                   {l.available !== null ? formatDozens(l.available) : "—"}
@@ -104,12 +133,34 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
               {formatDozens(order.lines.reduce((s, l) => s + l.quantity, 0))}
             </Td>
             {open ? <Td /> : null}
+            {order.reconciledAt ? (
+              <Td className="text-right tabular-nums">
+                {formatDozens(
+                  order.lines.reduce(
+                    (s, l) => s + l.quantity - l.returnedQuantity - l.damagedQuantity,
+                    0,
+                  ),
+                )}
+              </Td>
+            ) : null}
             <Td />
             <Td />
-            <Td className="text-right tabular-nums">{formatMoney(order.bill?.netAmount)}</Td>
+            <Td className="text-right tabular-nums">
+              {order.reconciledAt
+                ? formatMoney(
+                    order.lines.reduce((s, l) => s.add(l.netAmount), new Prisma.Decimal(0)),
+                  )
+                : formatMoney(order.bill?.netAmount)}
+            </Td>
           </tr>
         </tfoot>
       </DataTable>
+      {order.reconciledAt ? (
+        <p className="text-sm">
+          Amounts above are as booked. After returns and damage the bill is{" "}
+          <strong className="tabular-nums">{formatMoney(order.bill?.netAmount)}</strong>.
+        </p>
+      ) : null}
 
       {order.bill && order.bill.revisions.length > 0 ? (
         <section aria-labelledby="revisions-heading" className="max-w-xl">

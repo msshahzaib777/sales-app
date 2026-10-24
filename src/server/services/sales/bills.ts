@@ -24,7 +24,9 @@ type SnapshotLine = {
   discountAmount: string;
   netAmount: string;
 };
-type SnapshotCompany = { companyId: string; netAmount: string; previousBalance?: string };
+type SnapshotCompany = { companyId: string; netAmount: string };
+/** `Bill.previousByCompany`, written at dispatch. */
+export type FrozenPrevious = { companyId: string; amount: string }[];
 
 export async function getBillView(ctx: ServiceCtx, orderId: string) {
   assertCan(ctx.user.role, "operations.manage");
@@ -64,8 +66,10 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
   const previousTotal = posted ? bill.previousBalance : live!.total;
   const previousFor = (companyId: string) => {
     if (live) return live.byCompany.get(companyId) ?? D(0);
-    const frozen = companyTotals.find((c) => c.companyId === companyId)?.previousBalance;
-    return D(frozen ?? 0);
+    const frozen = (bill.previousByCompany as FrozenPrevious | null)?.find(
+      (c) => c.companyId === companyId,
+    );
+    return D(frozen?.amount ?? 0);
   };
 
   const lines = snapshot.map((l) => ({

@@ -44,6 +44,7 @@ export const TENANT_MODELS = [
   "Batch",
   "StockMovement",
   "StockAdjustment",
+  "DeliveryTrip",
   "SalesOrder",
   "SalesOrderLine",
   "Bill",

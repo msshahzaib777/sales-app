@@ -1007,9 +1007,41 @@ async function main() {
           companyTotals: [...byCompany].map(([companyId, t]) => ({
             companyId,
             netAmount: t.netAmount.toFixed(2),
-            previousBalance: previousFor(companyId),
           })),
           createdById,
+        },
+      });
+      // Frozen at dispatch: what the customer owed each company before this bill.
+      await tx.bill.update({
+        where: { id: bill.id },
+        data: {
+          previousByCompany: previousByCompany
+            .filter((g) => g.companyId)
+            .map((g) => ({ companyId: g.companyId!, amount: previousFor(g.companyId!) })),
+        },
+      });
+      // It went out on Bike 1, and day-end was entered for it.
+      const pastTrip = await tx.deliveryTrip.create({
+        data: {
+          tenantId,
+          number: nextNumber("DELIVERY_TRIP"),
+          tripDate: day(-2),
+          warehouseId: warehouseIds.A!,
+          bikeId: bikes[0]!.id,
+          driverId: drivers[0]!.id,
+          status: "RECONCILED",
+          dispatchedAt: day(-2),
+          reconciledAt: day(-2),
+          createdById,
+        },
+      });
+      await tx.salesOrder.update({
+        where: { id: delivered.order.id },
+        data: {
+          tripId: pastTrip.id,
+          status: "PARTIALLY_DELIVERED",
+          reconciledAt: day(-2),
+          reconciledById: createdById,
         },
       });
       for (const [companyId, t] of byCompany) {
@@ -1092,8 +1124,8 @@ async function main() {
         });
       }
 
-      // One half dozen damaged in that delivery → damaged stock + claim against the company.
-      // (A full day-end flow would also revise the bill; Task 8 implements that.)
+      // One half dozen damaged in that delivery → damaged stock, claim against the company, and
+      // the bill revised at day-end (the customer is not charged for it).
       const damagedLine = delivered.lines[0]!;
       const damagedProduct = products.find((p) => p.id === damagedLine.productId)!;
       await tx.stockMovement.create({
@@ -1143,6 +1175,62 @@ async function main() {
           description: `Damage claim #${claim.number}`,
           referenceType: "CompanyClaim",
           referenceId: claim.id,
+          createdById,
+        },
+      });
+
+      await tx.salesOrderLine.update({
+        where: { id: damagedLine.id },
+        data: { damagedQuantity: 1 },
+      });
+      const keptLines = delivered.lines.map((l) => {
+        if (l.id !== damagedLine.id) return l;
+        return {
+          ...l,
+          quantity: l.quantity - 1,
+          ...calculateLineAmounts({
+            quantity: l.quantity - 1,
+            baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
+            rate: l.rate,
+            discountType: l.discountType,
+            discountValue: l.discountValue,
+          }),
+        };
+      });
+      const keptTotals = sumLineAmounts(keptLines);
+      await tx.bill.update({
+        where: { id: bill.id },
+        data: { currentRevision: 2, ...keptTotals },
+      });
+      await tx.billRevision.create({
+        data: {
+          tenantId,
+          billId: bill.id,
+          revision: 2,
+          reason: `Day-end: ${damagedProduct.name} damaged 0.5 dz`,
+          ...keptTotals,
+          lines: keptLines.map(snapshotLine),
+          companyTotals: [...new Set(keptLines.map((l) => l.companyId))].map((companyId) => ({
+            companyId,
+            netAmount: sumLineAmounts(
+              keptLines.filter((l) => l.companyId === companyId),
+            ).netAmount.toFixed(2),
+          })),
+          createdById,
+        },
+      });
+      await tx.ledgerEntry.create({
+        data: {
+          tenantId,
+          partyType: "CUSTOMER",
+          customerId: deliveredCustomer.id,
+          companyId: damagedLine.companyId,
+          type: "BILL_REVISION",
+          entryDate: day(-2),
+          credit: totals.netAmount.sub(keptTotals.netAmount),
+          description: `Bill #${bill.number} revised at day-end (returns / damage)`,
+          referenceType: "Bill",
+          referenceId: bill.id,
           createdById,
         },
       });
