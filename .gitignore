@@ -45,3 +45,6 @@ next-env.d.ts
 
 # allow committing the example env file
 !.env.example
+
+# Windows setup script: generated passwords and logs
+/.setup/

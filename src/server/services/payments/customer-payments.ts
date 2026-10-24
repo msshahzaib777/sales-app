@@ -246,7 +246,7 @@ export async function createCustomerPayment(ctx: ServiceCtx, input: unknown) {
 }
 
 /** Undoes a payment: mirror ledger entries (the debt comes back) and its bills are unpaid again. */
-async function reversePayment(
+export async function reversePayment(
   tx: TenantTx,
   ctx: ServiceCtx,
   id: string,
@@ -375,7 +375,13 @@ export async function listCustomerPayments(ctx: ServiceCtx, f: PaymentFilters) {
     ...(pick(METHODS, f.method) ? { method: pick(METHODS, f.method) } : {}),
     ...(pick(STATUSES, f.status) ? { status: pick(STATUSES, f.status) } : {}),
     ...(pick(VIA, f.via) ? { collectedVia: pick(VIA, f.via) } : {}),
-    ...(chequeStatus ? { cheque: { status: chequeStatus } } : {}),
+    // A reversed payment's cheque is no longer waiting to clear.
+    ...(chequeStatus
+      ? {
+          cheque: { status: chequeStatus },
+          ...(chequeStatus === "PENDING" ? { status: "POSTED" as const } : {}),
+        }
+      : {}),
     ...(f.from || f.to
       ? { paymentDate: { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lte: f.to } : {}) } }
       : {}),

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { ForbiddenError } from "../../auth/permissions";
 import { prisma } from "../../db/client";
 import { createTenantDb } from "../../db/tenant";
 import { createArea } from "../master/areas";
@@ -12,11 +13,13 @@ import { createCustomer } from "../master/customers";
 import { createProduct } from "../master/products";
 import { createStaff } from "../master/staff";
 import { createWarehouse } from "../master/warehouses";
+import { returnDamagedStock } from "../inventory";
+import { clearCheque } from "../payments/customer-payments";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { getBillView } from "../sales/bills";
 import { createSalesOrder } from "../sales/orders";
 import { customerPending, stockPositions } from "../sales/positions";
-import { getDayEndEntry, nextOrderToReconcile, saveDayEnd } from "./day-end";
+import { getDayEndEntry, nextOrderToReconcile, saveDayEnd, undoDayEnd } from "./day-end";
 import {
   addOrdersToTrip,
   bookedOrdersFor,
@@ -400,5 +403,121 @@ describe("day-end entry", () => {
     const entry = await getDayEndEntry(t.staff, a.id);
     expect(entry.lines).toHaveLength(2);
     expect(entry.trip.number).toBeGreaterThan(0);
+  });
+});
+
+describe("undoing a day-end entry", () => {
+  async function entered() {
+    const a = await book(t.ali.id, [
+      [t.chips.id, "10"],
+      [t.nimko.id, "2"],
+    ]);
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    // Entered wrongly: 2 dz chips returned, 1 dz damaged, 1000 cash.
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "2", damaged: "1" }],
+      cash: "1000",
+    });
+    return { a, tr };
+  }
+  const damagedStock = async (productId: string) =>
+    (
+      await t.ctx.db.stockMovement.aggregate({
+        where: { productId, bucket: "DAMAGED" },
+        _sum: { quantity: true },
+      })
+    )._sum.quantity ?? 0;
+
+  it("puts everything back as dispatched, by reversal, and the order can be entered again", async () => {
+    const { a, tr } = await entered();
+    expect((await getTrip(t.staff, tr.id)).status).toBe("RECONCILED");
+    await expect(undoDayEnd(t.staff, { id: a.id, reason: "wrong lines" })).rejects.toThrow(
+      ForbiddenError,
+    );
+    await undoDayEnd(t.ctx, { id: a.id, reason: "typed the wrong order" });
+
+    // Stock as dispatched: 100 − 20 chips, nothing damaged.
+    expect(await onHand(t.chips.id)).toBe(80);
+    expect(await damagedStock(t.chips.id)).toBe(0);
+    // Claim cancelled, company ledger back to just the receipt.
+    const claim = await t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
+    expect(claim.status).toBe("REVERSED");
+    const crunchyLedger = await t.ctx.db.ledgerEntry.findMany({
+      where: { partyType: "COMPANY", companyId: t.crunchy.id },
+    });
+    expect(sum(crunchyLedger)).toBe(-5000); // the 50 dz receipt at 100
+    // Bill back to 2260 as a new revision; customer owes 4000 + 2260 again; cash reversed.
+    const view = await getBillView(t.staff, a.id);
+    expect([view.bill.netAmount.toFixed(2), view.bill.revision]).toEqual(["2260.00", 3]);
+    expect((await customerPending(t.ctx.db, t.ali.id)).total.toFixed(2)).toBe("6260.00");
+    const payment = await t.ctx.db.customerPayment.findFirstOrThrow({
+      where: { salesOrderId: a.id },
+    });
+    expect(payment.status).toBe("REVERSED");
+    const order = await t.ctx.db.salesOrder.findUniqueOrThrow({
+      where: { id: a.id },
+      include: { lines: true },
+    });
+    expect([order.status, order.reconciledAt]).toEqual(["DISPATCHED", null]);
+    expect(order.lines.every((l) => l.returnedQuantity === 0 && l.damagedQuantity === 0)).toBe(
+      true,
+    );
+    expect((await getTrip(t.staff, tr.id)).status).toBe("DISPATCHED");
+    await expect(undoDayEnd(t.ctx, { id: a.id, reason: "again" })).rejects.toThrow(
+      /not been entered/,
+    );
+
+    // Entered again, correctly: everything delivered, 2260 paid.
+    await saveDayEnd(t.staff, { orderId: a.id, lines: [], cash: "2260" });
+    expect((await customerPending(t.ctx.db, t.ali.id)).total.toFixed(2)).toBe("4000.00");
+    expect((await getBillView(t.staff, a.id)).bill.revision).toBe(3);
+    expect((await getTrip(t.staff, tr.id)).status).toBe("RECONCILED");
+    const ledger = await t.ctx.db.ledgerEntry.findMany({ where: { customerId: t.ali.id } });
+    expect(sum(ledger)).toBe(4000);
+    expect(
+      await t.ctx.db.auditLog.count({ where: { entityType: "SalesOrder", action: "REVERSE" } }),
+    ).toBe(1);
+  });
+
+  it("refuses when the damaged stock was sent back, a claim was deducted, or a cheque cleared", async () => {
+    const { a } = await entered();
+    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "1", returnDate: DAY });
+    await expect(undoDayEnd(t.ctx, { id: a.id, reason: "late fix" })).rejects.toThrow(
+      /already been sent back/,
+    );
+
+    const second = await entered();
+    void second;
+    await createGoodsReceipt(t.ctx, {
+      companyId: t.crunchy.id,
+      receivedDate: DAY,
+      lines: [{ productId: t.chips.id, quantity: "5" }],
+    });
+    const withClaim = await t.ctx.db.companyClaim.findFirstOrThrow({
+      where: { salesOrderId: second.a.id },
+    });
+    expect(withClaim.status).toBe("APPLIED");
+    await expect(undoDayEnd(t.ctx, { id: second.a.id, reason: "late fix" })).rejects.toThrow(
+      /deducted on company bill/,
+    );
+
+    const c = await book(t.bilal.id, [[t.nimko.id, "1"]]);
+    const tr = await trip([c.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    await saveDayEnd(t.staff, {
+      orderId: c.id,
+      lines: [],
+      chequeAmount: "150",
+      chequeNo: "77",
+      bankName: "MCB",
+      chequeDate: DAY,
+    });
+    const cheque = await t.ctx.db.customerPayment.findFirstOrThrow({
+      where: { salesOrderId: c.id },
+    });
+    await clearCheque(t.ctx, { id: cheque.id });
+    await expect(undoDayEnd(t.ctx, { id: c.id, reason: "late fix" })).rejects.toThrow(/cleared/);
   });
 });

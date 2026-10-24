@@ -85,12 +85,14 @@ export async function reverseLedgerFor(
   entryDate: Date,
   description: string,
   type: LedgerEntryType = "REVERSAL",
+  /** Only reverse entries of these types (e.g. a bill's day-end revision, not its sale). */
+  onlyTypes?: LedgerEntryType[],
 ) {
   const entries = await tx.ledgerEntry.findMany({
     where: {
       referenceType: reference.type,
       referenceId: reference.id,
-      type: { notIn: ["REVERSAL", "CHEQUE_BOUNCE"] },
+      type: onlyTypes ? { in: onlyTypes } : { notIn: ["REVERSAL", "CHEQUE_BOUNCE"] },
       reversedBy: { none: {} },
     },
   });

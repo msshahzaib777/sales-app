@@ -10,6 +10,8 @@ const NOTICES: Record<string, string> = {
   "trip-cancelled": "Trip cancelled. Its orders are booked again.",
   dispatched: "Dispatched. Stock is out and the bills are posted to the customer ledgers.",
   "day-end-saved": "Day-end saved.",
+  "day-end-undone":
+    "Day-end undone: stock, bill, claims and payments are back as dispatched. Enter it again below.",
   "payment-posted": "Payment posted to the customer ledger.",
   "payment-reversed": "Payment reversed. The customer owes that amount again.",
   "cheque-cleared": "Cheque marked as cleared.",
