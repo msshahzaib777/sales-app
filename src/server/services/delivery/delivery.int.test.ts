@@ -699,7 +699,11 @@ describe("dashboard", () => {
     await prisma.product.update({ where: { id: t.chips.id }, data: { minStockLevel: 720 } });
 
     const d = await getDashboard(t.ctx);
-    expect([d.work.ordersTomorrow, d.work.notOnTripTomorrow]).toEqual([1, 1]);
+    // Every order for tomorrow that isn't cancelled (the trip below may fall on tomorrow too).
+    const forTomorrow = await t.ctx.db.salesOrder.count({
+      where: { deliveryDate: new Date(`${day(1)}T00:00:00.000Z`), status: { not: "CANCELLED" } },
+    });
+    expect([d.work.ordersTomorrow, d.work.notOnTripTomorrow]).toEqual([forTomorrow, 1]);
     expect(d.work.tripsOut.map((x) => [x.number, x.ordersPending])).toEqual([[tr.number, 1]]);
     expect(d.work.dayEndPending).toBe(1);
     expect(d.overLimit.map((c) => [c.name, c.over.toFixed(2)])).toEqual([["Ali", "1500.00"]]);
@@ -710,6 +714,14 @@ describe("dashboard", () => {
     ]);
     // The three goods receipts of 1 Oct, due after 15 days, are unpaid.
     expect(d.money!.companyBills.overdue.rows).toHaveLength(3);
+
+    // Yesterday: no orders for "its next day" (today), nothing collected; today's order is not
+    // tomorrow's. Trips out are always as now.
+    const yesterday = await getDashboard(t.ctx, { date: new Date(`${day(-1)}T00:00:00.000Z`) });
+    expect([yesterday.isToday, yesterday.work.ordersTomorrow]).toEqual([false, 0]);
+    expect(yesterday.money!.collectedTotal.toFixed(2)).toBe("0.00");
+    expect(yesterday.work.tripsOut).toHaveLength(1);
+    expect(d.isToday).toBe(true);
 
     const staffView = await getDashboard(t.staff);
     expect(staffView.money).toBeNull();

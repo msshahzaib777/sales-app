@@ -3,31 +3,89 @@ import Link from "next/link";
 
 import { RequirePermission } from "@/components/layout/no-access";
 import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
 import { type Dashboard, DUE_SOON_DAYS, getDashboard } from "@/server/services/dashboard";
+import { parseDateRange } from "@/server/services/purchasing/filters";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-export default function DashboardPage() {
+export default function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
   return (
     <RequirePermission permission="operations.manage">
-      <DashboardView />
+      <DashboardView searchParams={searchParams} />
     </RequirePermission>
   );
 }
 
-async function DashboardView() {
+const DAY_MS = 86_400_000;
+
+async function DashboardView({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
   const ctx = await requireTenantContext("operations.manage");
-  const d = await getDashboard(ctx);
+  const { from: date } = parseDateRange({ from: sp.date });
+  const d = await getDashboard(ctx, { date });
+  const day = (offset: number) => toDateInput(new Date(d.today.getTime() + offset * DAY_MS));
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" description={`What needs attention · ${formatDate(d.today)}`} />
+      <PageHeader
+        title="Dashboard"
+        description={`What needs attention · ${formatDate(d.today)}${d.isToday ? " (today)" : ""}`}
+        actions={
+          <form
+            method="get"
+            className="flex flex-wrap items-center gap-2"
+            aria-label="Dashboard date"
+          >
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard?date=${day(-1)}`} aria-label="Previous day">
+                ◀
+              </Link>
+            </Button>
+            <label htmlFor="date" className="sr-only">
+              Date
+            </label>
+            <Input
+              key={day(0)}
+              id="date"
+              name="date"
+              type="date"
+              defaultValue={day(0)}
+              className="w-40"
+            />
+            <Button type="submit" variant="secondary" size="sm">
+              Show
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard?date=${day(1)}`} aria-label="Next day">
+                ▶
+              </Link>
+            </Button>
+            {d.isToday ? null : (
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/dashboard">Today</Link>
+              </Button>
+            )}
+          </form>
+        }
+      />
+      {d.isToday ? null : (
+        <p className="text-muted-foreground text-sm" role="status">
+          Orders, money and bills are for {formatDate(d.today)}. Trips out, approvals, credit limits
+          and low stock are always as they are now.
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
-        <TodaysWork work={d.work} />
-        {d.money ? <MoneyToday money={d.money} /> : null}
+        <TodaysWork work={d.work} isToday={d.isToday} />
+        {d.money ? <MoneyToday money={d.money} date={d.isToday ? null : d.today} /> : null}
         <OverLimit customers={d.overLimit} />
         <LowStock stock={d.lowStock} />
       </div>
@@ -89,13 +147,13 @@ function Stat({
   );
 }
 
-function TodaysWork({ work }: { work: Dashboard["work"] }) {
+function TodaysWork({ work, isToday }: { work: Dashboard["work"]; isToday: boolean }) {
   const tomorrow = toDateInput(work.tomorrow);
   return (
-    <Panel title="Today's work">
+    <Panel title={isToday ? "Today's work" : "Work"}>
       <div className="grid gap-2 sm:grid-cols-3">
         <Stat
-          label={`Orders for tomorrow (${formatDate(work.tomorrow)})`}
+          label={`Orders for ${isToday ? "tomorrow" : "the next day"} (${formatDate(work.tomorrow)})`}
           value={work.ordersTomorrow}
           href={`/orders?orderStatus=open&from=${tomorrow}&to=${tomorrow}`}
           note={
@@ -150,10 +208,19 @@ function TodaysWork({ work }: { work: Dashboard["work"] }) {
   );
 }
 
-function MoneyToday({ money }: { money: NonNullable<Dashboard["money"]> }) {
+function MoneyToday({
+  money,
+  date,
+}: {
+  money: NonNullable<Dashboard["money"]>;
+  /** Null for today. */
+  date: Date | null;
+}) {
+  const on = date ? `on ${formatDate(date)}` : "today";
+  const day = date ? toDateInput(date) : null;
   const bills = money.companyBills;
   return (
-    <Panel title="Money today" href="/payments" linkLabel="Payments">
+    <Panel title={`Money ${on}`} href="/payments" linkLabel="Payments">
       <div className="grid gap-2 sm:grid-cols-3">
         {(
           [
@@ -166,19 +233,21 @@ function MoneyToday({ money }: { money: NonNullable<Dashboard["money"]> }) {
             key={method}
             label={`${label} collected`}
             value={formatMoney(c.amount)}
-            href={`/payments?method=${method}&paymentStatus=POSTED`}
+            href={`/payments?method=${method}&paymentStatus=POSTED${day ? `&from=${day}&to=${day}` : ""}`}
             note={`${c.count} payment${c.count === 1 ? "" : "s"}`}
           />
         ))}
       </div>
       <p className="text-sm">
-        Collected today{" "}
-        <strong className="tabular-nums">{formatMoney(money.collectedTotal)}</strong>
+        Collected {on} <strong className="tabular-nums">{formatMoney(money.collectedTotal)}</strong>
         {money.expensesToday ? (
           <>
             {" "}
             · spent{" "}
-            <Link href="/expenses" className="underline underline-offset-4">
+            <Link
+              href={day ? `/expenses?from=${day}&to=${day}` : "/expenses"}
+              className="underline underline-offset-4"
+            >
               <strong className="tabular-nums">{formatMoney(money.expensesToday.amount)}</strong>
             </Link>{" "}
             on {money.expensesToday.count} expense{money.expensesToday.count === 1 ? "" : "s"}

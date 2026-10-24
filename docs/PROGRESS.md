@@ -2,11 +2,35 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Dashboard date and Windows deployment — done
+
+**Dashboard date:** a date box with previous / next day and "Today" (`/dashboard?date=…`). For the
+chosen day it shows the next day's orders, money collected and spent, and company bills overdue
+or due as of then; trips out, approvals, credit limits and low stock stay as they are now (said
+on the page). The next day's order count now includes orders already on a trip or delivered, so
+past days are right. Tested in `delivery.int.test.ts` and in a browser run.
+
+**`taqseem.bat`** (`scripts/windows/deploy.ps1`): start the website in the background (closing the
+window keeps it running), stop it, update it from GitHub, status, and start at Windows sign-in
+(a scheduled task). Start and Update apply what the code needs: packages when the lockfile
+changed, database migrations after a `pg_dump` backup to `%LOCALAPPDATA%\SalesApp\backups`
+(last 10 kept; no backup, no change), and a build when the code is newer than the last one.
+Update installs Git if missing, links a folder that came from a ZIP to the repository (keeping
+`.env`, `.setup` and data), and refuses to overwrite files changed on the laptop unless told to.
+
+- `setup-windows.bat` now ends by starting the website in the background the same way, and stops
+  a running website before it rebuilds. Shared settings and helpers moved to
+  `scripts/windows/common.ps1`.
+- Tested here with PowerShell 7 on Linux (parse check of all scripts; the update and the
+  migration-with-backup steps run against a test repository and a test database). Not yet run
+  on a real Windows machine.
+
 ## Expenses and stock adjustments — done
 
 Migration `expenses_and_stock_adjustments`.
 
 **Expenses** (SPEC §9; owner and accountant, `expenses.manage`):
+
 - Tables `ExpenseCategory` and `Expense`. Every tenant starts with Rent, Salary, Petrol, Vehicle
   maintenance, Utilities, Loading labour, Tolls and Other (added for existing tenants by the
   migration, for new tenants on creation, and in the seed). Expenses → Categories adds more or
@@ -24,6 +48,7 @@ Migration `expenses_and_stock_adjustments`.
   advances, incentives, staff ledger) from SPEC §9.
 
 **Stock adjustments** (SPEC §5; Inventory → Adjust stock, also from each product's stock card):
+
 - Short (fewer on the shelf: counting error, theft or other), Extra found (counting error or
   other), or Damaged in warehouse (moved from saleable to damaged stock; our loss, not a company
   claim, but it can still be sent back to the company from damaged stock). Quantities in packets,
