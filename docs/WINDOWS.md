@@ -27,8 +27,20 @@ Keep the black window open while you use the website. Closing it stops the websi
 
 ## Every day
 
-Double-click `setup-windows.bat` again. It checks that everything is installed, updates the
-database if needed, and starts the website. It is quick after the first time.
+Double-click `setup-windows.bat` again and press **Enter** at the first question (1 = start the
+website and keep all data). It checks that everything is installed, updates the database if
+needed, and starts the website. It is quick after the first time.
+
+## Fresh installation (start again with an empty database)
+
+Tried the demo data and now want to start for real? Double-click `setup-windows.bat` and, at
+the first question, type **2** ("Fresh installation"), then type **DELETE** in capitals to
+confirm. The script deletes the database and the old settings, keeps the installed programs,
+and continues like a first install, asking again: **1** demo data or **2** your business.
+
+Everything in the database is deleted for good: orders, bills, payments, stock, customers.
+Only do this before you start entering real business data, or after making a backup. Pressing
+Enter (or typing anything other than DELETE) keeps your data.
 
 ## Other computers in the office
 
