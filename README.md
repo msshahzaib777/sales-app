@@ -51,22 +51,29 @@ Docker, or a free Neon/Supabase database).
 
    Open <http://localhost:3000>.
 
+Demo logins (password `Demo@12345`): `owner@demo.test`, `accountant@demo.test`,
+`staff@demo.test`, and `admin@platform.test` (super admin). Login arrives with Task 3.
+
 ## Scripts
 
-| Script             | What it does                                             |
-| ------------------ | -------------------------------------------------------- |
-| `pnpm dev`         | Start the dev server                                     |
-| `pnpm build`       | Production build                                         |
-| `pnpm start`       | Serve the production build                               |
-| `pnpm lint`        | ESLint                                                   |
-| `pnpm typecheck`   | Generate route types and run `tsc --noEmit`              |
-| `pnpm test`        | Run Vitest unit tests once                               |
-| `pnpm format`      | Format with Prettier (`format:check` to verify only)     |
-| `pnpm db:migrate`  | Create/apply migrations in development                   |
-| `pnpm db:deploy`   | Apply migrations in production (`prisma migrate deploy`) |
-| `pnpm db:seed`     | Seed the demo tenant                                     |
-| `pnpm db:generate` | Regenerate the Prisma client                             |
-| `pnpm db:studio`   | Open Prisma Studio                                       |
+| Script             | What it does                                              |
+| ------------------ | --------------------------------------------------------- |
+| `pnpm dev`         | Start the dev server                                      |
+| `pnpm build`       | Production build                                          |
+| `pnpm start`       | Serve the production build                                |
+| `pnpm lint`        | ESLint                                                    |
+| `pnpm typecheck`   | Generate route types and run `tsc --noEmit`               |
+| `pnpm test`        | Run Vitest unit tests once                                |
+| `pnpm format`      | Format with Prettier (`format:check` to verify only)      |
+| `pnpm db:migrate`  | Create/apply migrations in development, regenerate client |
+| `pnpm db:deploy`   | Apply migrations in production (`prisma migrate deploy`)  |
+| `pnpm db:seed`     | Seed the demo tenant (only into an empty database)        |
+| `pnpm db:reset`    | Drop the dev database, re-apply migrations, and seed      |
+| `pnpm db:generate` | Regenerate the Prisma client                              |
+| `pnpm db:studio`   | Open Prisma Studio                                        |
+
+Stock movements, ledger entries, bill revisions, price history and the audit log are append-only
+(database triggers reject UPDATE and DELETE). To start over in development, use `pnpm db:reset`.
 
 Before opening a PR, run `pnpm lint`, `pnpm typecheck` and `pnpm test`.
 
