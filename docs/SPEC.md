@@ -53,7 +53,7 @@ All master records belong to one tenant, and can be deactivated instead of delet
 | --- | --- | --- |
 | Warehouse | Name, address | Stock and companies are separate per warehouse |
 | Company | Name, warehouse, contact, order booker name and phone, payment terms (days), opening balance | Each company has its own booker |
-| Product | Name, company, unit (dozen), purchase rate, sale rate, company discount, minimum stock level, active flag | One product belongs to one company; rate and discount changes keep history with effective date |
+| Product | Name, company, unit (dozen), purchase rate, sale rate, company discount (PKR per dozen, with quantity slabs), minimum stock level, active flag | One product belongs to one company; rate and discount changes keep history with effective date |
 | Customer | Name, shop name, type (retailer, wholesaler, dealer, bike supplier), phone, WhatsApp, address, area/route, credit limit, opening balance per company | One sale rate for all customer types |
 | Area / route | Name, warehouse, visiting order of customers | Replaces GPS for grouping deliveries |
 | Delivery bike | Name or number, capacity in dozens, assigned driver | 4 bikes, 80–100 dozen |
@@ -306,8 +306,8 @@ Build the daily money and stock loop first for your own business, then add plann
 
 These choices were made as reasonable defaults and need your confirmation.
 
-- [ ] Is the company discount a percentage, a fixed amount per dozen, or either?
-- [ ] Does the company also reimburse the sale value of delivery damage, or only replace the stock at purchase rate?
+- [x] Is the company discount a percentage, a fixed amount per dozen, or either? **Answered:** a fixed PKR amount per dozen, with quantity slabs per product (e.g. a bigger per-dozen discount from 25 dozen). Percent is kept as an option for other tenants.
+- [x] Does the company also reimburse the sale value of delivery damage, or only replace the stock at purchase rate? **Answered:** purchase cost only.
 - [ ] Suggested order: is minimum level minus available stock enough, or should it also use recent sales?
 - [ ] Driver cash short: deduct from salary automatically, or only when the owner chooses?
 - [ ] Ageing buckets: are 0–7, 8–15, 16–30, 31–60 and 60+ days right for your customers?

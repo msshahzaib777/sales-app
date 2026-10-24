@@ -56,7 +56,8 @@ enum StaffRole {
   OTHER
 }
 
-/// How a company's product discount is expressed (open question in SPEC §17, so both are supported).
+/// How a company's product discount is expressed. The first tenant uses a fixed PKR amount per
+/// dozen; percent is kept for other tenants.
 enum DiscountType {
   NONE
   PERCENT
@@ -211,6 +212,7 @@ model Tenant {
   companies            Company[]
   products             Product[]
   productPriceHistory  ProductPriceHistory[]
+  productDiscountTiers ProductDiscountTier[]
   unitConversions      UnitConversion[]
   areas                Area[]
   customers            Customer[]
@@ -370,7 +372,8 @@ model Product {
   purchaseRate  Decimal      @db.Decimal(14, 2)
   saleRate      Decimal      @db.Decimal(14, 2)
   discountType  DiscountType @default(NONE)
-  /// Percent (0–100) or PKR per price unit, depending on `discountType`.
+  /// Base discount: percent (0–100) or PKR per price unit, depending on `discountType`.
+  /// Quantity slabs in ProductDiscountTier can replace it for larger lines.
   discountValue Decimal      @default(0) @db.Decimal(14, 2)
   /// In base units.
   minStockLevel Int          @default(0)
@@ -383,6 +386,7 @@ model Product {
   tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company            Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
   priceHistory       ProductPriceHistory[]
+  discountTiers      ProductDiscountTier[]
   unitConversions    UnitConversion[]
   purchaseOrderLines PurchaseOrderLine[]
   goodsReceiptLines  GoodsReceiptLine[]
@@ -407,6 +411,8 @@ model ProductPriceHistory {
   saleRate      Decimal      @db.Decimal(14, 2)
   discountType  DiscountType
   discountValue Decimal      @db.Decimal(14, 2)
+  /// Snapshot of the product's discount slabs at this point: [{ minQuantity, discountType, discountValue }].
+  discountTiers Json         @default("[]")
   effectiveFrom DateTime
   createdById   String?
   createdAt     DateTime     @default(now())
@@ -416,6 +422,29 @@ model ProductPriceHistory {
 
   @@unique([tenantId, id])
   @@index([tenantId, productId, effectiveFrom])
+}
+
+/// Quantity slab for a product's discount (SPEC §17: "discount if they buy 25 dozen").
+/// The highest slab whose `minQuantity` the order line reaches replaces the product's base
+/// discount for the whole line. Counted per product line, not across a company's products.
+/// Current configuration only; history is snapshotted in ProductPriceHistory.discountTiers.
+model ProductDiscountTier {
+  id            String       @id @default(cuid())
+  tenantId      String
+  productId     String
+  /// Base units (half dozens): 25 dozen = 50.
+  minQuantity   Int
+  discountType  DiscountType
+  /// Percent (0–100) or PKR per price unit, depending on `discountType`.
+  discountValue Decimal      @db.Decimal(14, 2)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, productId, minQuantity])
 }
 
 /// How many base units one `unit` holds. `productId = null` is the tenant-wide default
@@ -886,7 +915,8 @@ model SalesOrder {
 }
 
 /// `companyId` is copied from the product so bills can be split by company without joins and stay
-/// correct if a product is ever moved. Rate and discount are snapshots at booking time.
+/// correct if a product is ever moved. Rate and discount are snapshots at booking time; the
+/// discount fields hold whichever applied (base discount or the quantity slab reached).
 model SalesOrderLine {
   id             String       @id @default(cuid())
   tenantId       String

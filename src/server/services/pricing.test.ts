@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateLineAmounts, sumLineAmounts } from "./pricing";
+import { calculateLineAmounts, resolveDiscount, sumLineAmounts } from "./pricing";
 
 const asStrings = (amounts: ReturnType<typeof calculateLineAmounts>) => ({
   grossAmount: amounts.grossAmount.toFixed(2),
@@ -107,5 +107,49 @@ describe("sumLineAmounts", () => {
       calculateLineAmounts({ quantity: 1, baseUnitsPerPriceUnit: 2, rate: "0.20" }),
     );
     expect(sumLineAmounts(lines).netAmount.toFixed(2)).toBe("0.30");
+  });
+});
+
+describe("resolveDiscount", () => {
+  // Rs 4 per dozen normally; Rs 8 per dozen from 25 dozen; Rs 10 per dozen from 50 dozen.
+  const base = { discountType: "AMOUNT_PER_UNIT" as const, discountValue: 4 };
+  const tiers = [
+    { minQuantity: 100, discountType: "AMOUNT_PER_UNIT" as const, discountValue: 10 },
+    { minQuantity: 50, discountType: "AMOUNT_PER_UNIT" as const, discountValue: 8 },
+  ];
+
+  it("uses the base discount below the first slab", () => {
+    expect(resolveDiscount(base, tiers, 49)).toEqual(base);
+  });
+
+  it("uses the slab reached, from its threshold upward", () => {
+    expect(resolveDiscount(base, tiers, 50).discountValue).toBe(8);
+    expect(resolveDiscount(base, tiers, 99).discountValue).toBe(8);
+  });
+
+  it("uses the highest slab reached regardless of tier order", () => {
+    expect(resolveDiscount(base, tiers, 120).discountValue).toBe(10);
+  });
+
+  it("applies the slab to the whole line", () => {
+    // 25 dozen at Rs 228 with Rs 8/dz off = 5700 − 200 = 5500
+    const discount = resolveDiscount(base, tiers, 50);
+    const amounts = calculateLineAmounts({
+      quantity: 50,
+      baseUnitsPerPriceUnit: 2,
+      rate: 228,
+      ...discount,
+    });
+    expect(amounts.discountAmount.toFixed(2)).toBe("200.00");
+    expect(amounts.netAmount.toFixed(2)).toBe("5500.00");
+  });
+
+  it("returns only the discount fields when given a whole product as the base", () => {
+    const product = { id: "p1", name: "Wavy Chips", saleRate: 228, ...base };
+    expect(resolveDiscount(product, [], 10)).toEqual(base);
+  });
+
+  it("falls back to the base discount when there are no slabs", () => {
+    expect(resolveDiscount(base, [], 500)).toEqual(base);
   });
 });

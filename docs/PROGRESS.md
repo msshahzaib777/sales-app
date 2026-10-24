@@ -2,6 +2,16 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 2 follow-up: discount slabs — done
+
+- Owner's answers recorded in SPEC §17: discounts are a fixed PKR amount per dozen with quantity
+  slabs per product; damage claims are refunded at purchase cost only (already the default).
+- New migration `product_discount_tiers`: `ProductDiscountTier` table (with a CHECK constraint)
+  and a `discountTiers` snapshot column on `ProductPriceHistory`.
+- `resolveDiscount()` in `src/server/services/pricing.ts` picks the slab for a line, with tests.
+- Seed now uses per-dozen discounts, has slabs on 5 products, and books a wholesale order
+  (30 dz and 25 dz lines) that reaches them.
+
 ## Task 2: Database schema — done
 
 **Built**
@@ -68,10 +78,18 @@ SQL:
    - A partial unique index keeps the tenant defaults unique.
      Rates are stored per dozen rather than per half dozen to avoid sub-paisa rates.
      `Bike.capacity` and `Product.minStockLevel` are also in base units.
-6. **Company discount supports both forms.** The spec leaves open whether the discount is a percent
-   or a fixed amount per dozen (§17), so `discountType` is `NONE | PERCENT | AMOUNT_PER_UNIT`. Order
-   lines snapshot the type, value and computed amounts at booking time. Pricing rounds each
-   component to paisa (half up) so line totals always add up exactly to bill totals.
+6. **Company discount: fixed PKR per dozen, with quantity slabs.** (Confirmed by the owner; see
+   SPEC §17.)
+   - The product's base discount is `discountType` + `discountValue`. The first tenant uses
+     `AMOUNT_PER_UNIT` (PKR per dozen); `PERCENT` is kept for other tenants.
+   - `ProductDiscountTier` rows add slabs, e.g. "from 25 dozen: Rs 15 per dozen".
+   - The highest slab a line reaches replaces the base discount for the whole line. Slabs are counted
+     per product line, not across a company's products in the order.
+   - `ProductPriceHistory.discountTiers` snapshots the slabs with every rate change, so slab changes
+     keep their history too.
+   - Order lines snapshot the discount that actually applied, plus the computed amounts.
+   - Pricing rounds each component to paisa (half up), so line totals always add up exactly to bill
+     totals.
 7. **Stock buckets instead of a separate damaged-stock table.** `StockMovement.bucket` is `SALEABLE`
    or `DAMAGED`. Delivery damage is `+DAMAGED`, because the saleable stock already left at dispatch.
    A return to the company is `−DAMAGED`. Batch quantity is not stored: it is the sum of movements
@@ -82,8 +100,8 @@ SQL:
    payments and company bills only store `POSTED | REVERSED`.
 9. **Company claims post to the ledger when logged.** The debit hits the company ledger
    immediately. `appliedToBillId` and `CompanyBill.claimDeduction` record which bill deducted the
-   claim, for printing and payment matching. Claims are valued at purchase rate by default (§17
-   open question).
+   claim, for printing and payment matching. Claims are valued at purchase cost only (confirmed by
+   the owner; SPEC §17).
 10. **Bills.** There is one `Bill` per sales order, and its totals reflect the current revision.
     - Each revision is an immutable `BillRevision` holding JSON snapshots of the printed lines and
       the per-company totals, so old printouts can be reproduced exactly.
