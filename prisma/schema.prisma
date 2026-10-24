@@ -1,0 +1,22 @@
+// Prisma schema for Sales App.
+// Task 1 only bootstraps the platform `Tenant` table so migrations and seeding work end to end.
+// The full Phase 1 model (see docs/SPEC.md section 15) is added in Task 2.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("Asia/Karachi")
+  currency  String   @default("PKR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
