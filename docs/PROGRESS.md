@@ -28,6 +28,10 @@ From the owner's notes after trying Phase 1. Built one item at a time.
      "Driver: ____________________" to fill in by hand.
    - Tested in `delivery.int.test.ts` and in a browser run.
 
+3. **Bill print spacing — done.** Wider gaps between the bill's columns. Long product and
+   company names wrap onto a second line instead of squeezing the numbers; quantities, rates and
+   amounts never wrap. Checked in print at A5 width, full bill and one-company slices.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

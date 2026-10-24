@@ -61,30 +61,40 @@ export function BillDocument({
         </div>
       </div>
       {title ? <p className="font-semibold">{title}</p> : null}
-      <table className="w-full border-collapse">
+      <table className="w-full border-collapse [&_td:not(:first-child)]:pl-[0.8em] [&_th:not(:first-child)]:pl-[0.8em]">
         <thead>
           <tr className="border-y border-black text-left">
-            <th className="py-[0.2em] pr-1 font-semibold">Product</th>
-            {showCompany ? <th className="py-[0.2em] pr-1 font-semibold">Company</th> : null}
-            <th className="py-[0.2em] pr-1 text-right font-semibold">Dz</th>
-            <th className="py-[0.2em] pr-1 text-right font-semibold">Rate</th>
-            <th className="py-[0.2em] pr-1 text-right font-semibold">Disc.</th>
-            <th className="py-[0.2em] text-right font-semibold">Amount</th>
+            <th className={`${showCompany ? "w-[45%]" : "w-[60%]"} py-[0.2em] font-semibold`}>
+              Product
+            </th>
+            {showCompany ? (
+              <th className="py-[0.2em] font-semibold whitespace-nowrap">Company</th>
+            ) : null}
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Dz</th>
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Rate</th>
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Disc.</th>
+            <th className="py-[0.2em] text-right font-semibold whitespace-nowrap">Amount</th>
           </tr>
         </thead>
         <tbody>
           {lines.map((l) => (
-            <tr key={l.productId} className="border-b border-dotted border-black/60">
-              <td className="py-[0.1em] pr-1">
+            <tr key={l.productId} className="border-b border-dotted border-black/60 align-top">
+              <td className="py-[0.1em] break-words">
                 {l.code} {l.name}
               </td>
-              {showCompany ? <td className="py-[0.1em] pr-1">{l.companyName}</td> : null}
-              <td className="py-[0.1em] pr-1 text-right tabular-nums">{dz(l.quantity)}</td>
-              <td className="py-[0.1em] pr-1 text-right tabular-nums">{formatMoney(l.rate)}</td>
-              <td className="py-[0.1em] pr-1 text-right tabular-nums">
+              {showCompany ? <td className="py-[0.1em]">{l.companyName}</td> : null}
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
+                {dz(l.quantity)}
+              </td>
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
+                {formatMoney(l.rate)}
+              </td>
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
                 {new Decimal(l.discountAmount).isZero() ? "" : formatMoney(l.discountAmount)}
               </td>
-              <td className="py-[0.1em] text-right tabular-nums">{formatMoney(l.netAmount)}</td>
+              <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
+                {formatMoney(l.netAmount)}
+              </td>
             </tr>
           ))}
         </tbody>
