@@ -56,7 +56,8 @@ enum StaffRole {
   OTHER
 }
 
-/// How a company's product discount is expressed (open question in SPEC §17, so both are supported).
+/// How a company's product discount is expressed. The first tenant uses a fixed PKR amount per
+/// dozen; percent is kept for other tenants.
 enum DiscountType {
   NONE
   PERCENT
@@ -77,6 +78,12 @@ enum PurchaseOrderStatus {
 enum PostingStatus {
   POSTED
   REVERSED
+}
+
+enum CompanyBillKind {
+  GOODS_RECEIPT
+  /// What was owed when the tenant started using the app; payments can be applied to it.
+  OPENING_BALANCE
 }
 
 enum ClaimType {
@@ -211,6 +218,7 @@ model Tenant {
   companies            Company[]
   products             Product[]
   productPriceHistory  ProductPriceHistory[]
+  productDiscountTiers ProductDiscountTier[]
   unitConversions      UnitConversion[]
   areas                Area[]
   customers            Customer[]
@@ -239,22 +247,27 @@ model Tenant {
 
 /// A login. SUPER_ADMIN users are platform-level and have no tenant; everyone else has exactly one.
 model User {
-  id           String    @id @default(cuid())
-  tenantId     String?
-  email        String    @unique
-  name         String
-  passwordHash String
-  role         Role
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  tenantId           String?
+  email              String    @unique
+  name               String
+  passwordHash       String
+  role               Role
+  isActive           Boolean   @default(true)
+  /// Set for invited users and after a reset; they must choose a new password after signing in.
+  mustChangePassword Boolean   @default(true)
+  /// Stored in the session token; bumping it (password change, deactivation) ends existing sessions.
+  sessionVersion     Int       @default(0)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   staff     Staff?
   auditLogs AuditLog[]
 
-  @@index([tenantId])
+  /// Target for tenant-checked references (Staff.userId).
+  @@unique([tenantId, id])
 }
 
 /// Append-only. `tenantId` is null only for platform-level (super admin) actions.
@@ -300,6 +313,8 @@ model Warehouse {
   name      String
   address   String?
   isActive  Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -315,6 +330,7 @@ model Warehouse {
   salesOrders      SalesOrder[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, name])
 }
 
@@ -333,6 +349,8 @@ model Company {
   /// Due date of a company bill = receipt date + this many days (editable per bill).
   paymentTermsDays Int      @default(0)
   isActive         Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId        String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -350,6 +368,7 @@ model Company {
   ledgerEntries   LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, name])
   @@index([tenantId, warehouseId])
 }
@@ -370,19 +389,23 @@ model Product {
   purchaseRate  Decimal      @db.Decimal(14, 2)
   saleRate      Decimal      @db.Decimal(14, 2)
   discountType  DiscountType @default(NONE)
-  /// Percent (0–100) or PKR per price unit, depending on `discountType`.
+  /// Base discount: percent (0–100) or PKR per price unit, depending on `discountType`.
+  /// Quantity slabs in ProductDiscountTier can replace it for larger lines.
   discountValue Decimal      @default(0) @db.Decimal(14, 2)
   /// In base units.
   minStockLevel Int          @default(0)
   /// Off unless the tenant enables tax.
   taxRate       Decimal      @default(0) @db.Decimal(5, 2)
   isActive      Boolean      @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId     String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
   tenant             Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company            Company               @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
   priceHistory       ProductPriceHistory[]
+  discountTiers      ProductDiscountTier[]
   unitConversions    UnitConversion[]
   purchaseOrderLines PurchaseOrderLine[]
   goodsReceiptLines  GoodsReceiptLine[]
@@ -393,6 +416,7 @@ model Product {
   salesOrderLines    SalesOrderLine[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, code])
   @@unique([tenantId, companyId, name])
   @@index([tenantId, name])
@@ -407,6 +431,8 @@ model ProductPriceHistory {
   saleRate      Decimal      @db.Decimal(14, 2)
   discountType  DiscountType
   discountValue Decimal      @db.Decimal(14, 2)
+  /// Snapshot of the product's discount slabs at this point: [{ minQuantity, discountType, discountValue }].
+  discountTiers Json         @default("[]")
   effectiveFrom DateTime
   createdById   String?
   createdAt     DateTime     @default(now())
@@ -416,6 +442,29 @@ model ProductPriceHistory {
 
   @@unique([tenantId, id])
   @@index([tenantId, productId, effectiveFrom])
+}
+
+/// Quantity slab for a product's discount (SPEC §17: "discount if they buy 25 dozen").
+/// The highest slab whose `minQuantity` the order line reaches replaces the product's base
+/// discount for the whole line. Counted per product line, not across a company's products.
+/// Current configuration only; history is snapshotted in ProductPriceHistory.discountTiers.
+model ProductDiscountTier {
+  id            String       @id @default(cuid())
+  tenantId      String
+  productId     String
+  /// Base units (half dozens): 25 dozen = 50.
+  minQuantity   Int
+  discountType  DiscountType
+  /// Percent (0–100) or PKR per price unit, depending on `discountType`.
+  discountValue Decimal      @db.Decimal(14, 2)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, productId, minQuantity])
 }
 
 /// How many base units one `unit` holds. `productId = null` is the tenant-wide default
@@ -445,6 +494,8 @@ model Area {
   name        String
   sortOrder   Int      @default(0)
   isActive    Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -453,6 +504,7 @@ model Area {
   customers Customer[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, warehouseId, name])
 }
 
@@ -475,6 +527,8 @@ model Customer {
   isFlagged     Boolean      @default(false)
   flagReason    String?
   isActive      Boolean      @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId     String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -486,6 +540,7 @@ model Customer {
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@index([tenantId, areaId, routeSequence])
   @@index([tenantId, name])
   @@index([tenantId, phone])
@@ -500,6 +555,8 @@ model Bike {
   capacity    Int
   driverId    String?
   isActive    Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -508,6 +565,7 @@ model Bike {
   driver    Staff?     @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, name])
 }
 
@@ -522,15 +580,19 @@ model Staff {
   monthlySalary Decimal   @default(0) @db.Decimal(14, 2)
   joiningDate   DateTime? @db.Date
   isActive      Boolean   @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user          User?         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user          User?         @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict)
   bikes         Bike[]
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, userId])
   @@index([tenantId, role])
 }
 
@@ -586,19 +648,22 @@ model PurchaseOrderLine {
 /// Stock arriving from a company. Posting it creates batches, GOODS_RECEIPT stock movements and a
 /// CompanyBill. Received quantities can differ from the purchase order.
 model GoodsReceipt {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   tenantId        String
   number          Int
   purchaseOrderId String?
   companyId       String
   warehouseId     String
-  receivedDate    DateTime @db.Date
+  receivedDate    DateTime      @db.Date
   /// Company's own invoice / delivery note number.
   supplierRef     String?
+  status          PostingStatus @default(POSTED)
+  reversedAt      DateTime?
+  reversalReason  String?
   note            String?
   requestId       String?
   createdById     String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime      @default(now())
 
   tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   purchaseOrder PurchaseOrder?     @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Restrict)
@@ -637,29 +702,32 @@ model GoodsReceiptLine {
   @@index([tenantId, productId])
 }
 
-/// What we owe a company for one goods receipt. Paid/partial/unpaid/overdue status is derived from
-/// `netAmount` minus allocations and `dueDate`; it is not stored.
+/// What we owe a company for one goods receipt, or (kind OPENING_BALANCE, one per company) the
+/// opening balance. Paid/partial/unpaid/overdue status is derived from `netAmount` minus
+/// allocations and `dueDate`; it is not stored.
 model CompanyBill {
-  id             String        @id @default(cuid())
+  id             String          @id @default(cuid())
   tenantId       String
   number         Int
   companyId      String
-  goodsReceiptId String
-  billDate       DateTime      @db.Date
-  dueDate        DateTime      @db.Date
-  grossAmount    Decimal       @db.Decimal(14, 2)
+  kind           CompanyBillKind @default(GOODS_RECEIPT)
+  /// Null for the opening-balance bill.
+  goodsReceiptId String?
+  billDate       DateTime        @db.Date
+  dueDate        DateTime        @db.Date
+  grossAmount    Decimal         @db.Decimal(14, 2)
   /// Sum of claims deducted on this bill (CompanyClaim.appliedToBillId).
-  claimDeduction Decimal       @default(0) @db.Decimal(14, 2)
+  claimDeduction Decimal         @default(0) @db.Decimal(14, 2)
   /// grossAmount − claimDeduction; what payments are allocated against.
-  netAmount      Decimal       @db.Decimal(14, 2)
-  status         PostingStatus @default(POSTED)
+  netAmount      Decimal         @db.Decimal(14, 2)
+  status         PostingStatus   @default(POSTED)
   createdById    String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company       Company                    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
-  goodsReceipt  GoodsReceipt               @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
+  goodsReceipt  GoodsReceipt?              @relation(fields: [tenantId, goodsReceiptId], references: [tenantId, id], onDelete: Restrict)
   allocations   CompanyPaymentAllocation[]
   appliedClaims CompanyClaim[]
 
@@ -670,23 +738,24 @@ model CompanyBill {
 }
 
 model CompanyPayment {
-  id          String        @id @default(cuid())
-  tenantId    String
-  number      Int
-  companyId   String
-  paymentDate DateTime      @db.Date
-  method      PaymentMethod
-  amount      Decimal       @db.Decimal(14, 2)
+  id             String        @id @default(cuid())
+  tenantId       String
+  number         Int
+  companyId      String
+  paymentDate    DateTime      @db.Date
+  method         PaymentMethod
+  amount         Decimal       @db.Decimal(14, 2)
   /// Online transfer reference.
-  reference   String?
-  chequeId    String?
-  status      PostingStatus @default(POSTED)
-  reversedAt  DateTime?
-  note        String?
-  requestId   String?
-  createdById String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  reference      String?
+  chequeId       String?
+  status         PostingStatus @default(POSTED)
+  reversalReason String?
+  reversedAt     DateTime?
+  note           String?
+  requestId      String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   tenant      Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company     Company                    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
@@ -738,6 +807,7 @@ model CompanyClaim {
   /// Delivery the damage came from, when known.
   salesOrderId    String?
   appliedToBillId String?
+  reversedAt      DateTime?
   note            String?
   requestId       String?
   createdById     String?
@@ -886,7 +956,8 @@ model SalesOrder {
 }
 
 /// `companyId` is copied from the product so bills can be split by company without joins and stay
-/// correct if a product is ever moved. Rate and discount are snapshots at booking time.
+/// correct if a product is ever moved. Rate and discount are snapshots at booking time; the
+/// discount fields hold whichever applied (base discount or the quantity slab reached).
 model SalesOrderLine {
   id             String       @id @default(cuid())
   tenantId       String

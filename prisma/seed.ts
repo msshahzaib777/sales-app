@@ -10,7 +10,12 @@ import {
 } from "../src/generated/prisma/client";
 import { hashPassword } from "../src/server/auth/password";
 import { HALF_DOZENS_PER_DOZEN } from "../src/lib/units";
-import { calculateLineAmounts, sumLineAmounts } from "../src/server/services/pricing";
+import {
+  calculateLineAmounts,
+  type DiscountTier,
+  resolveDiscount,
+  sumLineAmounts,
+} from "../src/server/services/pricing";
 
 // Demo tenant: 2 warehouses, 3 companies, 20 products, 30 customers, 4 bikes (CLAUDE.md), plus
 // opening balances, a received purchase per company, one delivered order with bill, payment and a
@@ -51,6 +56,19 @@ type ProductSeed = {
   minDozens: number;
 };
 
+// Quantity slabs (per product line): from this many dozen, this PKR discount per dozen replaces
+// the product's base discount for the whole line.
+const DISCOUNT_SLABS: Record<string, { fromDozens: number; perDozen: number }[]> = {
+  CB01: [{ fromDozens: 25, perDozen: 6 }],
+  CB07: [
+    { fromDozens: 25, perDozen: 15 },
+    { fromDozens: 50, perDozen: 20 },
+  ],
+  GC01: [{ fromDozens: 25, perDozen: 8 }],
+  GC02: [{ fromDozens: 25, perDozen: 15 }],
+  MM01: [{ fromDozens: 25, perDozen: 10 }],
+};
+
 const WAREHOUSES = [
   { key: "A", name: "Shahdara Warehouse", address: "GT Road, Shahdara, Lahore" },
   { key: "B", name: "Township Warehouse", address: "Block 2, Township, Lahore" },
@@ -82,8 +100,8 @@ const COMPANIES: {
         name: "Masala Chips Rs10",
         purchaseRate: 100,
         saleRate: 110,
-        discountType: "PERCENT",
-        discountValue: 2,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 4,
         minDozens: 40,
       },
       {
@@ -91,8 +109,8 @@ const COMPANIES: {
         name: "Salted Chips Rs10",
         purchaseRate: 100,
         saleRate: 110,
-        discountType: "PERCENT",
-        discountValue: 2,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 4,
         minDozens: 40,
       },
       {
@@ -100,8 +118,8 @@ const COMPANIES: {
         name: "Masala Chips Rs20",
         purchaseRate: 205,
         saleRate: 225,
-        discountType: "PERCENT",
-        discountValue: 2,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 4,
         minDozens: 30,
       },
       {
@@ -109,8 +127,8 @@ const COMPANIES: {
         name: "Chilli Lemon Chips Rs20",
         purchaseRate: 205,
         saleRate: 225,
-        discountType: "PERCENT",
-        discountValue: 2,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 4,
         minDozens: 25,
       },
       {
@@ -136,8 +154,8 @@ const COMPANIES: {
         name: "Family Pack Chips Rs50",
         purchaseRate: 520,
         saleRate: 565,
-        discountType: "PERCENT",
-        discountValue: 1.5,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 8,
         minDozens: 15,
       },
       {
@@ -241,8 +259,8 @@ const COMPANIES: {
         name: "Daal Moth Rs20",
         purchaseRate: 202,
         saleRate: 224,
-        discountType: "PERCENT",
-        discountValue: 3,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 6,
         minDozens: 20,
       },
       {
@@ -250,8 +268,8 @@ const COMPANIES: {
         name: "Chana Chor Rs20",
         purchaseRate: 202,
         saleRate: 224,
-        discountType: "PERCENT",
-        discountValue: 3,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 6,
         minDozens: 20,
       },
       {
@@ -259,8 +277,8 @@ const COMPANIES: {
         name: "Bombay Mix Rs10",
         purchaseRate: 97,
         saleRate: 108,
-        discountType: "PERCENT",
-        discountValue: 3,
+        discountType: "AMOUNT_PER_UNIT",
+        discountValue: 6,
         minDozens: 30,
       },
       {
@@ -379,6 +397,7 @@ async function main() {
           name: "Platform Admin",
           role: "SUPER_ADMIN",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       const owner = await tx.user.create({
@@ -388,6 +407,7 @@ async function main() {
           name: "Muhammad Laraib",
           role: "OWNER",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       await tx.user.create({
@@ -397,6 +417,7 @@ async function main() {
           name: "Ayesha Siddiqui",
           role: "ACCOUNTANT",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       const staffUser = await tx.user.create({
@@ -406,6 +427,7 @@ async function main() {
           name: "Kamran Javed",
           role: "STAFF",
           passwordHash,
+          mustChangePassword: false,
         },
       });
       const createdById = owner.id;
@@ -487,7 +509,10 @@ async function main() {
       }
 
       // ── Companies, products, price history, company opening balances ──
-      type ProductRow = Awaited<ReturnType<typeof tx.product.create>> & { warehouseKey: string };
+      type ProductRow = Awaited<ReturnType<typeof tx.product.create>> & {
+        warehouseKey: string;
+        tiers: DiscountTier[];
+      };
       const products: ProductRow[] = [];
       const companies: {
         id: string;
@@ -527,6 +552,20 @@ async function main() {
             createdById,
           },
         });
+        // The opening balance as a bill, so payments can be applied to it (oldest debt first).
+        await tx.companyBill.create({
+          data: {
+            tenantId,
+            number: nextNumber("COMPANY_BILL"),
+            companyId: company.id,
+            kind: "OPENING_BALANCE",
+            billDate: day(-30),
+            dueDate: day(-30),
+            grossAmount: c.openingBalance,
+            netAmount: c.openingBalance,
+            createdById,
+          },
+        });
 
         for (const p of c.products) {
           const product = await tx.product.create({
@@ -542,7 +581,17 @@ async function main() {
               minStockLevel: dz(p.minDozens),
             },
           });
-          // An older rate, then the current one, so price history has something to show.
+          const tiers: DiscountTier[] = (DISCOUNT_SLABS[p.code] ?? []).map((slab) => ({
+            minQuantity: dz(slab.fromDozens),
+            discountType: "AMOUNT_PER_UNIT",
+            discountValue: slab.perDozen,
+          }));
+          if (tiers.length > 0) {
+            await tx.productDiscountTier.createMany({
+              data: tiers.map((tier) => ({ tenantId, productId: product.id, ...tier })),
+            });
+          }
+          // An older rate (before slabs existed), then the current one, so history has something to show.
           await tx.productPriceHistory.createMany({
             data: [
               {
@@ -562,12 +611,13 @@ async function main() {
                 saleRate: p.saleRate,
                 discountType: p.discountType,
                 discountValue: p.discountValue,
+                discountTiers: tiers,
                 effectiveFrom: day(-20),
                 createdById,
               },
             ],
           });
-          products.push({ ...product, warehouseKey: c.warehouse });
+          products.push({ ...product, warehouseKey: c.warehouse, tiers });
         }
       }
 
@@ -782,11 +832,23 @@ async function main() {
         deliveryDate: Date;
         status: "BOOKED" | "DELIVERED";
         lineCount: number;
+        /** Fixed lines (product code → dozens) instead of random ones. */
+        fixedLines?: Record<string, number>;
       }) {
         const candidates = products.filter((p) => p.warehouseKey === options.warehouseKey);
-        const chosen = new Set<ProductRow>();
-        while (chosen.size < Math.min(options.lineCount, candidates.length))
-          chosen.add(pick(candidates));
+        const chosen = new Map<ProductRow, number>();
+        if (options.fixedLines) {
+          for (const [code, dozens] of Object.entries(options.fixedLines)) {
+            chosen.set(
+              candidates.find((p) => p.code === code)!,
+              dz(dozens),
+            );
+          }
+        }
+        while (chosen.size < Math.min(options.lineCount, candidates.length)) {
+          const product = pick(candidates);
+          if (!chosen.has(product)) chosen.set(product, between(2, 12)); // 1 to 6 dozen
+        }
 
         const order = await tx.salesOrder.create({
           data: {
@@ -802,14 +864,13 @@ async function main() {
           },
         });
         const lines = [];
-        for (const product of chosen) {
-          const quantity = between(2, 12); // 1 to 6 dozen, in half dozens
+        for (const [product, quantity] of chosen) {
+          const discount = resolveDiscount(product, product.tiers, quantity);
           const amounts = calculateLineAmounts({
             quantity,
             baseUnitsPerPriceUnit: HALF_DOZENS_PER_DOZEN,
             rate: product.saleRate,
-            discountType: product.discountType,
-            discountValue: product.discountValue,
+            ...discount,
           });
           lines.push(
             await tx.salesOrderLine.create({
@@ -820,8 +881,7 @@ async function main() {
                 companyId: product.companyId,
                 quantity,
                 rate: product.saleRate,
-                discountType: product.discountType,
-                discountValue: product.discountValue,
+                ...discount,
                 ...amounts,
               },
             }),
@@ -1038,6 +1098,24 @@ async function main() {
           lineCount: between(2, 5),
         });
       }
+
+      // A wholesale order big enough to reach discount slabs.
+      const wholesaler = await tx.customer.findFirstOrThrow({
+        where: {
+          tenantId,
+          type: { in: ["WHOLESALER", "DEALER"] },
+          area: { warehouseId: warehouseIds.A! },
+        },
+      });
+      await createOrder({
+        customerId: wholesaler.id,
+        warehouseKey: "A",
+        orderDate: day(0),
+        deliveryDate: day(1),
+        status: "BOOKED",
+        lineCount: 3,
+        fixedLines: { CB07: 30, GC01: 25 },
+      });
 
       // One pending stock adjustment waiting for the owner.
       await tx.stockAdjustment.create({

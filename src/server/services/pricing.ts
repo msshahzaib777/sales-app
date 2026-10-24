@@ -85,3 +85,27 @@ export function sumLineAmounts(lines: LineAmounts[]): LineAmounts {
     { grossAmount: zero, discountAmount: zero, taxAmount: zero, netAmount: zero },
   );
 }
+
+export type Discount = { discountType: DiscountType; discountValue: DecimalInput };
+
+/** A quantity slab: from `minQuantity` base units upward, this discount replaces the base one. */
+export type DiscountTier = Discount & { minQuantity: number };
+
+/**
+ * Picks the discount for one product line: the highest slab the line quantity reaches, or the
+ * product's base discount when it reaches none. Slabs are per product line and apply to the whole
+ * line quantity (not only the part above the threshold).
+ */
+export function resolveDiscount(
+  base: Discount,
+  tiers: readonly DiscountTier[],
+  quantity: number,
+): Discount {
+  let best: DiscountTier | undefined;
+  for (const tier of tiers) {
+    if (quantity >= tier.minQuantity && (!best || tier.minQuantity > best.minQuantity)) best = tier;
+  }
+  const chosen = best ?? base;
+  // Return only the discount fields, even when callers pass a whole product as `base`.
+  return { discountType: chosen.discountType, discountValue: chosen.discountValue };
+}
