@@ -5,6 +5,13 @@ purchasing, payments, ledgers, expenses and reports. Requirements are in
 [`docs/SPEC.md`](docs/SPEC.md); architecture rules for contributors are in [`CLAUDE.md`](CLAUDE.md);
 build status is in [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
+## Windows laptop: one-click setup
+
+On a Windows laptop with nothing installed, double-click **`setup-windows.bat`**. It installs
+Node.js, pnpm and PostgreSQL, creates the database, builds and starts the website at
+http://localhost:3000. Run it again any day to start the website. See
+[docs/WINDOWS.md](docs/WINDOWS.md).
+
 ## Stack
 
 Next.js (App Router) · TypeScript (strict) · PostgreSQL + Prisma 7 · Tailwind CSS 4 + shadcn/ui ·
