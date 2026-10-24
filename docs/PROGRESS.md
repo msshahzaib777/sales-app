@@ -130,6 +130,20 @@ From the owner's notes after trying Phase 1. Built one item at a time.
    - Tested in `list-params.test.ts`, `combobox.test.ts` and `sales.int.test.ts`, and in a
      browser run.
 
+10. **Dashboard — done.** (`src/server/services/dashboard.ts`; every number links to its list)
+    - **Today's work** (everyone): orders for tomorrow and how many are not on a trip yet; trips
+      out, each with how many day-end entries are left (late ones in red); day-end entries
+      pending.
+    - **Money today** (owner and accountant only): cash, cheques and online collected today;
+      cheques waiting to clear; company bills overdue and due in the next 7 days, with the list.
+    - **Over their credit limit** (everyone): customers whose balance (incl. old balance) is above
+      their limit, most over first, with flagged customers marked.
+    - **Low stock** (everyone): products below their minimum level.
+    - Staff never see profit, cost or company bills. Tested in `delivery.int.test.ts` (owner and
+      staff) and in a browser run.
+
+Round 1 of the owner's change list is complete.
+
 ## Name: Taqseem — done
 
 - The product is now **Taqseem** (تقسیم, Urdu for _distribution_), with the tagline "Orders,

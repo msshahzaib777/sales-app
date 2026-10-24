@@ -16,9 +16,12 @@ import { createWarehouse } from "../master/warehouses";
 import { returnDamagedStock } from "../inventory";
 import { clearCheque } from "../payments/customer-payments";
 import { settleClaim } from "../purchasing/claims";
+import { getDashboard } from "../dashboard";
+import { createCustomerPayment } from "../payments/customer-payments";
 import { damageReport } from "../reports/damage";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { getBillView } from "../sales/bills";
+import { businessToday, toDateInput } from "@/lib/dates";
 import { createSalesOrder } from "../sales/orders";
 import { customerPending, stockPositions } from "../sales/positions";
 import { getDayEndEntry, nextOrderToReconcile, saveDayEnd, undoDayEnd } from "./day-end";
@@ -666,5 +669,50 @@ describe("damage report", () => {
     expect((await damageReport(t.ctx, { ...range, tripId: tr.id })).rows).toHaveLength(1);
     const before = new Date("2026-10-01T00:00:00.000Z");
     expect((await damageReport(t.ctx, { from: before, to: before })).rows).toHaveLength(0);
+  });
+});
+
+describe("dashboard", () => {
+  it("shows today's work, customers over their limit and low stock; money only to payment roles", async () => {
+    const today = businessToday();
+    const day = (offset: number) => toDateInput(new Date(today.getTime() + offset * 86_400_000));
+    // Tomorrow: one order booked, not on a trip yet.
+    await createSalesOrder(t.staff, {
+      customerId: t.bilal.id,
+      orderDate: day(0),
+      deliveryDate: day(1),
+      lines: [{ productId: t.nimko.id, quantity: "1" }],
+    });
+    // One trip out, its day-end not entered.
+    const a = await book(t.bilal.id, [[t.chips.id, "2"]]);
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    // Ali owes 4000 (opening) − 500 paid today, with a 2000 limit.
+    await prisma.customer.update({ where: { id: t.ali.id }, data: { creditLimit: 2000 } });
+    await createCustomerPayment(t.ctx, {
+      customerId: t.ali.id,
+      paymentDate: day(0),
+      method: "CASH",
+      amount: "500",
+    });
+    // Chips: 50 dz received − 2 dispatched, minimum 60 dz.
+    await prisma.product.update({ where: { id: t.chips.id }, data: { minStockLevel: 720 } });
+
+    const d = await getDashboard(t.ctx);
+    expect([d.work.ordersTomorrow, d.work.notOnTripTomorrow]).toEqual([1, 1]);
+    expect(d.work.tripsOut.map((x) => [x.number, x.ordersPending])).toEqual([[tr.number, 1]]);
+    expect(d.work.dayEndPending).toBe(1);
+    expect(d.overLimit.map((c) => [c.name, c.over.toFixed(2)])).toEqual([["Ali", "1500.00"]]);
+    expect(d.lowStock.rows.map((p) => [p.code, p.available])).toEqual([["CB01", 576]]);
+    expect([d.money!.collected.cash.amount.toFixed(2), d.money!.collected.cash.count]).toEqual([
+      "500.00",
+      1,
+    ]);
+    // The three goods receipts of 1 Oct, due after 15 days, are unpaid.
+    expect(d.money!.companyBills.overdue.rows).toHaveLength(3);
+
+    const staffView = await getDashboard(t.staff);
+    expect(staffView.money).toBeNull();
+    expect(staffView.overLimit).toHaveLength(1);
   });
 });
