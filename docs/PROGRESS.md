@@ -7,7 +7,7 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 `uninstall-windows.bat` (`scripts/windows/uninstall.ps1`), after typing DELETE: stops the website
 and its sign-in task, deletes the database (the app's own PostgreSQL and `%LOCALAPPDATA%\SalesApp`
 with backups, or only the `sales_app` database and user on an existing PostgreSQL service),
-removes the firewall rule, and deletes `.env`, `.setup`, `node_modules`, `.next` and
+removes the firewall rule, and deletes `.env`, `.setup`, `.backups`, `node_modules`, `.next` and
 `src\generated`. The code stays. Optionally uninstalls Node.js, pnpm and Git. Problems (a file
 held open) are listed at the end instead of stopping half way. Checked on Windows: parses, and
 cancelling changes nothing; the full removal has not been run yet.
@@ -58,7 +58,7 @@ past days are right. Tested in `delivery.int.test.ts` and in a browser run.
 **`taqseem.bat`** (`scripts/windows/deploy.ps1`): start the website in the background (closing the
 window keeps it running), stop it, update it from GitHub, status, and start at Windows sign-in
 (a scheduled task). Start and Update apply what the code needs: packages when the lockfile
-changed, database migrations after a `pg_dump` backup to `%LOCALAPPDATA%\SalesApp\backups`
+changed, database migrations after a `pg_dump` backup to `.backups` in the project folder
 (last 10 kept; no backup, no change), and a build when the code is newer than the last one.
 Update installs Git if missing, links a folder that came from a ZIP to the repository (keeping
 `.env`, `.setup` and data), and refuses to overwrite files changed on the laptop unless told to.

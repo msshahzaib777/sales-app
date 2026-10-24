@@ -3,10 +3,10 @@
 # Run it by double-clicking uninstall-windows.bat in the project folder. After typing DELETE it:
 #   1. stops the website and removes "start at Windows sign-in";
 #   2. deletes the database: the app's own PostgreSQL (stopped, then its whole folder
-#      %LOCALAPPDATA%\SalesApp: data, program, password file, backups), or, when an existing
+#      %LOCALAPPDATA%\SalesApp: data, program, password file), or, when an existing
 #      PostgreSQL service was used, only the sales_app database and user;
 #   3. removes the firewall rule for other office computers;
-#   4. deletes the files the setup made in the project folder: .env, .setup, node_modules, .next
+#   4. deletes the files the setup made in the project folder: .env, .setup, .backups, node_modules, .next
 #      and the generated database client. The code itself stays.
 # It can also uninstall Node.js, pnpm and Git, if you say so (they may be used by other programs).
 #
@@ -89,7 +89,7 @@ if (Uses-OwnPostgres) {
     Where-Object { $_.Path -and $_.Path.StartsWith($PgRoot, [StringComparison]::OrdinalIgnoreCase) } |
     Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 1
-  Remove-Path $AppData "the database, PostgreSQL and backups ($AppData)"
+  Remove-Path $AppData "the database and PostgreSQL ($AppData)"
 } elseif (Test-Path $EnvFile) {
   # A PostgreSQL service that was already on the laptop: delete only this app's database and user.
   Info "This installation used the PostgreSQL already installed on the laptop."
@@ -128,6 +128,7 @@ Remove-Path (Join-Path $Root ".next") "the built website (.next)"
 Remove-Path (Join-Path $Root "src\generated") "the generated database client (src\generated)"
 Remove-Path (Join-Path $Root "node_modules") "the packages (node_modules)"
 Remove-Path $SetupDir "logs and settings (.setup)"
+Remove-Path $BackupDir "database backups (.backups)"
 
 # -- 5. Programs (only when asked) ---------------------------------------------
 if ($removeTools) {

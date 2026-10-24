@@ -9,7 +9,7 @@
 #   taqseem.bat autostart start the website by itself when you sign in to Windows (on/off)
 #
 # Before database changes are applied, the database is backed up to
-# %LOCALAPPDATA%\SalesApp\backups (the last 10 are kept).
+# .backups in the project folder (the last 10 are kept).
 #
 # The first installation is done by setup-windows.bat. Written for Windows PowerShell 5.1. ASCII only.
 
@@ -157,6 +157,11 @@ function Backup-Database {
     Fail "pg_dump.exe was not found, so the database can't be backed up before the update."
   }
   New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+  # Backups from before they moved to the project folder.
+  if (Test-Path $OldBackupDir) {
+    Get-ChildItem $OldBackupDir -Filter "taqseem-*.sql" | Move-Item -Destination $BackupDir -Force
+    Remove-Item $OldBackupDir -Force -ErrorAction SilentlyContinue
+  }
   $file = Join-Path $BackupDir ("taqseem-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".sql")
   # pg_dump does not know Prisma's "?schema=public".
   $url = (Read-DatabaseUrl) -replace "\?.*$", ""

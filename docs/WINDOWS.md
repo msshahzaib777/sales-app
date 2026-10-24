@@ -42,7 +42,8 @@ You can also run it with one word, for example in a shortcut: `taqseem.bat start
 `taqseem.bat stop`, `taqseem.bat update`, `taqseem.bat status`.
 
 **Database backups:** before any database change, Start and Update back up the whole database to
-`%LOCALAPPDATA%\SalesApp\backups` (the last 10 are kept). If the backup fails, nothing is changed.
+`.backups` in the project folder (the last 10 are kept). If the backup fails, nothing is changed.
+Copy that folder somewhere safe now and then (a USB stick or cloud drive): it is on the same laptop.
 
 ## Fresh installation (start again with an empty database)
 
@@ -82,10 +83,10 @@ Double-click **`uninstall-windows.bat`** and type **DELETE**. It:
 
 1. stops the website and turns off "start at Windows sign-in";
 2. deletes the database: the app's own PostgreSQL and the whole `%LOCALAPPDATA%\SalesApp` folder
-   (data, PostgreSQL itself, the password file and the backups). If an existing PostgreSQL service
+   (data, PostgreSQL itself, the password file), and the `.backups` folder. If an existing PostgreSQL service
    was used, it asks for its `postgres` password and deletes only the `sales_app` database and user;
 3. removes the firewall rule;
-4. deletes `.env`, `.setup`, `node_modules`, `.next` and `src\generated` from the project folder.
+4. deletes `.env`, `.setup`, `.backups`, `node_modules`, `.next` and `src\generated` from the project folder.
 
 The code stays; delete the folder yourself if you no longer need it. It also offers to uninstall
 Node.js, pnpm and Git (type YES); say no if other programs on the laptop use them. Its log is in
