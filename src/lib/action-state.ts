@@ -22,12 +22,19 @@ export function submittedValue(state: ActionState<unknown>, field: string): stri
   return state.status === "error" ? state.values?.[field] : undefined;
 }
 
-/** Text fields of a form submission, without passwords. */
+/**
+ * Text fields of a form submission, without passwords. Every value is also stored as `name.index`
+ * so repeated fields (e.g. table rows) can be shown again row by row.
+ */
 export function echoValues(formData: FormData): Record<string, string> {
   const values: Record<string, string> = {};
+  const counts: Record<string, number> = {};
   for (const [key, value] of formData) {
-    if (typeof value === "string" && !/password/i.test(key) && !key.startsWith("$ACTION"))
-      values[key] = value;
+    if (typeof value !== "string" || /password/i.test(key) || key.startsWith("$ACTION")) continue;
+    const index = counts[key] ?? 0;
+    counts[key] = index + 1;
+    if (index === 0) values[key] = value;
+    values[`${key}.${index}`] = value;
   }
   return values;
 }

@@ -1,4 +1,4 @@
-import { Users } from "lucide-react";
+import { Bike, Map, UserRound, Users, Warehouse } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -8,6 +8,30 @@ import { PageHeader } from "@/components/layout/page-header";
 export const metadata: Metadata = { title: "Settings" };
 
 const SECTIONS = [
+  {
+    href: "/settings/warehouses",
+    title: "Warehouses",
+    description: "Where stock is kept; each company belongs to one.",
+    icon: Warehouse,
+  },
+  {
+    href: "/settings/areas",
+    title: "Areas / routes",
+    description: "Group customers for delivery.",
+    icon: Map,
+  },
+  {
+    href: "/settings/bikes",
+    title: "Delivery bikes",
+    description: "Capacity and assigned drivers.",
+    icon: Bike,
+  },
+  {
+    href: "/settings/staff",
+    title: "Staff",
+    description: "Drivers and office staff, salaries.",
+    icon: UserRound,
+  },
   {
     href: "/settings/users",
     title: "Users",

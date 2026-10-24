@@ -9,14 +9,28 @@ import { navItems } from "./nav-items";
 
 /** `visibleHrefs` comes from the server (role-filtered); icons stay on the client. */
 export function SidebarNav({ visibleHrefs }: { visibleHrefs: readonly string[] }) {
-  const pathname = usePathname();
+  return <NavList visibleHrefs={visibleHrefs} pathname={usePathname()} />;
+}
 
+/**
+ * The same list without reading the URL, for the prerendered shell (on dynamic routes like
+ * /customers/[id] the URL is not known at build time).
+ */
+export function NavList({
+  visibleHrefs,
+  pathname,
+}: {
+  visibleHrefs: readonly string[];
+  pathname?: string;
+}) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-0.5 p-2">
       {navItems
         .filter((item) => visibleHrefs.includes(item.href))
         .map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const active =
+            pathname !== undefined &&
+            (pathname === item.href || pathname.startsWith(`${item.href}/`));
           const Icon = item.icon;
           return (
             <Link

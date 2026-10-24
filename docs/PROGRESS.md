@@ -2,6 +2,110 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 4: Master data screens — done
+
+**Built**
+
+- **List, create and edit screens** for:
+  - Customers, Companies and Products (in the sidebar);
+  - Warehouses, Areas / routes, Delivery bikes and Staff (under Settings).
+- **Lists:** search, filters (status plus per-list filters such as company, area, type, warehouse,
+  role) and pagination (50 per page). Filters are a plain GET form, so they work without
+  JavaScript and stay in the URL.
+- **Forms:** one shared, keyboard-first form (`src/components/master/record-form.tsx`). The first
+  field gets focus and Enter saves. New records also get "Save and add another". Validation
+  errors show under each field and keep what was typed.
+- **Companies:** warehouse, contact, order booker name and phone, payment terms in days, and an
+  opening balance.
+- **Products:**
+  - purchase and sale rate per dozen, minimum stock in dozens;
+  - company discount (Rs per dozen, percent, or none) plus up to 10 quantity slabs;
+  - every change to rates, discount or slabs appends a `ProductPriceHistory` row with its
+    effective date, shown on the product page. Name or stock changes don't.
+- **Customers:** type, area and visiting order, credit limit (blank = no limit), and an opening
+  balance per company. The list shows each customer's current balance.
+- **Bikes:** capacity in dozens, warehouse, and a driver chosen from active staff with the Driver
+  role.
+- **Deactivate instead of delete.** Every record can be deactivated or reactivated. Delete is
+  offered, but the database refuses it once the record is referenced (ledger entries, price
+  history, orders, …), and the user is told to deactivate instead. Products always have price
+  history, so they show no Delete button. Deactivated records drop out of pick lists, but an edit
+  form keeps the record's current choice selectable.
+- **Excel/CSV import** for products and customers (`/products/import`, `/customers/import`):
+  - **Upload:** .xlsx (first sheet) or .csv, up to 2 MB and 2,000 rows. There's a downloadable
+    template; the customer template has one "Opening: <company>" column per company.
+  - **Check file:** shows every row as New / Update / Error with readable messages. Nothing is
+    saved at this step. "Download error report" exports the bad rows as a CSV.
+  - **Import:** the server re-reads and re-validates the file, then saves the valid rows in one
+    transaction. Error rows are skipped.
+  - **Products:** an existing code updates that product (new rates go into price history).
+  - **Customers:** create only; a name + phone that already exists is reported as a duplicate.
+- **Permissions:**
+  - Everyone can view Customers, Companies and Products, which order entry needs.
+  - Creating, editing, deactivating and importing need `masterData.manage` (owner), and rate
+    changes also need `rates.manage`.
+  - Staff never see purchase rates (the service removes them) or company payables.
+- **Audit:** every create, update, deactivate, delete and import row writes an audit entry with old
+  and new values (changed fields only).
+- **Idempotency:** master tables gained `requestId` (unique per tenant). A retried Save returns the
+  record already created; import rows use `<importId>:<row>`.
+
+**Tests:** 108 in total.
+
+- Unit tests: validation (money, half dozens, slabs, defaults), CSV and .xlsx reading
+  (including restoring leading zeros on phone numbers), import row validation, formatting.
+- Integration tests:
+  - idempotent creates and duplicate messages;
+  - price history only on rate changes;
+  - purchase rates hidden from staff, and owner-only editing;
+  - opening balances posting only the difference;
+  - delete-versus-deactivate rules;
+  - drivers on bikes;
+  - cross-tenant attempts;
+  - import preview and commit.
+- Browser run of the production build covering:
+  - forms: duplicate name, a validation error that keeps typed values, three "Save and add
+    another" customers in a row;
+  - records: product slabs and price history, customer opening balance, deactivate and delete;
+  - customer import with an error report;
+  - the staff view.
+
+### Design choices that are not obvious
+
+1. **Opening balances post the difference.** Changing a customer's or company's opening balance
+   adds an `OPENING_BALANCE` ledger entry for the difference (e.g. 5,000 → 4,000 posts a 1,000
+   credit), so the ledger stays append-only and every change is visible. A customer's opening
+   balance can be negative (an advance).
+2. **Slabs use the base discount's unit:** Rs per dozen, or percent if the base is percent. A zero
+   discount with no slabs is stored as "no discount".
+3. **Delete is decided by the database.** Delete attempts the deletion and turns a
+   foreign-key/append-only refusal into "deactivate instead". This stays correct as later tasks
+   add more tables that reference master data, with no "is it used?" lists to maintain.
+4. **Changing a company's warehouse, or a product's company, is blocked once there are purchases,
+   stock or orders.** Moving them would mix stock between warehouses.
+5. **Request ids for new records are created in the browser on the first Save** and reused on
+   retries. After "Save and add another" the page redirects with the new record's id, which gives
+   the next blank form a fresh id.
+6. **Customer import area names must be unique.** An area name used in two warehouses is reported
+   as unknown rather than guessed.
+7. **Master-data lists have no date-range filter.** CLAUDE.md asks for one on every list, but it
+   isn't meaningful for master records; it will be on transaction lists and reports.
+
+**Also fixed**
+
+- Session reads now call `connection()`. Auth.js re-encrypts the session cookie with random bytes,
+  which Next.js flagged during prerendering; the server log is now clean.
+- The sidebar's active-page highlight now loads with the session. Dynamic routes like
+  `/customers/[id]` can't read the URL at build time.
+- ESLint allows `_`-prefixed unused names (used to drop fields from objects).
+
+**Open / next**
+
+- Visiting order is a number on each customer; a drag-to-reorder route screen can come with
+  delivery planning (Phase 2).
+- Slabs can't be imported yet; they're added on the product page.
+- `UnitConversion` (cartons/pieces) has no screen yet; only the half dozen / dozen defaults exist.
+
 ## Task 3: Auth, tenants and roles — done
 
 **Built**

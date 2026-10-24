@@ -9,7 +9,18 @@ describe("echoValues", () => {
     form.set("password", "secret1");
     form.set("newPassword", "secret2");
     form.set("$ACTION_ID_abc", "");
-    expect(echoValues(form)).toEqual({ email: "owner@demo.test" });
+    expect(echoValues(form)).toEqual({ email: "owner@demo.test", "email.0": "owner@demo.test" });
+  });
+
+  it("keeps repeated fields row by row", () => {
+    const form = new FormData();
+    form.append("slabFrom", "25");
+    form.append("slabFrom", "50");
+    expect(echoValues(form)).toMatchObject({
+      slabFrom: "25",
+      "slabFrom.0": "25",
+      "slabFrom.1": "50",
+    });
   });
 });
 

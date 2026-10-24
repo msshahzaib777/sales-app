@@ -307,6 +307,8 @@ model Warehouse {
   name      String
   address   String?
   isActive  Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -322,6 +324,7 @@ model Warehouse {
   salesOrders      SalesOrder[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, name])
 }
 
@@ -340,6 +343,8 @@ model Company {
   /// Due date of a company bill = receipt date + this many days (editable per bill).
   paymentTermsDays Int      @default(0)
   isActive         Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId        String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -357,6 +362,7 @@ model Company {
   ledgerEntries   LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, name])
   @@index([tenantId, warehouseId])
 }
@@ -385,6 +391,8 @@ model Product {
   /// Off unless the tenant enables tax.
   taxRate       Decimal      @default(0) @db.Decimal(5, 2)
   isActive      Boolean      @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId     String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -402,6 +410,7 @@ model Product {
   salesOrderLines    SalesOrderLine[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, code])
   @@unique([tenantId, companyId, name])
   @@index([tenantId, name])
@@ -479,6 +488,8 @@ model Area {
   name        String
   sortOrder   Int      @default(0)
   isActive    Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -487,6 +498,7 @@ model Area {
   customers Customer[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, warehouseId, name])
 }
 
@@ -509,6 +521,8 @@ model Customer {
   isFlagged     Boolean      @default(false)
   flagReason    String?
   isActive      Boolean      @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId     String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -520,6 +534,7 @@ model Customer {
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@index([tenantId, areaId, routeSequence])
   @@index([tenantId, name])
   @@index([tenantId, phone])
@@ -534,6 +549,8 @@ model Bike {
   capacity    Int
   driverId    String?
   isActive    Boolean  @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -542,6 +559,7 @@ model Bike {
   driver    Staff?     @relation(fields: [tenantId, driverId], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, name])
 }
 
@@ -556,6 +574,8 @@ model Staff {
   monthlySalary Decimal   @default(0) @db.Decimal(14, 2)
   joiningDate   DateTime? @db.Date
   isActive      Boolean   @default(true)
+  /// Client-generated id of the create request; a retried create returns the same record.
+  requestId     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -565,6 +585,7 @@ model Staff {
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
   @@unique([tenantId, userId])
   @@index([tenantId, role])
 }

@@ -56,6 +56,9 @@ Docker, or a free Neon/Supabase database).
 
    Open <http://localhost:3000>.
 
+Master data (customers, companies, products, warehouses, areas, bikes, staff) is under the
+sidebar and **Settings**; customers and products can be imported from Excel/CSV.
+
 Sign in with a demo login (password `Demo@12345`): `owner@demo.test`, `accountant@demo.test`,
 `staff@demo.test`, or `admin@platform.test` (super admin). Owners add more users under
 **Settings → Users**.

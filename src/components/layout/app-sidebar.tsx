@@ -7,7 +7,7 @@ import { getSessionUser } from "@/server/auth/session";
 
 import { LogoutButton } from "./logout-button";
 import { navItems } from "./nav-items";
-import { SidebarNav } from "./sidebar-nav";
+import { NavList, SidebarNav } from "./sidebar-nav";
 
 /** Items everyone sees; shown instantly while the role-specific list streams in. */
 const PUBLIC_HREFS = navItems.filter((item) => !item.permission).map((item) => item.href);
@@ -20,7 +20,7 @@ export function AppSidebar() {
           Sales App
         </Link>
       </div>
-      <Suspense fallback={<SidebarNav visibleHrefs={PUBLIC_HREFS} />}>
+      <Suspense fallback={<NavList visibleHrefs={PUBLIC_HREFS} />}>
         <RoleNav />
       </Suspense>
       <div className="border-sidebar-border mt-auto border-t p-3">

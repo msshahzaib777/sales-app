@@ -1,6 +1,7 @@
 import "server-only";
 
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 
 import { auth } from "@/auth";
@@ -37,6 +38,9 @@ export type TenantContext = { user: TenantUser; db: TenantDb };
  * that change the user, because Next.js renders an action's redirect in the same request.
  */
 export async function readSessionUser(): Promise<SessionUser | null> {
+  // Request-time only: Auth.js may re-encrypt the session cookie (random IV), which Next.js does
+  // not allow during prerendering.
+  await connection();
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return null;
