@@ -10,6 +10,11 @@ const NOTICES: Record<string, string> = {
   "trip-cancelled": "Trip cancelled. Its orders are booked again.",
   dispatched: "Dispatched. Stock is out and the bills are posted to the customer ledgers.",
   "day-end-saved": "Day-end saved.",
+  "payment-posted": "Payment posted to the customer ledger.",
+  "payment-reversed": "Payment reversed. The customer owes that amount again.",
+  "cheque-cleared": "Cheque marked as cleared.",
+  unflagged: "Flag removed.",
+  "cheque-bounced": "Cheque bounced: the payment is reversed and the customer is flagged.",
 };
 
 /** One-line confirmation after a redirect (?notice=saved). */

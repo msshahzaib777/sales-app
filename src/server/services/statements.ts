@@ -109,3 +109,84 @@ export async function getCustomerStatement(
 }
 
 export type CustomerStatement = Awaited<ReturnType<typeof getCustomerStatement>>;
+
+/**
+ * Company, all customers (SPEC §8): what each customer owes for this company's products, with the
+ * period's movement. Customers with nothing owed and no movement are left out.
+ */
+export async function getCompanyReceivables(ctx: ServiceCtx, companyId: string, range: DateRange) {
+  assertCan(ctx.user.role, "ledgers.view");
+  const company = found(
+    await ctx.db.company.findUnique({
+      where: { id: companyId },
+      include: { warehouse: { select: { name: true } } },
+    }),
+    "company",
+  );
+  const base = { partyType: "CUSTOMER" as const, companyId };
+  const [before, during] = await Promise.all([
+    range.from
+      ? ctx.db.ledgerEntry.groupBy({
+          by: ["customerId"],
+          where: { ...base, entryDate: { lt: range.from } },
+          _sum: { debit: true, credit: true },
+        })
+      : Promise.resolve([]),
+    ctx.db.ledgerEntry.groupBy({
+      by: ["customerId"],
+      where: {
+        ...base,
+        ...(range.from || range.to
+          ? {
+              entryDate: {
+                ...(range.from ? { gte: range.from } : {}),
+                ...(range.to ? { lte: range.to } : {}),
+              },
+            }
+          : {}),
+      },
+      _sum: { debit: true, credit: true },
+    }),
+  ]);
+  const ids = [...new Set([...before, ...during].map((g) => g.customerId!))];
+  const customers = await ctx.db.customer.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, shopName: true, area: { select: { name: true } } },
+  });
+  const opening = new Map(
+    before.map((g) => [g.customerId!, D(g._sum.debit ?? 0).sub(g._sum.credit ?? 0)]),
+  );
+  const moves = new Map(during.map((g) => [g.customerId!, g]));
+  const rows = customers
+    .map((c) => {
+      const o = opening.get(c.id) ?? D(0);
+      const m = moves.get(c.id);
+      const debit = D(m?._sum.debit ?? 0);
+      const credit = D(m?._sum.credit ?? 0);
+      return {
+        customerId: c.id,
+        name: c.name,
+        shopName: c.shopName,
+        areaName: c.area?.name ?? null,
+        opening: o,
+        debit,
+        credit,
+        closing: o.add(debit).sub(credit),
+      };
+    })
+    .filter((r) => !r.closing.isZero() || !r.debit.isZero() || !r.credit.isZero())
+    .sort((a, b) => b.closing.comparedTo(a.closing) || a.name.localeCompare(b.name));
+  const total = (k: "opening" | "debit" | "credit" | "closing") =>
+    rows.reduce((s, r) => s.add(r[k]), D(0));
+  return {
+    company: { id: company.id, name: company.name, warehouseName: company.warehouse.name },
+    range,
+    rows,
+    totals: {
+      opening: total("opening"),
+      debit: total("debit"),
+      credit: total("credit"),
+      closing: total("closing"),
+    },
+  };
+}

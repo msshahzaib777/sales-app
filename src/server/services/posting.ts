@@ -84,12 +84,13 @@ export async function reverseLedgerFor(
   reference: { type: string; id: string },
   entryDate: Date,
   description: string,
+  type: LedgerEntryType = "REVERSAL",
 ) {
   const entries = await tx.ledgerEntry.findMany({
     where: {
       referenceType: reference.type,
       referenceId: reference.id,
-      type: { not: "REVERSAL" },
+      type: { notIn: ["REVERSAL", "CHEQUE_BOUNCE"] },
       reversedBy: { none: {} },
     },
   });
@@ -101,7 +102,7 @@ export async function reverseLedgerFor(
         customerId: e.customerId,
         companyId: e.companyId,
         staffId: e.staffId,
-        type: "REVERSAL",
+        type,
         entryDate,
         debit: e.credit,
         credit: e.debit,
