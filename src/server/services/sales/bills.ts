@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 
 import { assertCan } from "../../auth/permissions";
 import type { ServiceCtx } from "../master/common";
+import { ServiceError } from "../errors";
 import { found } from "../posting";
 import { customerPending } from "./positions";
 
@@ -122,3 +123,27 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
 }
 
 export type BillView = Awaited<ReturnType<typeof getBillView>>;
+
+export const MAX_BULK_BILLS = 200;
+
+/**
+ * Bills of several orders for printing in one go, in the order given. Orders without a bill (or
+ * of another tenant) are skipped and counted, so a stale selection never blocks the print run.
+ */
+export async function getBillViews(ctx: ServiceCtx, orderIds: string[]) {
+  assertCan(ctx.user.role, "operations.manage");
+  const ids = [...new Set(orderIds)];
+  if (ids.length > MAX_BULK_BILLS)
+    throw new ServiceError(`Print at most ${MAX_BULK_BILLS} bills at a time.`);
+  const views: BillView[] = [];
+  let skipped = 0;
+  for (const id of ids) {
+    try {
+      views.push(await getBillView(ctx, id));
+    } catch (error) {
+      if (!(error instanceof ServiceError)) throw error;
+      skipped++;
+    }
+  }
+  return { views, skipped };
+}

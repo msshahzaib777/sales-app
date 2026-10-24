@@ -1,17 +1,20 @@
+import { Letterhead } from "@/components/print/print-frame";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
 import type { BillView } from "@/server/services/sales/bills";
+import type { PrintProfile } from "@/server/services/settings";
 
 type Line = BillView["lines"][number];
 
 /**
- * A printed bill: black and white, A5 by default (Task 7 adds paper settings). Either the full
- * bill or one company's slice ("split by company"), each with previous pending, this bill and total
- * due for that scope.
+ * One printed bill (full, or one company's slice): letterhead, customer, lines, then previous
+ * pending, this bill and total due. Black and white; sizes in em so the tenant's font size setting
+ * scales everything.
  */
 export function BillDocument({
   view,
+  business,
   title,
   lines,
   thisBill,
@@ -20,6 +23,7 @@ export function BillDocument({
   showCompany,
 }: {
   view: BillView;
+  business: PrintProfile["business"];
   title?: string;
   lines: Line[];
   thisBill: { toString(): string };
@@ -28,21 +32,20 @@ export function BillDocument({
   showCompany: boolean;
 }) {
   const discount = lines.reduce((s, l) => s + Number(l.discountAmount), 0);
+  const dz = (q: number) => formatDozens(q).replace(" dz", "");
   return (
-    <article className="bill-page mx-auto max-w-[148mm] space-y-3 border p-4 text-[13px] leading-snug text-black print:border-0 print:p-0">
-      <header className="flex justify-between gap-4 border-b border-black pb-2">
-        <div>
-          <p className="text-base font-bold">{view.tenant.name}</p>
-          {view.tenant.address ? <p>{view.tenant.address}</p> : null}
-          {view.tenant.phone ? <p>{view.tenant.phone}</p> : null}
-        </div>
-        <div className="text-right">
-          <p className="font-bold">BILL #{view.bill.number}</p>
-          {view.bill.revision > 1 ? <p>Revision {view.bill.revision}</p> : null}
-          <p>Date: {formatDate(view.bill.billDate)}</p>
-          <p>Order #{view.order.number}</p>
-        </div>
-      </header>
+    <article className="space-y-[0.6em] leading-snug">
+      <Letterhead
+        business={business}
+        right={
+          <>
+            <p className="font-bold">BILL #{view.bill.number}</p>
+            {view.bill.revision > 1 ? <p>Revision {view.bill.revision}</p> : null}
+            <p>Date: {formatDate(view.bill.billDate)}</p>
+            <p>Order #{view.order.number}</p>
+          </>
+        }
+      />
       <div className="flex justify-between gap-4">
         <div>
           <p className="font-semibold">{view.customer.name}</p>
@@ -58,38 +61,34 @@ export function BillDocument({
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-y border-black text-left">
-            <th className="py-1 pr-1 font-semibold">Product</th>
-            {showCompany ? <th className="py-1 pr-1 font-semibold">Company</th> : null}
-            <th className="py-1 pr-1 text-right font-semibold">Dz</th>
-            <th className="py-1 pr-1 text-right font-semibold">Rate</th>
-            <th className="py-1 pr-1 text-right font-semibold">Disc.</th>
-            <th className="py-1 text-right font-semibold">Amount</th>
+            <th className="py-[0.2em] pr-1 font-semibold">Product</th>
+            {showCompany ? <th className="py-[0.2em] pr-1 font-semibold">Company</th> : null}
+            <th className="py-[0.2em] pr-1 text-right font-semibold">Dz</th>
+            <th className="py-[0.2em] pr-1 text-right font-semibold">Rate</th>
+            <th className="py-[0.2em] pr-1 text-right font-semibold">Disc.</th>
+            <th className="py-[0.2em] text-right font-semibold">Amount</th>
           </tr>
         </thead>
         <tbody>
           {lines.map((l) => (
             <tr key={l.productId} className="border-b border-dotted border-black/60">
-              <td className="py-0.5 pr-1">
+              <td className="py-[0.1em] pr-1">
                 {l.code} {l.name}
               </td>
-              {showCompany ? <td className="py-0.5 pr-1">{l.companyName}</td> : null}
-              <td className="py-0.5 pr-1 text-right tabular-nums">
-                {formatDozens(l.quantity).replace(" dz", "")}
-              </td>
-              <td className="py-0.5 pr-1 text-right tabular-nums">{formatMoney(l.rate)}</td>
-              <td className="py-0.5 pr-1 text-right tabular-nums">
+              {showCompany ? <td className="py-[0.1em] pr-1">{l.companyName}</td> : null}
+              <td className="py-[0.1em] pr-1 text-right tabular-nums">{dz(l.quantity)}</td>
+              <td className="py-[0.1em] pr-1 text-right tabular-nums">{formatMoney(l.rate)}</td>
+              <td className="py-[0.1em] pr-1 text-right tabular-nums">
                 {Number(l.discountAmount) ? formatMoney(l.discountAmount) : ""}
               </td>
-              <td className="py-0.5 text-right tabular-nums">{formatMoney(l.netAmount)}</td>
+              <td className="py-[0.1em] text-right tabular-nums">{formatMoney(l.netAmount)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <dl className="ml-auto grid w-64 grid-cols-[1fr_auto] gap-x-3 text-right">
+      <dl className="ml-auto grid w-[18em] grid-cols-[1fr_auto] gap-x-3 text-right">
         <dt>Total dozens</dt>
-        <dd className="tabular-nums">
-          {formatDozens(lines.reduce((s, l) => s + l.quantity, 0)).replace(" dz", "")}
-        </dd>
+        <dd className="tabular-nums">{dz(lines.reduce((s, l) => s + l.quantity, 0))}</dd>
         {discount ? (
           <>
             <dt>Company discount</dt>
@@ -103,10 +102,47 @@ export function BillDocument({
         <dt className="border-t border-black font-bold">Total due</dt>
         <dd className="border-t border-black font-bold tabular-nums">{formatMoney(totalDue)}</dd>
       </dl>
-      <footer className="flex justify-between gap-4 pt-6">
-        <p>Received by: ____________________</p>
-        <p>Signature: ______________</p>
+      <footer className="flex justify-between gap-4 pt-[1.5em]">
+        <p>Received by: __________________</p>
+        <p>Signature: ____________</p>
       </footer>
     </article>
   );
+}
+
+/** The documents for one bill: the full bill, or one per company when split. */
+export function billDocuments(view: BillView, business: PrintProfile["business"], split: boolean) {
+  if (!split) {
+    return [
+      {
+        key: view.bill.id,
+        node: (
+          <BillDocument
+            view={view}
+            business={business}
+            lines={view.lines}
+            thisBill={view.bill.netAmount}
+            previous={view.previous}
+            totalDue={view.totalDue}
+            showCompany={view.sections.length > 1}
+          />
+        ),
+      },
+    ];
+  }
+  return view.sections.map((s) => ({
+    key: `${view.bill.id}-${s.companyId}`,
+    node: (
+      <BillDocument
+        view={view}
+        business={business}
+        title={`${s.companyName} portion`}
+        lines={s.lines}
+        thisBill={s.thisBill}
+        previous={s.previous}
+        totalDue={s.totalDue}
+        showCompany={false}
+      />
+    ),
+  }));
 }

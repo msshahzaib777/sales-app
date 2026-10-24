@@ -2,6 +2,84 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Task 7: Bill printing — done
+
+**Built**
+
+- **Settings → Business & printing** (`/settings/printing`, owner only):
+  - business name, address and phone for the letterhead;
+  - logo upload: PNG, JPEG or WebP up to 200 KB. The type is checked from the file's bytes, not
+    its name, and the logo is stored as a data URL on the tenant. It can be replaced or removed.
+  - bill paper: **A5 (default)**, A4, half A4, A6 or a custom size in mm;
+  - margin (0–30 mm), font size (7–16 pt) and **"2 bills per A4"**;
+  - every change is audited. The database also checks the ranges (CHECK constraints).
+- **Letterhead:** logo, name, address and phone when set; the business name alone otherwise.
+- **Customer bill** (`/orders/[id]/bill`), full or split by company:
+  - laid out on the tenant's paper;
+  - on screen it is shown at the real paper size, so the preview matches the print;
+  - with 2 per A4, two half-A4 bills share a sheet with a dashed cut line, and split pages pair up
+    the same way;
+  - sizes are in `em`, so the font-size setting scales the whole bill;
+  - black and white only.
+- **Print bills for selected orders:**
+  - the orders list has a tick box per order (and "select all on this page");
+  - "Print selected bills" and "Print selected, split by company" open `/orders/print` in a new
+    tab with every bill in one print run (up to 200);
+  - orders without a bill are skipped and counted.
+- **Customer statement** (`/customers/[id]/statement`, from the balance on the customers list):
+  - all companies or one company, for a date range (default: 1st of last month to today);
+  - opening balance, every entry with its company and a running balance, and the closing balance;
+  - "balance by company" when showing all companies.
+- **Company statement** (`/companies/[id]/statement`, "Printable statement" on the company
+  ledger):
+  - same layout, showing what we owe;
+  - statements always print on A4 with the tenant's margin (at least 8 mm) and font size.
+- Print CSS lives in `src/lib/print.ts` (pure and unit-tested): `@page` size and margin, and page
+  breaks between bills. The app's sidebar, toolbars and filters are hidden when printing.
+
+**Tests:** 179 in total.
+
+- Unit: paper sizes, layouts, sheet grouping and page CSS for each mode; settings validation;
+  logo type sniffing.
+- Integration (`printing.int.test.ts`, 10 tests):
+  - default profile;
+  - saving settings, with the audit row, custom-size rules and range errors;
+  - owner-only access;
+  - logo accepted, wrong type, too large and removal;
+  - statement running balance, company filter and opening carried forward;
+  - statement hidden from staff and other tenants;
+  - bulk bills order, de-duplication, skipped ids, tenant isolation and the 200 limit.
+- Browser run of the production build:
+  - select all / select two and bulk print (2 A5 pages in the PDF);
+  - the settings form error keeps typed values; save with 2 per A4;
+  - logo upload, and a rejected fake image;
+  - split bill on one A4 sheet with the logo;
+  - customer statement with the company filter, and the company statement as an A4 PDF;
+  - staff get "No access" on statements and settings.
+
+### Design choices that are not obvious
+
+1. **Print CSS, no PDF library.** The browser's print dialog prints and saves as PDF, which keeps
+   pages light (CLAUDE.md UX rules). Paper size comes from the `@page` rule the page writes from
+   the tenant settings, so most browsers pick the right paper automatically.
+2. **2 per A4 overrides the paper size.** With it on, the page is A4 with no page margin, and each
+   half gets the margin as padding, so the cut line sits exactly at 148.5 mm. A bill too long for
+   half a page is clipped. Use a single-bill size for very long orders.
+3. **Logo as a data URL in the database.** There is no file storage yet, and a 200 KB cap keeps
+   rows small. SVG is refused because it can carry scripts.
+4. **Statements read the journals directly.** The customer statement sums `LedgerEntry` rows (with
+   `companyId`, CLAUDE.md rule 3), and the company statement reuses the company ledger service, so
+   printed figures always match the ledger screens.
+
+**Open / next**
+
+- Bills that are not dispatched still show "previous pending" live (see Task 6). They are frozen
+  at dispatch in Task 8.
+- "Print all bills of a trip" will be added to the delivery plan in Task 8, using the same
+  `/orders/print` page.
+- Excel export of the customer statement comes with the reports in a later task. The company
+  ledger already exports.
+
 ## Task 6: Sales orders and bills — done
 
 **Built**
@@ -87,8 +165,7 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 
 **Open / next**
 
-- Paper sizes, margins, 2 bills per A4, logo and "print all bills of a trip" are Task 7. The bill
-  is A5 for now.
+- Paper sizes, margins, 2 bills per A4 and the logo were done in Task 7.
 - Dispatch (stock out, ledger posting, freezing previous pending) and the Planned status are
   Task 8.
 - Two orders for the same customer booked at the same moment could each pass the credit check.

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { ListToolbar } from "@/components/list/list-toolbar";
@@ -23,6 +24,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
   const ctx = await requireTenantContext();
   const [list, areas] = await Promise.all([listCustomers(ctx, params, sp), areaOptions(ctx)]);
   const canEdit = can(ctx.user.role, "masterData.manage");
+  const canSeeLedger = can(ctx.user.role, "ledgers.view");
 
   return (
     <>
@@ -97,7 +99,19 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
               <Td className="text-right tabular-nums">
                 {c.creditLimit === null ? "No limit" : formatMoney(c.creditLimit)}
               </Td>
-              <Td className="text-right font-medium tabular-nums">{formatMoney(c.balance)}</Td>
+              <Td className="text-right font-medium tabular-nums">
+                {canSeeLedger ? (
+                  <Link
+                    href={`/customers/${c.id}/statement`}
+                    className="underline-offset-4 hover:underline"
+                    title="Statement"
+                  >
+                    {formatMoney(c.balance)}
+                  </Link>
+                ) : (
+                  formatMoney(c.balance)
+                )}
+              </Td>
               <Td>
                 <StatusBadge isActive={c.isActive} />
               </Td>
