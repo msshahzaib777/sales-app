@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { type QuickAction, QuickActions } from "@/components/dashboard/quick-actions";
 import { RequirePermission } from "@/components/layout/no-access";
+
+import Loading from "../loading";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +23,10 @@ export const metadata: Metadata = { title: "Dashboard" };
 export default function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
   return (
     <RequirePermission permission="operations.manage">
-      <DashboardView searchParams={searchParams} />
+      {/* Its own placeholder: the figures stream in while the page is already shown. */}
+      <Suspense fallback={<Loading />}>
+        <DashboardView searchParams={searchParams} />
+      </Suspense>
     </RequirePermission>
   );
 }
@@ -104,7 +110,7 @@ function quickActions(role: Role, d: Dashboard): QuickAction[] {
   const tomorrow = toDateInput(w.tomorrow);
   const all: (QuickAction & { permission: Permission })[] = [
     {
-      href: waiting ? `/delivery/${waiting.id}` : "/delivery?tripStatus=DISPATCHED",
+      href: waiting ? `/delivery/${waiting.id}/day-end` : "/delivery?tripStatus=DISPATCHED",
       label: "Enter day-end",
       icon: "dayEnd",
       permission: "operations.manage",

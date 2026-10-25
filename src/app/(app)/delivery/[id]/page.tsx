@@ -10,7 +10,7 @@ import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { Notice } from "@/components/master/notice";
 import { LinkButton, orNotFound } from "@/components/master/page-helpers";
 import { OrderStatusBadge } from "@/components/sales/order-badges";
-import { formatDate } from "@/lib/dates";
+import { formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
@@ -58,15 +58,42 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
                 </>
               ) : null}
               {firstOpen ? (
-                <LinkButton href={`/delivery/${id}/day-end/${firstOpen.id}`}>
-                  Enter day-end
-                </LinkButton>
+                <LinkButton href={`/delivery/${id}/day-end`}>Enter day-end</LinkButton>
               ) : null}
             </>
           }
         />
       </div>
-      <Notice notice={sp.notice} />
+      <Notice
+        notice={sp.notice}
+        next={
+          sp.notice === "trip-planned"
+            ? [
+                { href: `/delivery/${id}/loading-sheet`, label: "Loading sheet" },
+                { href: `/orders/print?${ids}`, label: "Print bills" },
+                {
+                  href: `/delivery/new?date=${toDateInput(trip.tripDate)}`,
+                  label: "Plan another trip",
+                },
+              ]
+            : sp.notice === "dispatched"
+              ? [
+                  { href: `/orders/print?${ids}`, label: "Print bills" },
+                  { href: `/delivery/${id}/loading-sheet`, label: "Loading sheet" },
+                ]
+              : sp.notice === "day-end-saved"
+                ? [
+                    ...(firstOpen
+                      ? [{ href: `/delivery/${id}/day-end`, label: "Enter the rest" }]
+                      : []),
+                    {
+                      href: `/reports/daily?date=${toDateInput(trip.tripDate)}`,
+                      label: "Day report",
+                    },
+                  ]
+                : []
+        }
+      />
       {driverEditable ? (
         <TripDriverForm
           action={setTripDriverAction.bind(null, id)}

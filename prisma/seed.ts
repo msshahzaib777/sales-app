@@ -908,7 +908,8 @@ async function main() {
         }
         while (chosen.size < Math.min(options.lineCount, candidates.length)) {
           const product = pick(candidates);
-          if (!chosen.has(product)) chosen.set(product, between(2, 12)); // 1 to 6 dozen
+          // 1 to 6 dozen, in half dozens (quantities are packets).
+          if (!chosen.has(product)) chosen.set(product, dz(between(2, 12) / 2));
         }
 
         const order = await tx.salesOrder.create({

@@ -64,9 +64,12 @@ async function Editor({ params }: { params: Promise<{ id: string }> }) {
         title={customer.name}
         description={customer.shopName ?? undefined}
         actions={
-          <LinkButton href={`/customers/${id}/old-bills`} variant="outline">
-            Old balance (paper bills)
-          </LinkButton>
+          <>
+            <LinkButton href={`/orders/new?customerId=${id}`}>New order</LinkButton>
+            <LinkButton href={`/customers/${id}/old-bills`} variant="outline">
+              Old balance (paper bills)
+            </LinkButton>
+          </>
         }
       />
       {customer.isFlagged ? (

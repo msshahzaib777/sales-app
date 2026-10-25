@@ -44,7 +44,17 @@ async function Payment({ params, searchParams }: PageProps<"/payments/[id]">) {
         title={`Payment #${p.number}`}
         description={`${p.customer.name}${p.customer.shopName ? ` · ${p.customer.shopName}` : ""} · ${formatDate(p.paymentDate)} · ${METHOD_LABEL[p.method]} · ${p.collectedVia === "DELIVERY" ? "collected at delivery" : "received at the office"}`}
       />
-      <Notice notice={notice} />
+      <Notice
+        notice={notice}
+        next={
+          notice === "payment-posted"
+            ? [
+                { href: "/payments/new", label: "Receive another" },
+                { href: `/customers/${p.customer.id}/statement`, label: "Customer statement" },
+              ]
+            : []
+        }
+      />
       <div className="space-y-1 text-sm">
         <PaymentBadges status={p.status} chequeStatus={p.cheque?.status} />
         <p className="text-lg font-medium tabular-nums">PKR {formatMoney(p.amount)}</p>

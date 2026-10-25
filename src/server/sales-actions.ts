@@ -57,18 +57,22 @@ export async function saveSalesOrderAction(
   formData: FormData,
 ): Promise<ActionState> {
   let savedId = "";
+  let deliveryDate = "";
   const result = await runAction<undefined>(async () => {
     const ctx = await requireTenantContext("operations.manage");
     const saved = id
       ? await updateSalesOrder(ctx, id, orderInput(formData))
       : await createSalesOrder(ctx, orderInput(formData));
     savedId = saved.id;
+    // Validated by the save; a YYYY-MM-DD date.
+    deliveryDate = String(formData.get("deliveryDate") ?? "");
   }, formData);
   if (result.status !== "success") return result;
   revalidatePath("/orders");
   redirect(
     formData.get("intent") === "next"
-      ? `/orders/new?notice=booked&last=${savedId}`
+      ? // The next order keeps this one's delivery date.
+        `/orders/new?notice=booked&last=${savedId}&date=${deliveryDate}`
       : `/orders/${savedId}?notice=${id ? "saved" : "booked"}`,
   );
 }

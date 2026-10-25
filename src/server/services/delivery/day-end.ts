@@ -350,6 +350,67 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
   );
 }
 
+/**
+ * Every order of a trip for the one-page day-end: those still to enter (in route order, with what
+ * the form needs) and those already entered. Previous pending is frozen on each bill at dispatch.
+ */
+export async function getTripDayEnd(ctx: ServiceCtx, tripId: string) {
+  assertCan(ctx.user.role, "operations.manage");
+  const trip = found(
+    await ctx.db.deliveryTrip.findUnique({
+      where: { id: tripId },
+      select: {
+        id: true,
+        number: true,
+        tripDate: true,
+        status: true,
+        bike: { select: { name: true } },
+        driver: { select: { name: true } },
+        orders: {
+          where: { status: { not: "CANCELLED" } },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            customer: {
+              select: {
+                name: true,
+                shopName: true,
+                phone: true,
+                creditLimit: true,
+                routeSequence: true,
+                area: { select: { name: true, sortOrder: true } },
+              },
+            },
+            bill: { select: { number: true, netAmount: true, previousBalance: true } },
+            lines: {
+              include: {
+                product: { select: { code: true, name: true } },
+                company: { select: { name: true } },
+              },
+              orderBy: [{ company: { name: "asc" } }, { product: { code: "asc" } }],
+            },
+            payments: {
+              where: { status: "POSTED", collectedVia: "DELIVERY" },
+              select: { method: true, amount: true },
+            },
+          },
+        },
+      },
+    }),
+    "trip",
+  );
+  const orders = [...trip.orders].sort(byRoute);
+  return {
+    ...trip,
+    pending: orders.filter((o) => o.status === "DISPATCHED"),
+    entered: orders.filter(
+      (o) => o.status !== "DISPATCHED" && o.status !== "BOOKED" && o.status !== "PLANNED",
+    ),
+  };
+}
+
+export type TripDayEnd = Awaited<ReturnType<typeof getTripDayEnd>>;
 /** The next order on the same trip still waiting for its day-end entry (for "save and next"). */
 export async function nextOrderToReconcile(ctx: ServiceCtx, tripId: string) {
   assertCan(ctx.user.role, "operations.manage");
