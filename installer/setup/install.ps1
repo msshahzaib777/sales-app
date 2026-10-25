@@ -37,6 +37,18 @@ $WebService = "TaqseemWeb"
 $FirewallRule = "Taqseem website"
 
 New-Item -ItemType Directory -Force -Path $DataDir, $LogDir, $BackupDir, $ServiceDir | Out-Null
+# Folder permissions first, before anything is written: only administrators and Windows itself may
+# read the data folder (it holds the passwords); anyone on this computer may read the logs (no
+# passwords are written there), so a failed setup can always be looked into; and the database
+# folder is writable by this user and Network Service, because PostgreSQL drops administrator
+# rights when an administrator starts it (initdb runs as this same user without them) and its
+# service runs as Network Service.
+$DbDir = Join-Path $DataDir "db"
+New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
+$me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+cmd /c "icacls `"$DataDir`" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /Q >nul 2>&1"
+cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /Q >nul 2>&1"
+cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /T /Q >nul 2>&1"
 Start-Transcript -Path (Join-Path $LogDir "install-log.txt") -Append | Out-Null
 
 function Step($text) { Write-Host "==> $text" }
@@ -153,23 +165,15 @@ Write-Settings $s
 $superUrl = "postgresql://postgres:$($s.PG_SUPER_PASSWORD)@localhost:$($s.PG_PORT)/postgres"
 $appUrl = "postgresql://sales_app:$($s.APP_DB_PASSWORD)@localhost:$($s.PG_PORT)/sales_app?schema=public"
 
-# Only administrators and Windows itself may read the data folder (it holds the passwords)...
-Capture { icacls $DataDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T /Q } | Out-Null
-# ...except the logs, which anyone on this computer may read (no passwords are written there), so a
-# failed setup can be looked into without administrator rights.
-Capture { icacls $LogDir /grant "*S-1-5-32-545:(OI)(CI)RX" /T /Q } | Out-Null
-# The database folder: PostgreSQL drops administrator rights when an administrator starts it (initdb
-# runs as this same user without them), and the service runs as Network Service. Both must be able
-# to write here, which "administrators only" does not allow.
-New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
-$me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-Capture { icacls $DbDir /grant "*${me}:(OI)(CI)M" "*S-1-5-20:(OI)(CI)M" /T /Q } | Out-Null
 
 # -- 3. Database ----------------------------------------------------------------
 Step "Preparing the database"
 $newDatabase = -not (Test-Path (Join-Path $DbDir "PG_VERSION"))
 if ($newDatabase) {
   if ($Mode -eq "update") { Fail "There is no existing data to update. Run the setup again and choose demo data or your business." }
+  # Again here: "start fresh" may have just deleted the folder.
+  New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
+  cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /T /Q >nul 2>&1"
   $pwFile = Join-Path $DataDir "pw.tmp"
   Set-Content -Path $pwFile -Value $s.PG_SUPER_PASSWORD -NoNewline -Encoding ASCII
   $r = Capture { & (Join-Path $PgBin "initdb.exe") -D $DbDir -U postgres "--pwfile=$pwFile" -A scram-sha-256 -E UTF8 --no-locale }

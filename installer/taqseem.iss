@@ -176,7 +176,7 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Params, Login: String;
+  Params, Login, Output, Tail: String;
   Lines: TArrayOfString;
   I, Code: Integer;
 begin
@@ -191,13 +191,23 @@ begin
   if StartFresh() then Params := Params + ' -Fresh';
 
   WizardForm.StatusLabel.Caption := 'Setting up the database and starting Taqseem (a minute or two)...';
-  Exec(PowerShell(), '-NoProfile -ExecutionPolicy Bypass -File "' +
-    ExpandConstant('{app}\setup\install.ps1') + '" ' + Params, '', SW_HIDE, ewWaitUntilTerminated, Code);
+  { Everything the script prints (also errors from PowerShell itself, before the script's own log
+    starts) goes to a file, shown when something fails and kept next to the log. }
+  Output := DataDir() + '\logs\install-output.txt';
+  ForceDirectories(DataDir() + '\logs');
+  Exec(ExpandConstant('{cmd}'), '/c ""' + PowerShell() + '" -NoProfile -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{app}\setup\install.ps1') + '" ' + Params + ' > "' + Output + '" 2>&1"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code);
   Succeeded := Code = 0;
   if not Succeeded then
   begin
+    Tail := '';
+    if LoadStringsFromFile(Output, Lines) then
+      for I := GetArrayLength(Lines) - 12 to GetArrayLength(Lines) - 1 do
+        if I >= 0 then Tail := Tail + Lines[I] + #13#10;
     MsgBox('Taqseem was copied but could not be set up (code ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
-      'The details are in ' + DataDir() + '\logs\install-log.txt. ' +
+      Tail + #13#10 +
+      'The details are in ' + DataDir() + '\logs. ' +
       'Run TaqseemSetup again; it continues where it stopped.', mbError, MB_OK);
     Exit;
   end;
