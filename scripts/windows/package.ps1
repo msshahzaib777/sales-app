@@ -37,6 +37,9 @@ Step "Building the website (standalone)"
 $env:TAQSEEM_STANDALONE = "1"
 # The build only needs some database address; it does not connect.
 if (-not $env:DATABASE_URL) { $env:DATABASE_URL = "postgresql://build@localhost:5432/build" }
+# The generated database client is not in Git; make it here so packaging works on a computer
+# without a developer setup (no .env, no database).
+Run "Generating the database client" { pnpm exec prisma generate }
 try { Run "Build" { pnpm build } } finally { Remove-Item Env:TAQSEEM_STANDALONE }
 $build = Join-Path $Root ".next-package"
 $standalone = Join-Path $build "standalone"
