@@ -153,8 +153,17 @@ Write-Settings $s
 $superUrl = "postgresql://postgres:$($s.PG_SUPER_PASSWORD)@localhost:$($s.PG_PORT)/postgres"
 $appUrl = "postgresql://sales_app:$($s.APP_DB_PASSWORD)@localhost:$($s.PG_PORT)/sales_app?schema=public"
 
-# Only administrators and Windows itself may read the data folder (it holds the passwords).
+# Only administrators and Windows itself may read the data folder (it holds the passwords)...
 Capture { icacls $DataDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T /Q } | Out-Null
+# ...except the logs, which anyone on this computer may read (no passwords are written there), so a
+# failed setup can be looked into without administrator rights.
+Capture { icacls $LogDir /grant "*S-1-5-32-545:(OI)(CI)RX" /T /Q } | Out-Null
+# The database folder: PostgreSQL drops administrator rights when an administrator starts it (initdb
+# runs as this same user without them), and the service runs as Network Service. Both must be able
+# to write here, which "administrators only" does not allow.
+New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
+$me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+Capture { icacls $DbDir /grant "*${me}:(OI)(CI)M" "*S-1-5-20:(OI)(CI)M" /T /Q } | Out-Null
 
 # -- 3. Database ----------------------------------------------------------------
 Step "Preparing the database"
