@@ -12,6 +12,7 @@ import { createCustomer } from "../master/customers";
 import { createProduct } from "../master/products";
 import { createWarehouse } from "../master/warehouses";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
+import { globalSearch } from "../search";
 import { getBillView } from "./bills";
 import {
   approveCreditOverride,
@@ -329,5 +330,30 @@ describe("finding orders", () => {
     // The search and the area filter work together (they both filter the customer).
     const elsewhere = await createArea(t.ctx, { warehouseId: t.main.id, name: "Ravi" });
     expect(await find("ali", { areaId: elsewhere.id })).toEqual([]);
+  });
+});
+
+describe("search from anywhere", () => {
+  it("finds customers, orders and products together; links follow the role", async () => {
+    const r = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1" }]));
+    const kinds = async (q: string, ctx = t.ctx) =>
+      (await globalSearch(ctx, q)).map((h) => `${h.kind}: ${h.title}`);
+
+    expect(await kinds("khan ali")).toEqual([
+      `Order: Order #${r.number} · Ali Khan`,
+      "Customer: Ali Khan",
+    ]);
+    expect(await kinds("cb01")).toEqual([
+      `Order: Order #${r.number} · Ali Khan`,
+      "Product: CB01 Item CB01",
+    ]);
+    expect(await kinds(`#${r.number}`)).toContain(`Order: Order #${r.number} · Ali Khan`);
+    expect(await kinds("   ")).toEqual([]);
+
+    // Owner opens the statement; staff (no ledgers) see the customer's orders instead.
+    const owner = (await globalSearch(t.ctx, "ali khan")).find((h) => h.kind === "Customer")!;
+    const staff = (await globalSearch(t.staff, "ali khan")).find((h) => h.kind === "Customer")!;
+    expect(owner.href).toBe(`/customers/${t.customer.id}/statement`);
+    expect(staff.href).toBe("/orders?q=Ali%20Khan");
   });
 });

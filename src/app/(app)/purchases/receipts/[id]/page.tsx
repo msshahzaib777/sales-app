@@ -35,7 +35,14 @@ export default async function GoodsReceiptPage({
           title={`Goods receipt #${r.number}`}
           description={`${r.company.name} · ${r.warehouse.name} · received ${formatDate(r.receivedDate)}${r.supplierRef ? ` · invoice ${r.supplierRef}` : ""}`}
         />
-        <Notice notice={notice} />
+        <Notice
+          notice={notice}
+          next={
+            notice === "posted"
+              ? [{ href: "/purchases/receipts/new", label: "Receive more goods" }]
+              : []
+          }
+        />
         <PostingBadge status={r.status} />
         {r.status === "REVERSED" ? (
           <p className="mt-2 text-sm">Cancelled: {r.reversalReason}</p>

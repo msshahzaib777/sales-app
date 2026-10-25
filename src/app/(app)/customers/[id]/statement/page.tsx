@@ -58,6 +58,9 @@ async function Statement({ params, searchParams }: PageProps<"/customers/[id]/st
             Receive payment
           </LinkButton>
         ) : null}
+        <LinkButton href={`/orders/new?customerId=${id}`} variant="outline">
+          New order
+        </LinkButton>
         {can(ctx.user.role, "payments.manage") ? (
           <LinkButton href={`/customers/${id}/old-bills`} variant="outline">
             Old balance

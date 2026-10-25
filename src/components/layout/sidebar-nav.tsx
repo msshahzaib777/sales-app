@@ -39,12 +39,12 @@ export function NavList({
               aria-current={active ? "page" : undefined}
               title={item.title}
               className={cn(
-                "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium outline-none group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0 focus-visible:ring-2",
+                "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium outline-none group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0 focus-visible:ring-2 max-md:justify-center max-md:px-0",
                 active && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
               <Icon className="size-4 shrink-0" aria-hidden />
-              <span className="truncate group-data-[collapsed=true]/sidebar:sr-only">
+              <span className="truncate group-data-[collapsed=true]/sidebar:sr-only max-md:sr-only">
                 {item.title}
               </span>
             </Link>

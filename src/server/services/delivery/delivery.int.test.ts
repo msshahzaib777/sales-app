@@ -26,7 +26,13 @@ import { getBillView } from "../sales/bills";
 import { businessToday, toDateInput } from "@/lib/dates";
 import { createSalesOrder } from "../sales/orders";
 import { customerPending, stockPositions } from "../sales/positions";
-import { getDayEndEntry, nextOrderToReconcile, saveDayEnd, undoDayEnd } from "./day-end";
+import {
+  getDayEndEntry,
+  getTripDayEnd,
+  nextOrderToReconcile,
+  saveDayEnd,
+  undoDayEnd,
+} from "./day-end";
 import {
   addOrdersToTrip,
   bookedOrdersFor,
@@ -903,5 +909,32 @@ describe("daily report: needs attention", () => {
     expect(r.issues[0]).toMatchObject({ level: "problem" });
     expect(r.issues[0]!.text).toMatch(/^1 order sent out this day has no day-end entered/);
     expect(r.issues[0]!.href).toBe(`/delivery?tripStatus=DISPATCHED&from=${DAY}&to=${DAY}`);
+  });
+});
+
+describe("trip day-end on one page", () => {
+  it("lists the orders still to enter in route order, and moves them when entered", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "2"]]);
+    const b = await book(t.bilal.id, [[t.nimko.id, "1"]]);
+    const tr = await trip([a.id, b.id]);
+    expect((await getTripDayEnd(t.staff, tr.id)).pending).toHaveLength(0); // not dispatched yet
+    await dispatchTrip(t.staff, { id: tr.id });
+
+    const before = await getTripDayEnd(t.staff, tr.id);
+    expect(before.pending.map((o) => o.customer.name).sort()).toEqual(["Ali", "Bilal"]);
+    // Previous pending as frozen on the bill at dispatch (Ali's opening balance).
+    const ali = before.pending.find((o) => o.id === a.id)!;
+    expect(ali.bill!.previousBalance.toFixed(2)).toBe("4000.00");
+
+    const requestId = randomUUID();
+    await saveDayEnd(t.staff, { requestId, orderId: a.id, lines: [], cash: "100" });
+    // Saving again with the same request id (Save pressed twice) changes nothing.
+    await saveDayEnd(t.staff, { requestId, orderId: a.id, lines: [], cash: "100" });
+    const after = await getTripDayEnd(t.staff, tr.id);
+    expect([after.pending.map((o) => o.id), after.entered.map((o) => o.id)]).toEqual([
+      [b.id],
+      [a.id],
+    ]);
+    expect(after.entered[0]!.payments.map((p) => p.amount.toFixed(2))).toEqual(["100.00"]);
   });
 });

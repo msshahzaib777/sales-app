@@ -10,7 +10,7 @@ import { Notice } from "@/components/master/notice";
 import { LinkButton, orNotFound } from "@/components/master/page-helpers";
 import { OrderStatusBadge } from "@/components/sales/order-badges";
 import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/dates";
+import { formatDate, toDateInput } from "@/lib/dates";
 import { formatDateTime, formatDiscount, formatMoney } from "@/lib/format";
 import { isOpenOrder } from "@/lib/sales";
 import { formatDozens } from "@/lib/units";
@@ -48,7 +48,20 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
             </>
           }
         />
-        <Notice notice={notice} />
+        <Notice
+          notice={notice}
+          next={
+            notice === "booked" || notice === "saved"
+              ? [
+                  { href: `/orders/${id}/bill`, label: "Print bill" },
+                  {
+                    href: `/orders/new?date=${toDateInput(order.deliveryDate)}`,
+                    label: "Book another",
+                  },
+                ]
+              : []
+          }
+        />
         <OrderStatusBadge status={order.status} needsCreditApproval={order.needsCreditApproval} />
         {order.trip ? (
           <p className="mt-2 text-sm">

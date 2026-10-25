@@ -2,6 +2,31 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Easier day-to-day — done
+
+- **Day-end for a whole trip on one page** (`/delivery/<trip>/day-end`; the trip's "Enter day-end"
+  and the dashboard quick action open it). One card per order still to enter, in route order:
+  returned and damaged per product, cash, online (reference appears when used), cheque (number,
+  bank and date appear when used), note; live bill after returns, still owed and minimum payment.
+  A bar at the bottom totals the cash, cheques and online to hand over, with one Save. Each order
+  saves on its own (`saveTripDayEndAction`): one with a mistake is held back with its errors and
+  what was typed, the rest save; a request id per order means Save twice never posts twice.
+  Orders already entered are listed below. The one-order page stays for single entries.
+- **Search from anywhere:** "/" or Ctrl+K, or the Search row in the sidebar. Customers, orders
+  (number, customer or product), products, companies, trips and payments (by number) in one box,
+  while typing; arrow keys and Enter. Links follow the role (`globalSearch`).
+- **Phone-friendly:** the trip day-end page is laid out for phones (big boxes, cards, the totals
+  bar at the bottom); on narrow screens the sidebar is always the icon strip and pages have
+  smaller margins.
+- **Fewer clicks after saving:** the saved message offers the usual next step: order booked →
+  Print bill, Book another (same delivery date); trip planned → Loading sheet, Print bills, Plan
+  another; dispatched → Print bills, Loading sheet; day-end saved → Enter the rest, Day report;
+  payment posted → Receive another, Customer statement; goods received → Receive more. "Save and
+  next" on orders keeps the delivery date and names the order just booked. New order can start
+  with a customer (`?customerId=`): "New order" on the customer page and statement.
+- A loading placeholder for all pages, so moving between pages shows something at once.
+- Demo data: order lines were 2–12 packets since the switch to packets; now 1 to 6 dozen again.
+- Tested (282 tests) and checked in Edge, desktop and phone size, on a separate demo copy.
 ## Usability round — done
 
 - **Staff form: a driver's bike.** When the role is Driver, the staff form shows a Bike choice

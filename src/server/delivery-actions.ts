@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import type { ActionState } from "@/lib/action-state";
+import { ZodError } from "zod";
 
-import { runAction } from "./actions";
+import { type ActionState, echoValues } from "@/lib/action-state";
+
+import { isWriteConflict, runAction } from "./actions";
+import { ForbiddenError } from "./auth/permissions";
 import { requireTenantContext } from "./auth/session";
+import { ServiceError } from "./services/errors";
 import { nextOrderToReconcile, saveDayEnd, undoDayEnd } from "./services/delivery/day-end";
 import {
   addOrdersToTrip,
@@ -128,6 +132,85 @@ export async function saveDayEndAction(
   );
 }
 
+/**
+ * The whole trip's day-end from one page. Fields are named `o:<orderId>:<field>`. Each order is
+ * saved on its own (its own transaction and request id), so one order with a mistake does not hold
+ * back the others; pressing Save again never posts an order twice. Errors come back keyed
+ * `o:<orderId>:<field>`, with a list of the orders that were not saved.
+ */
+export async function saveTripDayEndAction(
+  tripId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const values = echoValues(formData);
+  let ctx;
+  try {
+    ctx = await requireTenantContext("operations.manage");
+  } catch (error) {
+    if (error instanceof ForbiddenError)
+      return { status: "error", message: "You do not have permission to do this." };
+    throw error;
+  }
+  const orderIds = formData.getAll("orderId").map(String);
+  const get = (id: string, field: string) => {
+    const v = formData.get(`o:${id}:${field}`);
+    return typeof v === "string" ? v : "";
+  };
+  const fieldErrors: Record<string, string[]> = {};
+  const failed: string[] = [];
+  let saved = 0;
+  for (const id of orderIds) {
+    const label = get(id, "label") || id;
+    const productIds = formData.getAll(`o:${id}:line.productId`).map(String);
+    const returned = formData.getAll(`o:${id}:line.returned`).map(String);
+    const damaged = formData.getAll(`o:${id}:line.damaged`).map(String);
+    try {
+      await saveDayEnd(ctx, {
+        requestId: get(id, "requestId"),
+        orderId: id,
+        lines: productIds.map((productId, i) => ({
+          productId,
+          returned: returned[i] ?? "",
+          damaged: damaged[i] ?? "",
+        })),
+        cash: get(id, "cash"),
+        chequeAmount: get(id, "chequeAmount"),
+        chequeNo: get(id, "chequeNo"),
+        bankName: get(id, "bankName"),
+        chequeDate: get(id, "chequeDate"),
+        onlineAmount: get(id, "onlineAmount"),
+        onlineReference: get(id, "onlineReference"),
+        note: get(id, "note"),
+      });
+      saved++;
+    } catch (error) {
+      if (error instanceof ZodError) {
+        for (const issue of error.issues)
+          (fieldErrors[`o:${id}:${issue.path.join(".") || "form"}`] ??= []).push(issue.message);
+        failed.push(`${label}: check the highlighted boxes`);
+      } else if (error instanceof ServiceError) {
+        (fieldErrors[`o:${id}:form`] ??= []).push(error.message);
+        failed.push(`${label}: ${error.message}`);
+      } else if (isWriteConflict(error)) {
+        failed.push(`${label}: someone saved at the same moment; press Save again`);
+      } else {
+        throw error;
+      }
+    }
+  }
+  revalidatePath("/delivery");
+  revalidatePath("/orders");
+  if (failed.length > 0) {
+    return {
+      status: "error",
+      message: `${saved ? `${saved} saved. ` : ""}Not saved: ${failed.join(" · ")}`,
+      fieldErrors,
+      values,
+    };
+  }
+  redirect(`/delivery/${tripId}?notice=day-end-saved`);
+}
 /** Undoes a saved day-end (by reversal) and opens the order's day-end form again. */
 export async function undoDayEndAction(
   orderId: string,
