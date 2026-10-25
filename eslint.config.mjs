@@ -16,7 +16,16 @@ const eslintConfig = defineConfig([
       ],
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "src/generated/**"]),
+  globalIgnores([
+    ".next/**",
+    // The Windows installer build (pnpm package:windows).
+    ".next-package/**",
+    "dist/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "src/generated/**",
+  ]),
 ]);
 
 export default eslintConfig;

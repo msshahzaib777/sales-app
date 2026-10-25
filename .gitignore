@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next-package/
 /out/
 
 # production
@@ -49,3 +50,6 @@ next-env.d.ts
 # Windows setup script: generated passwords and logs, and database backups
 /.setup/
 /.backups/
+
+# Windows installer build output (pnpm package:windows)
+/dist/

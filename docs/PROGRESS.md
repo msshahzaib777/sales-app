@@ -2,6 +2,26 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Windows installer for customers — done (not yet run as administrator)
+
+`pnpm package:windows` (`scripts/windows/package.ps1`) builds `dist\TaqseemSetup-<version>.exe` with
+Inno Setup (`installer/taqseem.iss`): the Next.js standalone build (compiled only; built into
+`.next-package` so packaging never touches a running copy's `.next`), node.exe, PostgreSQL 17,
+WinSW, the migrations and four bundled tools (`migrate.mjs`, a Prisma-compatible migration runner
+without the Prisma CLI; `seed.mjs`; `create-tenant.mjs`; `db.mjs`). pnpm's linked node_modules are
+made flat for the installer (`flatten-modules.mjs`), Turbopack's hashed package aliases become
+copies, and no `.env` is shipped.
+
+- Wizard: demo data or my business (name, owner, email) on a new computer; update and keep data,
+  or start fresh (type DELETE) where it is installed. `installer/setup/install.ps1` does the work:
+  data in `C:\ProgramData\Taqseem` (admins only), the database as a Windows service (Network
+  Service), backup then migrations on update, the website as a WinSW service, firewall rule,
+  first login shown and saved. `remove.ps1` on uninstall, asking whether to delete the data.
+- Checked here without administrator rights: the package's PostgreSQL, the four tools (16
+  migrations, then none pending; demo data; a new business) and the compiled website on spare
+  ports (sign-in, dashboard, lists, reports, saving an expense, styles, no errors). Not yet run:
+  the installer wizard itself, the services and uninstall, which need administrator rights.
+
 ## Easier day-to-day — done
 
 - **Day-end for a whole trip on one page** (`/delivery/<trip>/day-end`; the trip's "Enter day-end"
@@ -27,6 +47,7 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 - A loading placeholder for all pages, so moving between pages shows something at once.
 - Demo data: order lines were 2–12 packets since the switch to packets; now 1 to 6 dozen again.
 - Tested (282 tests) and checked in Edge, desktop and phone size, on a separate demo copy.
+
 ## Usability round — done
 
 - **Staff form: a driver's bike.** When the role is Driver, the staff form shows a Bike choice
@@ -49,11 +70,13 @@ Running log of what has been built, decisions taken, and open items. Newest firs
   their limit, low stock, high returns (10%+, at least half a dozen), damage to settle, sold below
   cost (warnings). Products whose stock did not move are folded away.
 - Tested (280 tests) and checked in Edge.
+
 ## Business analysis — done
 
 Reports → Business analysis (`/reports/analysis?period=week|month|quarter&date=…`, ◀ ▶ by period,
 Print / PDF, Excel; `businessAnalysis` in `src/server/services/reports/analysis.ts`, period maths
 in `src/lib/analysis.ts`). Every figure is compared with the previous period of the same length.
+
 - **Overview:** sales, gross profit and margin, net profit (after expenses), payments received,
   orders delivered, customers who bought; a trend chart of the last 12 weeks / 12 months /
   8 quarters (sales and gross profit).
@@ -72,6 +95,7 @@ in `src/lib/analysis.ts`). Every figure is compared with the previous period of 
 
 The daily report's "Payment pending" list now shows each customer's phone (and WhatsApp when
 different), also in its Excel file.
+
 ## Dashboard: the chosen day's work — done
 
 The dashboard's work panel now follows the chosen date like the money panel does. Before, a past
@@ -83,11 +107,13 @@ the next day's orders, and day-end entries still pending on any date. "Full day 
 the daily report for that date. Tested in `delivery.int.test.ts` (a future trip entered early).
 
 Found while running on Windows for the first time:
+
 - `taqseem.bat` deleted its saved process number when stopping the website failed, and said
   "Restart the laptop" when the real reason was "access denied" (website started with
   administrator rights, stop run without). It now keeps the number and says so.
 - The integration test setup could not start `pnpm` on Windows (`pnpm.cmd` needs the shell).
   All 269 tests now pass on Windows too.
+
 ## Windows uninstall — done
 
 `uninstall-windows.bat` (`scripts/windows/uninstall.ps1`), after typing DELETE: stops the website
