@@ -18,6 +18,7 @@ import { bounceCheque, clearCheque } from "../payments/customer-payments";
 import { settleClaim } from "../purchasing/claims";
 import { getDashboard } from "../dashboard";
 import { createCustomerPayment } from "../payments/customer-payments";
+import { businessAnalysis } from "../reports/analysis";
 import { dailyReport } from "../reports/daily";
 import { damageReport } from "../reports/damage";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
@@ -281,7 +282,7 @@ describe("day-end entry", () => {
       requestId: randomUUID(),
       orderId: a.id,
       lines: [
-        { productId: t.chips.id, returned: "24", damaged: "12" },
+        { productId: t.chips.id, returned: "24pk", damaged: "12pk" },
         { productId: t.nimko.id, returned: "", damaged: "" },
       ],
       cash: "1000",
@@ -357,7 +358,7 @@ describe("day-end entry", () => {
     const refused = {
       requestId,
       orderId: b.id,
-      lines: [{ productId: t.nimko.id, returned: "36", damaged: "0" }],
+      lines: [{ productId: t.nimko.id, returned: "36pk", damaged: "0pk" }],
       chequeAmount: "250",
       chequeNo: "001122",
       bankName: "HBL",
@@ -399,7 +400,7 @@ describe("day-end entry", () => {
     await expect(
       saveDayEnd(t.staff, {
         orderId: a.id,
-        lines: [{ productId: t.chips.id, returned: "96", damaged: "36" }],
+        lines: [{ productId: t.chips.id, returned: "96pk", damaged: "36pk" }],
       }),
     ).rejects.toThrow(/more than the quantity sent/);
     await expect(
@@ -426,7 +427,7 @@ describe("undoing a day-end entry", () => {
     // Entered wrongly: 2 dz chips returned, 1 dz damaged, 1000 cash.
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "24", damaged: "12" }],
+      lines: [{ productId: t.chips.id, returned: "24pk", damaged: "12pk" }],
       cash: "1000",
     });
     return { a, tr };
@@ -492,7 +493,7 @@ describe("undoing a day-end entry", () => {
 
   it("refuses when the damaged stock was sent back, a claim was deducted, or a cheque cleared", async () => {
     const { a } = await entered();
-    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "12", returnDate: DAY });
+    await returnDamagedStock(t.ctx, { productId: t.chips.id, quantity: "12pk", returnDate: DAY });
     await expect(undoDayEnd(t.ctx, { id: a.id, reason: "late fix" })).rejects.toThrow(
       /already been sent back/,
     );
@@ -573,7 +574,7 @@ describe("settling a day-end damage claim", () => {
     await dispatchTrip(t.staff, { id: tr.id });
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "", damaged: "12" }],
+      lines: [{ productId: t.chips.id, returned: "", damaged: "12pk" }],
     });
     return t.ctx.db.companyClaim.findFirstOrThrow({ where: { salesOrderId: a.id } });
   };
@@ -645,7 +646,7 @@ describe("damage report", () => {
     await dispatchTrip(t.staff, { id: tr.id });
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "", damaged: "5" }],
+      lines: [{ productId: t.chips.id, returned: "", damaged: "5pk" }],
     });
     const range = { from: new Date(`${DAY}T00:00:00.000Z`), to: new Date(`${DAY}T00:00:00.000Z`) };
 
@@ -771,7 +772,7 @@ describe("daily report", () => {
     // 1 dozen comes back; 100 cash.
     await saveDayEnd(t.staff, {
       orderId: a.id,
-      lines: [{ productId: t.chips.id, returned: "12", damaged: "" }],
+      lines: [{ productId: t.chips.id, returned: "12pk", damaged: "" }],
       cash: "100",
     });
     const day = new Date(`${DAY}T00:00:00.000Z`);
@@ -795,8 +796,112 @@ describe("daily report", () => {
       600, 24, 12, 588,
     ]);
 
+    // Needs attention: half of the chips came back.
+    expect(r.issues.map((i) => [i.level, i.text.split(":")[0]])).toEqual([
+      ["warning", "High returns or damage"],
+    ]);
+
     // Staff: no money, cost or profit.
     const staff = await dailyReport(t.staff, day);
     expect([staff.money, staff.profit, staff.productsSold[0]!.cost]).toEqual([null, null, null]);
+  });
+});
+
+describe("dashboard for a chosen day", () => {
+  it("shows that day's trips, deliveries and bills, also for a future trip already entered", async () => {
+    const future = "2026-11-03";
+    const a = await book(t.ali.id, [[t.chips.id, "2"]], { deliveryDate: future });
+    const b = await book(t.bilal.id, [[t.nimko.id, "1"]], { deliveryDate: future });
+    const tr = await trip([a.id, b.id], { tripDate: future });
+    await dispatchTrip(t.staff, { id: tr.id });
+    // Ali returns 1 dozen and pays cash; Bilal's day-end is not entered yet.
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "12pk", damaged: "" }],
+      cash: "100",
+    });
+
+    const d = await getDashboard(t.ctx, { date: new Date(`${future}T00:00:00.000Z`) });
+    const w = d.work.day;
+    expect(w.trips.map((x) => [x.number, x.status, x.orders, x.toEnter])).toEqual([
+      [tr.number, "DISPATCHED", 2, 1],
+    ]);
+    expect([w.out, w.orders, w.partly, w.stillOut]).toEqual([1, 2, 1, 1]);
+    expect([w.sent, w.returnedQty]).toEqual([36, 12]);
+    // Ali's bill after the return (1 dz × 196) + Bilal's bill as sent (1 dz × 150).
+    expect(w.billed.toFixed(2)).toBe("346.00");
+    expect(d.money!.collected.cash.amount.toFixed(2)).toBe("100.00");
+
+    // Another day has none of it.
+    const other = await getDashboard(t.ctx, { date: new Date("2026-11-04T00:00:00.000Z") });
+    expect([other.work.day.trips.length, other.work.day.orders]).toEqual([0, 0]);
+  });
+});
+describe("business analysis", () => {
+  const deliver = async (date: string, orders: [string, [string, string][]][]) => {
+    const ids = [];
+    for (const [customerId, lines] of orders)
+      ids.push((await book(customerId, lines, { orderDate: date, deliveryDate: date })).id);
+    const tr = await trip(ids, { tripDate: date });
+    await dispatchTrip(t.staff, { id: tr.id });
+    for (const id of ids) await saveDayEnd(t.staff, { orderId: id, lines: [] });
+  };
+
+  it("compares a month with the one before: products, companies and customers", async () => {
+    // September: Ali 2 dz chips, Bilal 1 dz nimko. October: Ali 5 dz chips, Bilal nothing.
+    await deliver("2026-09-10", [
+      [t.ali.id, [[t.chips.id, "2"]]],
+      [t.bilal.id, [[t.nimko.id, "1"]]],
+    ]);
+    await deliver("2026-10-05", [[t.ali.id, [[t.chips.id, "5"]]]]);
+    const a = await businessAnalysis(t.ctx, "month", new Date("2026-10-15T00:00:00.000Z"));
+
+    expect([a.current.label, a.previous.label]).toEqual(["Oct 2026", "Sep 2026"]);
+    // 5 dz × 196 against 2 × 196 + 150.
+    expect([a.overview.sales.current.toFixed(2), a.overview.sales.previous.toFixed(2)]).toEqual([
+      "980.00",
+      "542.00",
+    ]);
+    expect(a.overview.gross!.current.toFixed(2)).toBe("480.00"); // cost 5 dz × 100
+    expect(a.trend).toHaveLength(12);
+    expect(a.trend.at(-1)!.sales.toFixed(2)).toBe("980.00");
+
+    expect(a.products.rows.map((r) => [r.code, r.qty.current.toNumber(), r.trend])).toEqual([
+      ["CB01", 60, "RISING"],
+      ["GC01", 0, "STOPPED"],
+    ]);
+    expect(a.products.declining.map((r) => r.code)).toEqual(["GC01"]);
+
+    const crunchy = a.companies!.find((c) => c.name === "Crunchy")!;
+    expect([crunchy.gross.current.toFixed(2), crunchy.margin?.toFixed(1)]).toEqual([
+      "480.00",
+      "49.0",
+    ]);
+
+    const byName = new Map(a.customers!.rows.map((r) => [r.name, r]));
+    expect(byName.get("Ali")!.trend).toBe("RISING");
+    expect(byName.get("Bilal")!.trend).toBe("STOPPED");
+    // Bilal's September bill is still unpaid, more than 30 days on.
+    expect(byName.get("Bilal")!.late).toBe(true);
+    expect(a.customers!.stopped.map((r) => r.name)).toEqual(["Bilal"]);
+
+    // Staff: demand and sales only.
+    const staff = await businessAnalysis(t.staff, "month", new Date("2026-10-15T00:00:00.000Z"));
+    expect([staff.companies, staff.customers, staff.overview.gross]).toEqual([null, null, null]);
+    expect(staff.products.rows[0]!.profit).toBeNull();
+  });
+});
+
+describe("daily report: needs attention", () => {
+  it("puts an order without its day-end first, as a problem", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "2"]]);
+    const b = await book(t.bilal.id, [[t.nimko.id, "1"]]);
+    const tr = await trip([a.id, b.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    await saveDayEnd(t.staff, { orderId: a.id, lines: [] }); // Bilal's is not entered
+    const r = await dailyReport(t.ctx, new Date(`${DAY}T00:00:00.000Z`));
+    expect(r.issues[0]).toMatchObject({ level: "problem" });
+    expect(r.issues[0]!.text).toMatch(/^1 order sent out this day has no day-end entered/);
+    expect(r.issues[0]!.href).toBe(`/delivery?tripStatus=DISPATCHED&from=${DAY}&to=${DAY}`);
   });
 });

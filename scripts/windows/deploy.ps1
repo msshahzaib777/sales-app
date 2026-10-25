@@ -9,7 +9,7 @@
 #   taqseem.bat autostart start the website by itself when you sign in to Windows (on/off)
 #
 # Before database changes are applied, the database is backed up to
-# %LOCALAPPDATA%\SalesApp\backups (the last 10 are kept).
+# .backups in the project folder (the last 10 are kept).
 #
 # The first installation is done by setup-windows.bat. Written for Windows PowerShell 5.1. ASCII only.
 
@@ -53,14 +53,12 @@ function Website-Process {
 
 function Stop-Website {
   $stopped = $false
+  $why = ""
   # The hidden window started by Start-Website (and the node process under it).
-  if (Test-Path $PidFile) {
-    $savedPid = (Get-Content $PidFile -Raw).Trim()
-    if ($savedPid -match "^\d+$" -and (Get-Process -Id $savedPid -ErrorAction SilentlyContinue)) {
-      Capture { taskkill /PID $savedPid /T /F } | Out-Null
-      $stopped = $true
-    }
-    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+  $savedPid = if (Test-Path $PidFile) { (Get-Content $PidFile -Raw).Trim() } else { "" }
+  if ($savedPid -match "^\d+$" -and (Get-Process -Id $savedPid -ErrorAction SilentlyContinue)) {
+    $result = Capture { taskkill /PID $savedPid /T /F }
+    if ($result.Code -eq 0) { $stopped = $true } else { $why = $result.Out }
   }
   # Also a website started some other way (e.g. by hand), if it is node.
   $proc = Website-Process
@@ -68,11 +66,18 @@ function Stop-Website {
     if ($proc.ProcessName -ne "node") {
       Fail "Port $Port is used by another program ($($proc.ProcessName), process $($proc.Id)), not the website. Close it, then try again."
     }
-    Capture { taskkill /PID $proc.Id /T /F } | Out-Null
-    $stopped = $true
+    $result = Capture { taskkill /PID $proc.Id /T /F }
+    if ($result.Code -eq 0) { $stopped = $true } else { $why = $result.Out }
   }
   for ($i = 0; $i -lt 20 -and (Test-Port $Port); $i++) { Start-Sleep -Seconds 1 }
-  if (Test-Port $Port) { Fail "The website did not stop. Restart the laptop." }
+  if (Test-Port $Port) {
+    # The saved process number is kept, so the next try can still find the website.
+    if ($why -match "denied") {
+      Fail "Windows refused to stop the website (access denied): it was started with administrator rights. Run taqseem.bat and click Yes when it asks for administrator rights."
+    }
+    Fail "The website did not stop. $why Restart the laptop if it keeps happening."
+  }
+  Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
   return $stopped
 }
 
@@ -157,6 +162,11 @@ function Backup-Database {
     Fail "pg_dump.exe was not found, so the database can't be backed up before the update."
   }
   New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+  # Backups from before they moved to the project folder.
+  if (Test-Path $OldBackupDir) {
+    Get-ChildItem $OldBackupDir -Filter "taqseem-*.sql" | Move-Item -Destination $BackupDir -Force
+    Remove-Item $OldBackupDir -Force -ErrorAction SilentlyContinue
+  }
   $file = Join-Path $BackupDir ("taqseem-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".sql")
   # pg_dump does not know Prisma's "?schema=public".
   $url = (Read-DatabaseUrl) -replace "\?.*$", ""

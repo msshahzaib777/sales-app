@@ -24,7 +24,7 @@ export function NavList({
   pathname?: string;
 }) {
   return (
-    <nav aria-label="Main" className="flex flex-col gap-0.5 p-2">
+    <nav aria-label="Main" className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
       {navItems
         .filter((item) => visibleHrefs.includes(item.href))
         .map((item) => {
@@ -37,13 +37,16 @@ export function NavList({
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
+              title={item.title}
               className={cn(
-                "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium outline-none focus-visible:ring-2",
+                "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium outline-none group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0 focus-visible:ring-2",
                 active && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
-              <Icon className="size-4" aria-hidden />
-              {item.title}
+              <Icon className="size-4 shrink-0" aria-hidden />
+              <span className="truncate group-data-[collapsed=true]/sidebar:sr-only">
+                {item.title}
+              </span>
             </Link>
           );
         })}

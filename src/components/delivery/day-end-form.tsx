@@ -12,18 +12,16 @@ import { type ActionState, fieldError, idleState, submittedValue } from "@/lib/a
 import { deliveredLines, type BookedLine } from "@/lib/delivery";
 import { formatMoney } from "@/lib/format";
 import { minimumPayment } from "@/lib/sales";
-import { formatDozens } from "@/lib/units";
+import { formatDozens, parseQuantity, quantityText } from "@/lib/units";
 
 export type DayEndLine = BookedLine & { code: string; name: string; companyName: string };
 
-/** Packets as typed: "30" → 30; blank → 0; anything else → null. */
+/** A quantity as typed ("2", "2dz 5pk", "5pk") in packets; blank → 0; unreadable → null. */
 function packets(text: string): number | null {
-  const t = text.trim().replace(/,/g, "");
-  if (t === "") return 0;
-  return /^\d{1,7}$/.test(t) ? Number(t) : null;
+  return text.trim() === "" ? 0 : parseQuantity(text);
 }
 
-/** "30" → "2.5 dz" under a packets box, so the entry can be checked against the bill. */
+/** "= 2 dz 5 pk" under a box, so the entry can be checked against the bill. */
 function PacketsHint({ value }: { value: number | null }) {
   return value ? (
     <div className="text-muted-foreground mt-0.5 text-xs tabular-nums">= {formatDozens(value)}</div>
@@ -121,7 +119,8 @@ export function DayEndForm({
       <section aria-labelledby="lines-heading" className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="lines-heading" className="font-medium">
-            Products: returns and damage in packets (12 = 1 dozen); blank when all were delivered
+            Products: returns and damage in dozens (2, 2.5) or with packets (2dz 5pk, 5pk); blank
+            when all were delivered
           </h2>
           <Button
             type="button"
@@ -130,7 +129,10 @@ export function DayEndForm({
             onClick={() =>
               setQty(
                 Object.fromEntries(
-                  lines.map((l) => [l.productId, { returned: String(l.quantity), damaged: "" }]),
+                  lines.map((l) => [
+                    l.productId,
+                    { returned: quantityText(l.quantity), damaged: "" },
+                  ]),
                 ),
               )
             }
@@ -170,12 +172,12 @@ export function DayEndForm({
                     <td className="px-3 py-1.5">
                       <Input
                         name="line.returned"
-                        inputMode="numeric"
                         autoComplete="off"
-                        className="w-20"
+                        className="w-24"
+                        placeholder="dz"
                         value={q.returned}
                         autoFocus={i === 0}
-                        aria-label={`${l.name} returned (packets)`}
+                        aria-label={`${l.name} returned`}
                         aria-invalid={bad ? true : undefined}
                         onChange={(e) => set(l.productId, "returned", e.target.value)}
                       />
@@ -184,11 +186,11 @@ export function DayEndForm({
                     <td className="px-3 py-1.5">
                       <Input
                         name="line.damaged"
-                        inputMode="numeric"
                         autoComplete="off"
-                        className="w-20"
+                        className="w-24"
+                        placeholder="dz"
                         value={q.damaged}
-                        aria-label={`${l.name} damaged (packets)`}
+                        aria-label={`${l.name} damaged`}
                         aria-invalid={bad ? true : undefined}
                         onChange={(e) => set(l.productId, "damaged", e.target.value)}
                       />

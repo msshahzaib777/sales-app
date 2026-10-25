@@ -6,7 +6,7 @@ import { orNotFound } from "@/components/master/page-helpers";
 import { OrderEntry } from "@/components/sales/order-entry";
 import { toDateInput } from "@/lib/dates";
 import { isOpenOrder } from "@/lib/sales";
-import { PACKETS_PER_DOZEN } from "@/lib/units";
+import { quantityText } from "@/lib/units";
 import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveSalesOrderAction } from "@/server/sales-actions";
@@ -61,7 +61,7 @@ export default async function EditOrderPage({ params }: PageProps<"/orders/[id]/
           note: order.note ?? undefined,
           lines: order.lines.map((l) => ({
             productId: l.productId,
-            qty: String(l.quantity / PACKETS_PER_DOZEN),
+            qty: quantityText(l.quantity),
           })),
         }}
       />

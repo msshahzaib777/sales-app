@@ -21,9 +21,9 @@ const DAY_MS = 86_400_000;
 export const DUE_SOON_DAYS = 7;
 
 /**
- * `date` (default today) picks the day for the day-based figures: orders for the next day, money
- * collected and spent, company bills due. Trips out, pending approvals, credit limits and low stock
- * are always as they are now.
+ * `date` (default today) picks the day for the day-based figures: that day's trips and deliveries,
+ * orders for the next day, money collected and spent, company bills due. Trips still out (any
+ * date), pending approvals, credit limits and low stock are always as they are now.
  */
 export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) {
   assertCan(ctx.user.role, "operations.manage");
@@ -33,33 +33,91 @@ export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) 
   const showMoney = can(ctx.user.role, "payments.manage");
 
   const approver = can(ctx.user.role, "stock.approveAdjustment");
-  const [tomorrowOrders, tripsOut, dayEndPending, overLimit, lowStock, money, adjustmentsPending] =
-    await Promise.all([
-      ctx.db.salesOrder.groupBy({
-        by: ["status"],
-        where: { deliveryDate: tomorrow, status: { not: "CANCELLED" } },
-        _count: { _all: true },
-      }),
-      ctx.db.deliveryTrip.findMany({
-        where: { status: "DISPATCHED" },
-        orderBy: [{ tripDate: "asc" }, { number: "asc" }],
-        select: {
-          id: true,
-          number: true,
-          tripDate: true,
-          bike: { select: { name: true } },
-          driver: { select: { name: true } },
-          _count: { select: { orders: { where: { status: "DISPATCHED" } } } },
+  const [
+    tomorrowOrders,
+    tripsOut,
+    dayEndPending,
+    overLimit,
+    lowStock,
+    money,
+    adjustmentsPending,
+    tripsOnDay,
+  ] = await Promise.all([
+    ctx.db.salesOrder.groupBy({
+      by: ["status"],
+      where: { deliveryDate: tomorrow, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+    }),
+    ctx.db.deliveryTrip.findMany({
+      where: { status: "DISPATCHED" },
+      orderBy: [{ tripDate: "asc" }, { number: "asc" }],
+      select: {
+        id: true,
+        number: true,
+        tripDate: true,
+        bike: { select: { name: true } },
+        driver: { select: { name: true } },
+        _count: { select: { orders: { where: { status: "DISPATCHED" } } } },
+      },
+    }),
+    ctx.db.salesOrder.count({ where: { status: "DISPATCHED" } }),
+    customersOverLimit(ctx),
+    listStock(ctx, { low: true, page: 1 }),
+    showMoney ? moneyToday(ctx, today) : Promise.resolve(null),
+    approver
+      ? ctx.db.stockAdjustment.count({ where: { status: "PENDING" } })
+      : Promise.resolve(null),
+    // The chosen day's trips, with their orders: how the day's deliveries went.
+    ctx.db.deliveryTrip.findMany({
+      where: { tripDate: today },
+      orderBy: { number: "asc" },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        bike: { select: { name: true } },
+        driver: { select: { name: true } },
+        orders: {
+          where: { status: { not: "CANCELLED" } },
+          select: {
+            status: true,
+            lines: { select: { quantity: true, returnedQuantity: true, damagedQuantity: true } },
+            bill: { select: { netAmount: true, postedAt: true } },
+          },
         },
-      }),
-      ctx.db.salesOrder.count({ where: { status: "DISPATCHED" } }),
-      customersOverLimit(ctx),
-      listStock(ctx, { low: true, page: 1 }),
-      showMoney ? moneyToday(ctx, today) : Promise.resolve(null),
-      approver
-        ? ctx.db.stockAdjustment.count({ where: { status: "PENDING" } })
-        : Promise.resolve(null),
-    ]);
+      },
+    }),
+  ]);
+
+  const dayOrders = tripsOnDay.flatMap((t) => t.orders);
+  const countOf = (status: string) => dayOrders.filter((o) => o.status === status).length;
+  const lines = dayOrders.flatMap((o) => o.lines);
+  const day = {
+    trips: tripsOnDay.map((t) => ({
+      id: t.id,
+      number: t.number,
+      status: t.status,
+      bikeName: t.bike.name,
+      driverName: t.driver?.name ?? null,
+      orders: t.orders.length,
+      toEnter: t.orders.filter((o) => o.status === "DISPATCHED").length,
+    })),
+    planned: tripsOnDay.filter((t) => t.status === "PLANNED").length,
+    out: tripsOnDay.filter((t) => t.status === "DISPATCHED").length,
+    done: tripsOnDay.filter((t) => t.status === "RECONCILED").length,
+    orders: dayOrders.length,
+    delivered: countOf("DELIVERED"),
+    partly: countOf("PARTIALLY_DELIVERED"),
+    returned: countOf("RETURNED"),
+    stillOut: countOf("DISPATCHED"),
+    notDispatched: dayOrders.filter((o) => o.status === "BOOKED" || o.status === "PLANNED").length,
+    /** Dozens sent out, and kept by customers once day-end is entered (packets). */
+    sent: lines.reduce((s, l) => s + l.quantity, 0),
+    returnedQty: lines.reduce((s, l) => s + l.returnedQuantity, 0),
+    damagedQty: lines.reduce((s, l) => s + l.damagedQuantity, 0),
+    /** Bills posted at dispatch, after returns once day-end is entered. */
+    billed: dayOrders.reduce((s, o) => (o.bill?.postedAt ? s.add(o.bill.netAmount) : s), D(0)),
+  };
 
   const booked = tomorrowOrders.find((g) => g.status === "BOOKED")?._count._all ?? 0;
   const ordersTomorrow = tomorrowOrders.reduce((n, g) => n + g._count._all, 0);
@@ -67,6 +125,8 @@ export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) 
     today,
     isToday: today.getTime() === realToday.getTime(),
     work: {
+      /** The chosen day's trips and deliveries. */
+      day,
       tomorrow,
       ordersTomorrow,
       notOnTripTomorrow: booked,

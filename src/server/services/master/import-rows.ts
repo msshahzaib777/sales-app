@@ -346,7 +346,7 @@ export const IMPORT_NOTES: Record<ImportKind, string[]> = {
     "One row per product. Rates are per dozen in PKR.",
     "A code that already exists updates that product; new rates take effect today and are kept in price history.",
     "Discount per dozen is optional. Quantity slabs can be added on the product page after importing.",
-    "Minimum stock is in dozens (whole or half, e.g. 12.5).",
+    "Minimum stock is in dozens, e.g. 12, 12.5 or 12dz 4pk.",
   ],
   customers: [
     "One row per customer. Type is Retailer, Wholesaler, Dealer or Bike supplier (blank = Retailer).",

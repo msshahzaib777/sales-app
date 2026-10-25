@@ -160,8 +160,8 @@ async function week() {
   await saveDayEnd(ctx, {
     orderId: a.id,
     lines: [
-      { productId: chips.id, returned: "12", damaged: "" },
-      { productId: nimko.id, returned: "", damaged: "12" },
+      { productId: chips.id, returned: "12pk", damaged: "" },
+      { productId: nimko.id, returned: "", damaged: "12pk" },
     ],
     cash: "1000",
   });
@@ -358,10 +358,14 @@ describe("damaged stock sent back to the company", () => {
   it("leaves the damaged bucket without a second credit to the company", async () => {
     const before = await getCompanyLedger(ctx, w.golden.id, {});
     await expect(
-      returnDamagedStock(ctx, { productId: w.nimko.id, quantity: "24", returnDate: "2026-10-24" }),
+      returnDamagedStock(ctx, {
+        productId: w.nimko.id,
+        quantity: "24pk",
+        returnDate: "2026-10-24",
+      }),
     ).rejects.toThrow(/Only 1 dz/);
     const requestId = randomUUID();
-    const input = { productId: w.nimko.id, quantity: "12", returnDate: "2026-10-24", requestId };
+    const input = { productId: w.nimko.id, quantity: "12pk", returnDate: "2026-10-24", requestId };
     await returnDamagedStock(ctx, input);
     await returnDamagedStock(ctx, input);
     const card = await getStockCard(ctx, w.nimko.id, {});

@@ -277,7 +277,12 @@ const openingStockSchema = z.object({
   requestId: requestIdSchema,
   stockDate: dateSchema("date"),
   lines: z
-    .array(z.object({ productId: idSchema, quantity: dozensSchema("opening stock") }))
+    .array(
+      z.object({
+        productId: idSchema,
+        quantity: dozensSchema("opening stock", { step: "packet" }),
+      }),
+    )
     .max(1000),
 });
 

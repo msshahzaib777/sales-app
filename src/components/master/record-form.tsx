@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 // server. Keyboard-first: the first field is focused, Enter saves, Tab follows the visual order.
 
 type Option = { value: string; label: string };
+/** Show the field only while another select field has this value (e.g. bike only for drivers). */
+type ShowWhen = { field: string; value: string };
 
 export type FieldDef =
   | {
@@ -28,6 +30,7 @@ export type FieldDef =
       placeholder?: string;
       maxLength?: number;
       width?: "sm" | "md" | "full";
+      showWhen?: ShowWhen;
     }
   | {
       kind: "select";
@@ -39,6 +42,7 @@ export type FieldDef =
       placeholder?: string;
       hint?: string;
       width?: "sm" | "md" | "full";
+      showWhen?: ShowWhen;
     }
   | { kind: "section"; title: string; description?: string }
   | {
@@ -85,6 +89,25 @@ export function RecordForm({
       )?.defaultValue
     : undefined;
   const [discountType, setDiscountType] = useState(discountTypeDefault ?? "NONE");
+  // Current value of each select, for fields shown only for one of its values.
+  const [selected, setSelected] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      fields.flatMap((f) =>
+        f.kind === "select"
+          ? [
+              [
+                f.name,
+                (state.status === "error" ? state.values?.[f.name] : undefined) ??
+                  f.defaultValue ??
+                  "",
+              ],
+            ]
+          : [],
+      ),
+    ),
+  );
+  const shown = (f: FieldDef) =>
+    !("showWhen" in f) || !f.showWhen || selected[f.showWhen.field] === f.showWhen.value;
   const firstInput = fields.findIndex((f) => f.kind === "text" || f.kind === "select");
 
   return (
@@ -93,6 +116,9 @@ export function RecordForm({
       className="max-w-4xl space-y-6"
       onChange={(event) => {
         const target = event.target;
+        if (target instanceof HTMLSelectElement) {
+          setSelected((s) => ({ ...s, [target.name]: target.value }));
+        }
         if (
           slabsField &&
           target instanceof HTMLSelectElement &&
@@ -128,6 +154,7 @@ export function RecordForm({
           if (field.kind === "openings") {
             return <OpeningBalances key="openings" state={state} {...field} />;
           }
+          if (!shown(field)) return null;
           const autoFocus = i === firstInput;
           const className = WIDTH[field.width ?? "md"];
           if (field.kind === "select") {

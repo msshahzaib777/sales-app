@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { PACKETS_PER_DOZEN, PACKETS_PER_HALF_DOZEN } from "@/lib/units";
+import { PACKETS_PER_DOZEN, PACKETS_PER_HALF_DOZEN, parseQuantity } from "@/lib/units";
 
 // Master data validation, shared by forms, server actions and the Excel/CSV import.
 // Form values arrive as strings; these schemas trim them, turn "" into null, and convert money to
@@ -77,38 +77,51 @@ export const signedMoneySchema = (label: string) =>
     )
     .transform((v) => v ?? "0");
 
+/** A quantity as typed ("12", "12dz 4pk", "4pk"…; plain numbers are dozens) → packets. */
+const quantityInput = (label: string) =>
+  z
+    .unknown()
+    .transform((v, ctx) => {
+      const text = typeof v === "number" ? String(v) : typeof v === "string" ? v : "";
+      const packets = parseQuantity(text);
+      if (packets === null) {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            text.trim() === ""
+              ? `Enter the ${label}`
+              : `Enter the ${label} in dozens, like 12, 12.5, 12dz 4pk or 4pk`,
+        });
+        return z.NEVER;
+      }
+      return packets;
+    })
+    .refine((packets) => packets <= 9_999_999, `The ${label} is too large`);
+
 /**
- * Dozens as typed (whole or .5) → integer packets. `min` is in dozens (e.g. 0.5 = at least half a
- * dozen).
+ * A quantity in packets. `min` is in dozens. Orders, purchases and slabs are in whole or half
+ * dozens (`step: "half"`); stock counts, damage and returns take loose packets (`"packet"`).
  */
-export const dozensSchema = (label: string, { min = 0 } = {}) =>
-  z.preprocess(
-    numberText,
-    z
-      .string({ error: `Enter the ${label}` })
-      .regex(/^\d{1,7}(\.\d+)?$/, `Enter the ${label} in dozens`)
-      .refine(
-        (v) => Number.isInteger(Number(v) * 2),
-        `The ${label} must be in whole or half dozens`,
-      )
-      .transform((v) => (Number(v) * 2 * PACKETS_PER_HALF_DOZEN) as number)
-      .refine(
-        (packets) => packets >= min * PACKETS_PER_DOZEN,
-        `The ${label} must be at least ${min} dozen`,
-      ),
-  );
+export const dozensSchema = (
+  label: string,
+  { min = 0, step = "half" }: { min?: number; step?: "half" | "packet" } = {},
+) =>
+  quantityInput(label)
+    .refine(
+      (packets) => step === "packet" || packets % PACKETS_PER_HALF_DOZEN === 0,
+      `The ${label} must be in whole or half dozens (steps of 6 packets)`,
+    )
+    .refine(
+      (packets) => packets >= min * PACKETS_PER_DOZEN,
+      `The ${label} must be at least ${min} dozen`,
+    );
 
-/** Packets as typed (a whole number; 12 packets = 1 dozen): damage and returns. */
+/** A quantity that may be loose packets (damage, returns, adjustments); `min` is in packets. */
 export const packetsSchema = (label: string, { min = 0 } = {}) =>
-  z.preprocess(
-    numberText,
-    z.coerce
-      .number({ error: `Enter the ${label} in packets` })
-      .int(`The ${label} must be a whole number of packets`)
-      .min(min, min > 0 ? `Enter the ${label} in packets` : `The ${label} cannot be negative`)
-      .max(9_999_999, `The ${label} is too large`),
+  quantityInput(label).refine(
+    (packets) => packets >= min,
+    min > 0 ? `Enter the ${label}` : `The ${label} cannot be negative`,
   );
-
 const intSchema = (label: string, min: number, max: number) =>
   z.preprocess(
     numberText,
@@ -205,7 +218,7 @@ export const productSchema = z
     discountValue: blankAs(moneySchema("discount"), "0"),
     /** Quantity slabs: from N dozen, this discount replaces the base one (same unit as the base). */
     slabs: z.array(discountSlabSchema).max(10, "Use at most 10 slabs").default([]),
-    minStockLevel: blankAs(dozensSchema("minimum stock"), 0),
+    minStockLevel: blankAs(dozensSchema("minimum stock", { step: "packet" }), 0),
     /** When new rates take effect (price history). */
     effectiveFrom: dateSchema("effective date"),
   })
@@ -269,7 +282,7 @@ export const bikeSchema = z.object({
   requestId: requestIdSchema,
   name: requiredText("bike name or number", 60),
   warehouseId: optionalIdSchema,
-  capacity: dozensSchema("capacity", { min: 1 }),
+  capacity: dozensSchema("capacity", { min: 1, step: "packet" }),
   driverId: optionalIdSchema,
 });
 
@@ -282,6 +295,8 @@ export const staffSchema = z.object({
   phone: phoneSchema,
   monthlySalary: moneySchema("monthly salary"),
   joiningDate: optionalDateSchema("joining date"),
+  /** The bike a driver rides (saved on the bike). Ignored for other roles. */
+  bikeId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
 });
 
 export const recordIdSchema = z.object({ id: idSchema });

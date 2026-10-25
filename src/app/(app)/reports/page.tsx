@@ -7,6 +7,12 @@ export const metadata: Metadata = { title: "Reports" };
 
 const REPORTS = [
   {
+    href: "/reports/analysis",
+    title: "Business analysis",
+    description:
+      "Weekly, monthly or quarterly: sales and profit trends, products in demand or declining, profit per company, and customers who are growing, slipping or paying late.",
+  },
+  {
     href: "/reports/daily",
     title: "Daily report",
     description:

@@ -8,7 +8,7 @@ import { FormMessage } from "@/components/form/form-message";
 import { useRequestId } from "@/components/form/use-request-id";
 import { Button } from "@/components/ui/button";
 import { type ActionState, idleState } from "@/lib/action-state";
-import { formatDozens } from "@/lib/units";
+import { formatDozens, parseQuantity } from "@/lib/units";
 
 type Kind = "SHORT" | "EXTRA" | "DAMAGED";
 
@@ -27,7 +27,7 @@ const REASONS = [
   { value: "OTHER", label: "Other (say what)" },
 ];
 
-/** Records a stock adjustment; quantity in packets, with the dozens shown as you type. */
+/** Records a stock adjustment; quantity in dozens or packets, shown back as you type. */
 export function AdjustmentForm({
   action,
   products,
@@ -46,7 +46,7 @@ export function AdjustmentForm({
   const [chosen, setChosen] = useState(productId ?? "");
   const [qty, setQty] = useState("");
   const product = products.find((p) => p.id === chosen);
-  const packets = /^\d{1,7}$/.test(qty.trim()) ? Number(qty.trim()) : null;
+  const packets = parseQuantity(qty);
   const after =
     product && packets ? product.onHand + (kind === "EXTRA" ? packets : -packets) : null;
 
@@ -101,12 +101,14 @@ export function AdjustmentForm({
         <TextField
           state={state}
           name="quantity"
-          label="Quantity (packets)"
+          label="Quantity"
           hint={
-            packets ? `= ${formatDozens(packets)} (12 packets = 1 dozen)` : "12 packets = 1 dozen"
+            packets
+              ? `= ${formatDozens(packets)}`
+              : "Dozens (2, 2.5) or with packets (2dz 5pk, 5pk)"
           }
           required
-          inputMode="numeric"
+
           autoComplete="off"
           autoFocus={Boolean(productId)}
         />

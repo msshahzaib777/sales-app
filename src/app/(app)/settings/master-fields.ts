@@ -1,5 +1,5 @@
 import type { FieldDef } from "@/components/master/record-form";
-import { PACKETS_PER_DOZEN } from "@/lib/units";
+import { quantityText } from "@/lib/units";
 
 type Option = { id: string; name: string };
 const opts = (list: Option[]) => list.map((o) => ({ value: o.id, label: o.name }));
@@ -78,7 +78,7 @@ export function bikeFields(
       label: "Capacity (dozens)",
       required: true,
       inputMode: "decimal",
-      defaultValue: d.capacity ? String(d.capacity / PACKETS_PER_DOZEN) : "",
+      defaultValue: d.capacity ? quantityText(d.capacity) : "",
       hint: "Usually 80–100 dozen.",
       width: "sm",
     },
@@ -110,13 +110,18 @@ export const STAFF_ROLE_OPTIONS = [
   { value: "OTHER", label: "Other" },
 ];
 
-export function staffFields(d: {
-  name?: string;
-  role?: string;
-  phone?: string | null;
-  monthlySalary?: string;
-  joiningDate?: string | null;
-}): FieldDef[] {
+export function staffFields(
+  d: {
+    id?: string;
+    name?: string;
+    role?: string;
+    phone?: string | null;
+    monthlySalary?: string;
+    joiningDate?: string | null;
+  },
+  bikes: { id: string; name: string; driverId: string | null; driver: { name: string } | null }[],
+): FieldDef[] {
+  const current = d.id ? bikes.find((b) => b.driverId === d.id) : undefined;
   return [
     {
       kind: "text",
@@ -134,6 +139,22 @@ export function staffFields(d: {
       options: STAFF_ROLE_OPTIONS,
       defaultValue: d.role ?? "DRIVER",
       width: "sm",
+    },
+    {
+      kind: "select",
+      name: "bikeId",
+      label: "Bike",
+      options: bikes.map((b) => ({
+        value: b.id,
+        label: b.driver && b.driverId !== d.id ? `${b.name} (now ${b.driver.name})` : b.name,
+      })),
+      placeholder: "No bike",
+      defaultValue: current?.id ?? null,
+      hint:
+        bikes.length === 0
+          ? "Add bikes under Settings → Bikes first."
+          : "The bike this driver rides. A bike shown with another name moves to this driver.",
+      showWhen: { field: "role", value: "DRIVER" },
     },
     {
       kind: "text",

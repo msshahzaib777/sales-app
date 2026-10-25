@@ -66,7 +66,7 @@ describe("validateProductRows", () => {
         rows: [
           ["cb01", "Masala Chips", "Crunchy Bites Foods", "1,200", "1320", "200", "10"],
           ["CB09", "New Chips", "crunchy  bites foods", "100", "110", "", ""],
-          ["CB10", "Bad", "Unknown Co", "abc", "110", "", "1.25"],
+          ["CB10", "Bad", "Unknown Co", "abc", "110", "", "1.04"],
           ["CB09", "Again", "Crunchy Bites Foods", "100", "110", "", ""],
         ],
       },
@@ -90,7 +90,7 @@ describe("validateProductRows", () => {
     expect(rows[2]!.errors).toEqual([
       'Company: "Unknown Co" is not an active company',
       "Purchase rate: Enter the purchase rate in rupees, with at most 2 decimals",
-      "Minimum stock (dozens): The minimum stock must be in whole or half dozens",
+      "Minimum stock (dozens): Enter the minimum stock in dozens, like 12, 12.5, 12dz 4pk or 4pk",
     ]);
     expect(rows[3]!.errors).toEqual(["Code: CB09 appears more than once in the file"]);
   });

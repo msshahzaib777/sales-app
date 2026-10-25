@@ -8,7 +8,7 @@ import { RecordStatusActions } from "@/components/master/record-status-actions";
 import { toDateInput } from "@/lib/dates";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveRecordAction } from "@/server/master-actions";
-import { getStaff } from "@/server/services/master/staff";
+import { bikeOptions, getStaff } from "@/server/services/master/staff";
 
 import { staffFields } from "../../master-fields";
 
@@ -26,17 +26,20 @@ export default function EditStaffPage({ params }: PageProps<"/settings/staff/[id
 async function Editor({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const ctx = await requireTenantContext("masterData.manage");
-  const staff = await orNotFound(getStaff(ctx, id));
+  const [staff, bikes] = await Promise.all([orNotFound(getStaff(ctx, id)), bikeOptions(ctx)]);
   return (
     <div className="space-y-8">
       <PageHeader title={staff.name} />
       <RecordForm
         action={saveRecordAction.bind(null, "Staff", id)}
-        fields={staffFields({
-          ...staff,
-          monthlySalary: staff.monthlySalary.toFixed(2),
-          joiningDate: staff.joiningDate ? toDateInput(staff.joiningDate) : null,
-        })}
+        fields={staffFields(
+          {
+            ...staff,
+            monthlySalary: staff.monthlySalary.toFixed(2),
+            joiningDate: staff.joiningDate ? toDateInput(staff.joiningDate) : null,
+          },
+          bikes,
+        )}
         isNew={false}
         cancelHref="/settings/staff"
       />

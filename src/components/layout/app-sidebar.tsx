@@ -9,22 +9,33 @@ import { getSessionUser } from "@/server/auth/session";
 import { LogoutButton } from "./logout-button";
 import { navItems } from "./nav-items";
 import { NavList, SidebarNav } from "./sidebar-nav";
+import { SIDEBAR_INIT_SCRIPT, SidebarToggle } from "./sidebar-toggle";
 
 /** Items everyone sees; shown instantly while the role-specific list streams in. */
 const PUBLIC_HREFS = navItems.filter((item) => !item.permission).map((item) => item.href);
 
 export function AppSidebar() {
   return (
-    <aside className="border-sidebar-border bg-sidebar flex w-56 shrink-0 flex-col border-r print:hidden">
-      <div className="border-sidebar-border flex h-14 items-center border-b px-4">
-        <Link href="/dashboard" className="text-base font-semibold tracking-tight">
+    // suppressHydrationWarning: the inline script may set data-collapsed before React loads.
+    <aside
+      suppressHydrationWarning
+      className="group/sidebar border-sidebar-border bg-sidebar sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r transition-[width] data-[collapsed=true]:w-14 print:hidden"
+    >
+      {/* Before paint: the saved collapsed state (see SidebarToggle). */}
+      <script dangerouslySetInnerHTML={{ __html: SIDEBAR_INIT_SCRIPT }} />
+      <div className="border-sidebar-border flex h-14 items-center justify-between gap-2 border-b px-4 group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-2">
+        <Link
+          href="/dashboard"
+          className="truncate text-base font-semibold tracking-tight group-data-[collapsed=true]/sidebar:hidden"
+        >
           {APP_NAME}
         </Link>
+        <SidebarToggle />
       </div>
       <Suspense fallback={<NavList visibleHrefs={PUBLIC_HREFS} />}>
         <RoleNav />
       </Suspense>
-      <div className="border-sidebar-border mt-auto border-t p-3">
+      <div className="border-sidebar-border mt-auto border-t p-3 group-data-[collapsed=true]/sidebar:px-1.5">
         <Suspense fallback={<div className="h-20" />}>
           <UserPanel />
         </Suspense>
@@ -46,7 +57,7 @@ async function UserPanel() {
   if (!user) return null;
   return (
     <div className="space-y-2 text-sm">
-      <div>
+      <div className="group-data-[collapsed=true]/sidebar:hidden">
         <p className="truncate font-medium">{user.name}</p>
         <p className="text-muted-foreground truncate text-xs">
           {ROLE_LABELS[user.role]}
@@ -55,10 +66,11 @@ async function UserPanel() {
       </div>
       <Link
         href="/account/password"
-        className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs"
+        title="Change password"
+        className="text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs group-data-[collapsed=true]/sidebar:justify-center"
       >
         <KeyRound className="size-3.5" aria-hidden />
-        Change password
+        <span className="group-data-[collapsed=true]/sidebar:sr-only">Change password</span>
       </Link>
       <LogoutButton />
     </div>

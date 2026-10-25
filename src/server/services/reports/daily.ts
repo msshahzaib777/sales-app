@@ -2,7 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import { calculateLineAmounts } from "@/lib/pricing";
-import { PACKETS_PER_DOZEN } from "@/lib/units";
+import { formatDozens, PACKETS_PER_DOZEN } from "@/lib/units";
 
 import { assertCan, can } from "../../auth/permissions";
 import type { ServiceCtx } from "../master/common";
@@ -44,7 +44,14 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         number: true,
         status: true,
         customer: { select: { name: true } },
-        lines: { select: { quantity: true, returnedQuantity: true, damagedQuantity: true } },
+        lines: {
+          select: {
+            productId: true,
+            quantity: true,
+            returnedQuantity: true,
+            damagedQuantity: true,
+          },
+        },
         bill: {
           select: {
             netAmount: true,
@@ -201,10 +208,22 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         }
       : null;
 
+  const issues = dayIssues({
+    date,
+    stillOut: deliveries.stillOut,
+    orders,
+    productById,
+    productsSold,
+    stock,
+    money,
+    showCost,
+  });
+
   return {
     date,
     showMoney,
     showCost,
+    issues,
     deliveries,
     productsSold,
     soldTotals: {
@@ -266,7 +285,14 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
       _sum: { debit: true, credit: true },
     }),
     ctx.db.customer.findMany({
-      select: { id: true, name: true, shopName: true, creditLimit: true },
+      select: {
+        id: true,
+        name: true,
+        shopName: true,
+        phone: true,
+        whatsapp: true,
+        creditLimit: true,
+      },
     }),
   ]);
 
@@ -302,6 +328,8 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
         customerId: g.customerId!,
         name: c.name,
         shopName: c.shopName,
+        phone: c.phone,
+        whatsapp: c.whatsapp,
         balance,
         overLimit: c.creditLimit !== null && balance.gt(c.creditLimit),
       };
@@ -343,8 +371,128 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
       customers: owing.length,
       overLimit: owing.filter((c) => c.overLimit).length,
       top: owing.slice(0, 15),
+      overLimitList: owing.filter((c) => c.overLimit),
     },
   };
 }
 
 export type DailyReport = Awaited<ReturnType<typeof dailyReport>>;
+
+export type DayIssue = {
+  /** problem: something is wrong or unfinished; warning: worth a look. */
+  level: "problem" | "warning";
+  text: string;
+  /** Where to fix it. */
+  href: string;
+};
+
+const names = (list: string[], max = 3) =>
+  list.length <= max
+    ? list.join(", ")
+    : `${list.slice(0, max).join(", ")} and ${list.length - max} more`;
+
+/**
+ * What needs attention on the day, worst first: the top of the daily report, so problems are not
+ * lost in its tables.
+ */
+function dayIssues(d: {
+  date: Date;
+  stillOut: number;
+  orders: {
+    lines: {
+      productId: string;
+      quantity: number;
+      returnedQuantity: number;
+      damagedQuantity: number;
+    }[];
+  }[];
+  productById: Map<string, { code: string; name: string }>;
+  productsSold: { code: string; profit: Prisma.Decimal | null }[];
+  stock: { code: string; closing: number; low: boolean }[];
+  money: Awaited<ReturnType<typeof moneyFor>> | null;
+  showCost: boolean;
+}): DayIssue[] {
+  const day = d.date.toISOString().slice(0, 10);
+  const issues: DayIssue[] = [];
+  const add = (level: DayIssue["level"], text: string, href: string) =>
+    issues.push({ level, text, href });
+
+  if (d.stillOut)
+    add(
+      "problem",
+      `${d.stillOut} order${d.stillOut === 1 ? "" : "s"} sent out this day ${d.stillOut === 1 ? "has" : "have"} no day-end entered: returns, damage and cash are not in yet.`,
+      `/delivery?tripStatus=DISPATCHED&from=${day}&to=${day}`,
+    );
+  if (d.money?.bounced.count)
+    add(
+      "problem",
+      `${d.money.bounced.count} cheque${d.money.bounced.count === 1 ? "" : "s"} bounced: ${d.money.bounced.amount.toFixed(2)} is owed again.`,
+      "/payments?cheque=BOUNCED",
+    );
+  const negative = d.stock.filter((s) => s.closing < 0);
+  if (negative.length)
+    add(
+      "problem",
+      `Stock below zero for ${names(negative.map((s) => s.code))}: a delivery or count was entered wrongly.`,
+      "/inventory",
+    );
+  if (d.money && d.money.cashInHand.net.lt(0))
+    add(
+      "problem",
+      `More cash went out than came in (${d.money.cashInHand.net.toFixed(2)}). Check the expenses and company payments.`,
+      `/expenses?from=${day}&to=${day}`,
+    );
+
+  if (d.money?.pending.overLimitList.length)
+    add(
+      "warning",
+      `${d.money.pending.overLimitList.length} customer${d.money.pending.overLimitList.length === 1 ? " is" : "s are"} over their credit limit: ${names(d.money.pending.overLimitList.map((c) => c.name))}.`,
+      "/dashboard",
+    );
+  const low = d.stock.filter((s) => s.low && s.closing >= 0);
+  if (low.length)
+    add(
+      "warning",
+      `${low.length} product${low.length === 1 ? " is" : "s are"} below minimum stock: ${names(low.map((s) => s.code))}.`,
+      "/inventory?level=low",
+    );
+
+  // High returns: 10% or more of what was sent, and at least half a dozen.
+  const back = new Map<string, { sent: number; back: number; damaged: number }>();
+  for (const o of d.orders)
+    for (const l of o.lines) {
+      const b = back.get(l.productId) ?? { sent: 0, back: 0, damaged: 0 };
+      b.sent += l.quantity;
+      b.back += l.returnedQuantity + l.damagedQuantity;
+      b.damaged += l.damagedQuantity;
+      back.set(l.productId, b);
+    }
+  const highReturns = [...back]
+    .filter(([, b]) => b.sent > 0 && b.back >= 6 && b.back / b.sent >= 0.1)
+    .map(
+      ([id, b]) => `${d.productById.get(id)?.code ?? ""} ${Math.round((b.back / b.sent) * 100)}%`,
+    );
+  if (highReturns.length)
+    add(
+      "warning",
+      `High returns or damage: ${names(highReturns, 4)} of what was sent came back.`,
+      `/reports/damage?from=${day}&to=${day}`,
+    );
+  const damaged = [...back.values()].reduce((s, b) => s + b.damaged, 0);
+  if (damaged)
+    add(
+      "warning",
+      `${formatDozens(damaged)} damaged in delivery: settle the claims with the companies.`,
+      d.money ? "/purchases/claims?claimStatus=AWAITING" : `/reports/damage?from=${day}&to=${day}`,
+    );
+  if (d.showCost) {
+    const loss = d.productsSold.filter((p) => p.profit?.lt(0));
+    if (loss.length)
+      add(
+        "warning",
+        `Sold below cost: ${names(loss.map((p) => p.code))}. Check the sale rates and discounts.`,
+        "/products",
+      );
+  }
+  return issues.sort((a, b) => (a.level === b.level ? 0 : a.level === "problem" ? -1 : 1));
+}

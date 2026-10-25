@@ -2,6 +2,77 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Usability round — done
+
+- **Staff form: a driver's bike.** When the role is Driver, the staff form shows a Bike choice
+  (fields can now be shown only for one value of another field: `showWhen` in `RecordForm`). It is
+  saved on the bike; the driver's earlier bike is freed and a bike taken from another driver
+  moves. Changing a driver to another role frees their bike instead of refusing.
+- **Quantities typed any way.** One reader for every quantity box (`parseQuantity` in
+  `src/lib/units.ts`): a plain number is dozens everywhere (12, 12.5); packets only with "pk"
+  (12dz 4pk, 12 dz 4, 4pk). Day-end returns and damage, stock adjustments, claims and damaged stock
+  sent back now read "2" as 2 dozen, not 2 packets. Orders, purchases and slabs still need whole or
+  half dozens; opening stock, minimum stock and capacity take loose packets. Edit screens show
+  saved quantities the same way (`quantityText`).
+- **Quick actions on the dashboard,** by role: Enter day-end and Plan trips first and highlighted
+  when something is waiting, then New order, Receive payment, Receive goods, Add expense, Adjust
+  stock, New customer, Day report.
+- **Collapsible sidebar:** icons only with the name on hover; remembered in the browser; the
+  sidebar now stays in place while the page scrolls.
+- **Daily report: "Needs attention"** at the top, worst first, each linking to the fix: day-ends
+  not entered, bounced cheques, stock below zero, more cash out than in (problems); customers over
+  their limit, low stock, high returns (10%+, at least half a dozen), damage to settle, sold below
+  cost (warnings). Products whose stock did not move are folded away.
+- Tested (280 tests) and checked in Edge.
+## Business analysis — done
+
+Reports → Business analysis (`/reports/analysis?period=week|month|quarter&date=…`, ◀ ▶ by period,
+Print / PDF, Excel; `businessAnalysis` in `src/server/services/reports/analysis.ts`, period maths
+in `src/lib/analysis.ts`). Every figure is compared with the previous period of the same length.
+- **Overview:** sales, gross profit and margin, net profit (after expenses), payments received,
+  orders delivered, customers who bought; a trend chart of the last 12 weeks / 12 months /
+  8 quarters (sales and gross profit).
+- **Products:** dozens sold and sales against the previous period, profit, returned %, and a
+  trend (rising / declining at ±20%, new, stopped, steady); "in demand" and "declining or
+  stopped" lists.
+- **Companies** (cost roles): sales, cost, gross profit, margin, damage claimed, what we owe now.
+- **Customers** (payment roles): bought against the previous period, paid, average days to pay
+  (from the bills each payment settled), oldest unpaid bill, bounced cheques, balance, trend;
+  "pays late" (over 30 days to pay, a bill unpaid over 30 days, or a bounced cheque), "stopped
+  buying" and "growing" lists.
+- Staff see quantities and sales only. Cost is at the current purchase rate; customers have no
+  credit terms of their own yet, so "late" is a fixed 30 days.
+- Tested in `analysis.test.ts` and `delivery.int.test.ts` (two months: rising and stopped
+  products and customers, company margin, a late payer, staff), and in Edge as owner and staff.
+
+The daily report's "Payment pending" list now shows each customer's phone (and WhatsApp when
+different), also in its Excel file.
+## Dashboard: the chosen day's work — done
+
+The dashboard's work panel now follows the chosen date like the money panel does. Before, a past
+or future day showed 0 trips and 0 pending even when that day's trip had run and been entered,
+because those figures only counted trips out right now. For the chosen day it shows: its trips
+(planned / out / day-end done, each listed), orders delivered (delivered / partly / returned /
+day-end not entered / not sent yet), the amount billed with dozens sent, returned and damaged,
+the next day's orders, and day-end entries still pending on any date. "Full day report" opens
+the daily report for that date. Tested in `delivery.int.test.ts` (a future trip entered early).
+
+Found while running on Windows for the first time:
+- `taqseem.bat` deleted its saved process number when stopping the website failed, and said
+  "Restart the laptop" when the real reason was "access denied" (website started with
+  administrator rights, stop run without). It now keeps the number and says so.
+- The integration test setup could not start `pnpm` on Windows (`pnpm.cmd` needs the shell).
+  All 269 tests now pass on Windows too.
+## Windows uninstall — done
+
+`uninstall-windows.bat` (`scripts/windows/uninstall.ps1`), after typing DELETE: stops the website
+and its sign-in task, deletes the database (the app's own PostgreSQL and `%LOCALAPPDATA%\SalesApp`
+with backups, or only the `sales_app` database and user on an existing PostgreSQL service),
+removes the firewall rule, and deletes `.env`, `.setup`, `.backups`, `node_modules`, `.next` and
+`src\generated`. The code stays. Optionally uninstalls Node.js, pnpm and Git. Problems (a file
+held open) are listed at the end instead of stopping half way. Checked on Windows: parses, and
+cancelling changes nothing; the full removal has not been run yet.
+
 ## Daily report — done
 
 Reports → Daily report (`/reports/daily?date=…`, previous / next day, Print / PDF, Excel): the
@@ -48,7 +119,7 @@ past days are right. Tested in `delivery.int.test.ts` and in a browser run.
 **`taqseem.bat`** (`scripts/windows/deploy.ps1`): start the website in the background (closing the
 window keeps it running), stop it, update it from GitHub, status, and start at Windows sign-in
 (a scheduled task). Start and Update apply what the code needs: packages when the lockfile
-changed, database migrations after a `pg_dump` backup to `%LOCALAPPDATA%\SalesApp\backups`
+changed, database migrations after a `pg_dump` backup to `.backups` in the project folder
 (last 10 kept; no backup, no change), and a build when the code is newer than the last one.
 Update installs Git if missing, links a folder that came from a ZIP to the repository (keeping
 `.env`, `.setup` and data), and refuses to overwrite files changed on the laptop unless told to.

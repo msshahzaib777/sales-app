@@ -16,5 +16,7 @@ export default function setup() {
   execFileSync("pnpm", ["exec", "prisma", "migrate", "deploy"], {
     env: { ...process.env, DATABASE_URL: url },
     stdio: "pipe",
+    // On Windows pnpm is pnpm.cmd, which only runs through the shell.
+    shell: process.platform === "win32",
   });
 }

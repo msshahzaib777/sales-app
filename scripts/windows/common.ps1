@@ -18,7 +18,10 @@ $PgRoot = Join-Path $AppData "postgres"
 $PgBin = Join-Path $PgRoot "bin"
 $PgData = Join-Path $AppData "data"
 $SuperFile = Join-Path $AppData "postgres-superuser-password.txt"
-$BackupDir = Join-Path $AppData "backups"
+# Database backups, in the project folder (ignored by Git). Older installations kept them in
+# %LOCALAPPDATA%\SalesApp\backups; deploy.ps1 moves those here.
+$BackupDir = Join-Path $Root ".backups"
+$OldBackupDir = Join-Path $AppData "backups"
 $PgPort = 5432
 
 function Step($text) { Write-Host ""; Write-Host "==> $text" -ForegroundColor Cyan }
