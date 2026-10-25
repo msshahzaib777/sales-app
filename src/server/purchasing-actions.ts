@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { type ActionState, echoValues } from "@/lib/action-state";
+import { formatMoney } from "@/lib/format";
 import { purchaseLineSchema } from "@/lib/validation/purchasing";
 
 import { runAction } from "./actions";
+import { payBillFromAdvance } from "./services/purchasing/advances";
 import { requireTenantContext } from "./auth/session";
 import { updateBillDueDate } from "./services/purchasing/bills";
 import { cancelClaim, settleClaim, createClaim } from "./services/purchasing/claims";
@@ -233,5 +235,19 @@ export async function settleClaimAction(
     };
   }, formData);
   if (result.status === "success") revalidatePath("/purchases/claims");
+  return result;
+}
+
+/** Pays a company bill from money already paid to the company (its advance). */
+export async function payBillFromAdvanceAction(billId: string): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("payments.manage");
+    const used = await payBillFromAdvance(ctx, { id: billId });
+    return { message: `${formatMoney(used)} of the advance used for this bill.` };
+  });
+  if (result.status === "success") {
+    revalidatePath("/purchases");
+    revalidatePath("/companies");
+  }
   return result;
 }

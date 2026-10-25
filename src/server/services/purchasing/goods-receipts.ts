@@ -18,6 +18,7 @@ import {
 } from "../posting";
 import { calculateLineAmounts } from "@/lib/pricing";
 import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
+import { applyAdvances, releaseBillPayments } from "./advances";
 import { addDays, claimsToDeduct } from "./calc";
 import type { DateRange } from "./filters";
 import { refreshPurchaseOrderStatus } from "./purchase-orders";
@@ -277,6 +278,8 @@ export async function createGoodsReceipt(ctx: ServiceCtx, input: unknown) {
         referenceType: "CompanyBill",
         referenceId: bill.id,
       });
+      // Money already paid to this company ahead of the goods (an advance) pays the new bill.
+      const paidFromAdvance = await applyAdvances(tx, ctx, company.id, bill.id);
 
       if (po) await refreshPurchaseOrderStatus(tx, po.id);
 
@@ -299,6 +302,10 @@ export async function createGoodsReceipt(ctx: ServiceCtx, input: unknown) {
             gross,
             claimDeduction: deduction.total,
             dueDate: bill.dueDate,
+            paidFromAdvance: paidFromAdvance.reduce(
+              (s, m) => s.add(m.amount),
+              new Prisma.Decimal(0),
+            ),
           },
         },
         requestId: data.requestId,
@@ -312,8 +319,8 @@ export async function createGoodsReceipt(ctx: ServiceCtx, input: unknown) {
 
 /**
  * Cancels a receipt entered by mistake, by reversal: negative stock movements, a reversing ledger
- * entry for the bill, claims back to pending. Only possible while its stock is untouched and
- * nothing has been paid on its bill.
+ * entry for the bill, claims back to pending. Only possible while its stock is untouched. Payments
+ * matched to its bill stay posted and become advances again (for the company's next bill).
  */
 export async function cancelGoodsReceipt(ctx: ServiceCtx, input: unknown) {
   assertCan(ctx.user.role, "documents.reverse");
@@ -328,13 +335,6 @@ export async function cancelGoodsReceipt(ctx: ServiceCtx, input: unknown) {
     );
     if (receipt.status !== "POSTED") throw new ServiceError("This receipt is already cancelled.");
     const bill = receipt.companyBill!;
-    const paid = await tx.companyPaymentAllocation.count({
-      where: { companyBillId: bill.id, companyPayment: { status: "POSTED" } },
-    });
-    if (paid > 0)
-      throw new ServiceError(
-        `Bill #${bill.number} already has payments. Reverse those payments first.`,
-      );
 
     const balances = await batchBalances(
       tx,
@@ -381,6 +381,7 @@ export async function cancelGoodsReceipt(ctx: ServiceCtx, input: unknown) {
       where: { appliedToBillId: bill.id },
       data: { status: "PENDING", appliedToBillId: null },
     });
+    await releaseBillPayments(tx, ctx, bill.id);
     await tx.companyBill.update({ where: { id: bill.id }, data: { status: "REVERSED" } });
     const after = await tx.goodsReceipt.update({
       where: { id },

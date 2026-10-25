@@ -9,6 +9,7 @@ import {
   checkAllocations,
   claimsToDeduct,
   dueText,
+  matchAdvances,
   purchaseOrderStatus,
   runningPayable,
 } from "./calc";
@@ -172,5 +173,37 @@ describe("addDays and runningPayable", () => {
       { credit: "0", debit: "250.50" },
     ]);
     expect(rows.map((r) => r.balance.toFixed(2))).toEqual(["6000.00", "4000.00", "3749.50"]);
+  });
+});
+
+describe("matchAdvances", () => {
+  const day = (d: string) => new Date(`${d}T00:00:00.000Z`);
+  const bill = (id: string, due: string, outstanding: string) => ({
+    id,
+    number: Number(id.slice(1)),
+    billDate: day(due),
+    dueDate: day(due),
+    outstanding,
+  });
+  const out = (m: ReturnType<typeof matchAdvances>) =>
+    m.map((x) => `${x.paymentId}->${x.billId}:${x.amount.toFixed(2)}`);
+
+  it("pays the oldest bills from the oldest advances", () => {
+    const m = matchAdvances(
+      [
+        { paymentId: "p1", left: "300" },
+        { paymentId: "p2", left: "500" },
+      ],
+      [bill("b2", "2026-10-20", "600"), bill("b1", "2026-10-10", "100")],
+    );
+    expect(out(m)).toEqual(["p1->b1:100.00", "p1->b2:200.00", "p2->b2:400.00"]);
+  });
+
+  it("leaves what it cannot match as an advance", () => {
+    expect(
+      out(matchAdvances([{ paymentId: "p1", left: "50" }], [bill("b1", "2026-10-10", "80")])),
+    ).toEqual(["p1->b1:50.00"]);
+    expect(matchAdvances([], [bill("b1", "2026-10-10", "80")])).toEqual([]);
+    expect(matchAdvances([{ paymentId: "p1", left: "50" }], [])).toEqual([]);
   });
 });

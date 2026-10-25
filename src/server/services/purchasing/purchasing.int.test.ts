@@ -14,6 +14,7 @@ import { createCompany, updateCompany } from "../master/companies";
 import { createProduct } from "../master/products";
 import { createWarehouse } from "../master/warehouses";
 import { getCompanyBill, listCompanyBills, openBillsFor, updateBillDueDate } from "./bills";
+import { companyAdvances, payBillFromAdvance } from "./advances";
 import { cancelClaim, createClaim } from "./claims";
 import { getCompanyLedger } from "./company-ledger";
 import { cancelGoodsReceipt, createGoodsReceipt } from "./goods-receipts";
@@ -389,20 +390,70 @@ describe("cancelling a goods receipt", () => {
     );
   });
 
-  it("is refused once the bill has payments", async () => {
+  it("releases the bill's payments: they stay posted and are an advance again", async () => {
     const receipt = await receive(t.ctx, { lines: [{ productId: t.p1.id, quantity: "1" }] });
-    await createCompanyPayment(t.ctx, {
+    const payment = await createCompanyPayment(t.ctx, {
       companyId: t.company.id,
       paymentDate: "2026-10-18",
       method: "CASH",
       amount: "100",
     });
-    await expect(cancelGoodsReceipt(t.ctx, { id: receipt.id, reason: "x x" })).rejects.toThrow(
-      "already has payments",
-    );
+    await cancelGoodsReceipt(t.ctx, { id: receipt.id, reason: "x x" });
+    expect(await t.ctx.db.companyPaymentAllocation.count()).toBe(0);
+    const left = await companyAdvances(t.ctx.db, t.company.id);
+    expect(left.map((a) => [a.paymentId, D(a.left)])).toEqual([[payment.id, "100.00"]]);
   });
 });
 
+describe("advances to a company", () => {
+  const owedOn = async (billId: string) => {
+    const bill = (await openBillsFor(t.ctx.db, t.company.id)).find((b) => b.id === billId);
+    return bill ? D(new Prisma.Decimal(bill.outstanding)) : "paid";
+  };
+
+  it("pays the next bills from money paid ahead, and the ledger is unchanged", async () => {
+    // 5000 paid before any goods.
+    await createCompanyPayment(t.ctx, {
+      companyId: t.company.id,
+      paymentDate: "2026-10-01",
+      method: "ONLINE",
+      amount: "5000",
+    });
+    // 2 dz × 1200 = 2400: paid in full from the advance.
+    const first = await receive(t.ctx, {
+      receivedDate: "2026-10-05",
+      lines: [{ productId: t.p1.id, quantity: "2" }],
+    });
+    expect(await owedOn(first.companyBill.id)).toBe("paid");
+    // 3 dz × 1200 = 3600: 2600 left of the advance, 1000 still owed.
+    const second = await receive(t.ctx, {
+      receivedDate: "2026-10-06",
+      lines: [{ productId: t.p1.id, quantity: "3" }],
+    });
+    expect(await owedOn(second.companyBill.id)).toBe("1000.00");
+    expect(await companyAdvances(t.ctx.db, t.company.id)).toEqual([]);
+    // Ledger: 6000 of bills − 5000 paid, as before matching.
+    const ledger = await getCompanyLedger(t.ctx, t.company.id, {});
+    expect(D(ledger.summary.payableNow)).toBe("1000.00");
+
+    // Cancelling the first receipt frees its 2400 again; "Use advance" pays the rest of the second.
+    await cancelGoodsReceipt(t.ctx, { id: first.id, reason: "wrong company" });
+    await expect(payBillFromAdvance(t.as("STAFF"), { id: second.companyBill.id })).rejects.toThrow(
+      ForbiddenError,
+    );
+    expect(D(await payBillFromAdvance(t.ctx, { id: second.companyBill.id }))).toBe("1000.00");
+    expect(await owedOn(second.companyBill.id)).toBe("paid");
+    const left = await companyAdvances(t.ctx.db, t.company.id);
+    expect(left.map((a) => D(a.left))).toEqual(["1400.00"]);
+    await expect(payBillFromAdvance(t.ctx, { id: second.companyBill.id })).rejects.toThrow(
+      /no advance to use|already paid/,
+    );
+    // One allocation row per payment and bill (the 1000 was added to the existing 2600).
+    expect((await t.ctx.db.companyPaymentAllocation.findMany()).map((a) => D(a.amount))).toEqual([
+      "3600.00",
+    ]);
+  });
+});
 describe("company ledger", () => {
   it("shows a running balance that matches open bills, pending claims and advances", async () => {
     await receive(t.ctx, {

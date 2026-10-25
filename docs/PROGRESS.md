@@ -2,6 +2,22 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Advances to companies pay later bills — done
+
+Money paid to a company with no bill to match (paid ahead of a delivery, or more than the bills)
+was right in the ledger but never matched to the bills that came later, so they stayed "unpaid".
+Now (`src/server/services/purchasing/advances.ts`; matching rule `matchAdvances` in `calc.ts`):
+
+- A goods receipt's new company bill is paid from the company's advances straight away, oldest
+  payment first.
+- A company bill with something owed shows **Advance available** with a **Use advance** button
+  when the company has one (for bills from before this change): pays it as far as the advance
+  goes.
+- Cancelling a goods receipt no longer refuses when its bill has payments: they stay posted and
+  are an advance again, for the next bill.
+- Only `CompanyPaymentAllocation` rows change (audited on the bill); the ledger is untouched.
+- Tested in `calc.test.ts` and `purchasing.int.test.ts`, and in a browser run.
+
 ## Windows installer for customers — done
 
 `pnpm package:windows` (`scripts/windows/package.ps1`) builds `dist\TaqseemSetup-<version>.exe` with
