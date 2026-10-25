@@ -34,8 +34,16 @@ SetupLogging=yes
 Source: "{#Dist}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Taqseem"; Filename: "{app}\Taqseem.url"
+; A Start-menu folder: open the website, and stop / start it (setup\control.ps1 asks for
+; administrator permission itself). PowerShell runs without a window.
+Name: "{autoprograms}\Taqseem\Taqseem"; Filename: "{app}\Taqseem.url"
+Name: "{autoprograms}\Taqseem\Stop Taqseem"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\setup\control.ps1"" -Action stop"; IconFilename: "{sys}\shell32.dll"; IconIndex: 27; Comment: "Stop the Taqseem website and database (until started again)"
+Name: "{autoprograms}\Taqseem\Start Taqseem"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\setup\control.ps1"" -Action start"; IconFilename: "{sys}\shell32.dll"; IconIndex: 137; Comment: "Start the Taqseem website and database, and open it"
 Name: "{autodesktop}\Taqseem"; Filename: "{app}\Taqseem.url"; Tasks: desktopicon
+
+[InstallDelete]
+; Older versions put a single Taqseem icon straight in the Start menu.
+Type: files; Name: "{autoprograms}\Taqseem.lnk"
 
 [Tasks]
 Name: "desktopicon"; Description: "Put a Taqseem icon on the desktop"

@@ -192,6 +192,8 @@ if (-not (Service-Exists $DbService)) {
   if ($r.Code -ne 0) { Fail "Registering the database service failed: $($r.Out)" }
   Capture { sc.exe description $DbService "Taqseem database (PostgreSQL)" } | Out-Null
 }
+# Back to starting with Windows ("Stop Taqseem" may have turned that off).
+Set-Service $DbService -StartupType Automatic
 if ((Get-Service $DbService).Status -ne "Running") { Start-Service $DbService }
 for ($i = 0; $i -lt 60 -and -not (Test-Port ([int]$s.PG_PORT)); $i++) { Start-Sleep -Seconds 1 }
 if (-not (Test-Port ([int]$s.PG_PORT))) {
@@ -286,6 +288,7 @@ if (-not (Service-Exists $WebService)) {
   $r = Capture { & $exe install }
   if ($r.Code -ne 0) { Fail "Registering the website service failed: $($r.Out)" }
 }
+Set-Service $WebService -StartupType Automatic
 Start-Service $WebService
 $ready = $false
 for ($i = 0; $i -lt 90; $i++) {
