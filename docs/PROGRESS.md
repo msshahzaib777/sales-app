@@ -2,7 +2,7 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
-## Windows installer for customers — done (not yet run as administrator)
+## Windows installer for customers — done
 
 `pnpm package:windows` (`scripts/windows/package.ps1`) builds `dist\TaqseemSetup-<version>.exe` with
 Inno Setup (`installer/taqseem.iss`): the Next.js standalone build (compiled only; built into
@@ -19,8 +19,17 @@ copies, and no `.env` is shipped.
   first login shown and saved. `remove.ps1` on uninstall, asking whether to delete the data.
 - Checked here without administrator rights: the package's PostgreSQL, the four tools (16
   migrations, then none pending; demo data; a new business) and the compiled website on spare
-  ports (sign-in, dashboard, lists, reports, saving an expense, styles, no errors). Not yet run:
-  the installer wizard itself, the services and uninstall, which need administrator rights.
+  ports (sign-in, dashboard, lists, reports, saving an expense, styles, no errors).
+- First real installs failed: PostgreSQL's initdb drops administrator rights, so it could not
+  write its folder or read its password file in the administrators-only data folder; the log was
+  locked the same way. Fixed (#18, #19): the database folder is writable by the installing user and
+  Network Service, the password file goes to the user's temp folder, the logs are readable by
+  everyone, and the installer's error message shows the last lines of the output. Installed on the
+  owner's laptop with demo data: both services running, the website answering on port 3000.
+- Start menu: a Taqseem folder with Taqseem, **Stop Taqseem** (stops both services and keeps them
+  stopped, also after a restart) and **Start Taqseem** (starts them, back to starting with
+  Windows, opens the website). `setup\control.ps1` asks for administrator permission itself and
+  reports in a message box. Running the setup again also turns starting with Windows back on.
 
 ## Easier day-to-day — done
 

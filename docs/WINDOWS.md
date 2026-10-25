@@ -135,7 +135,9 @@ updates, and the setup scripts.
    "Open Taqseem" opens the browser. A Start-menu (and optional desktop) icon opens it later.
 
 Taqseem then runs as two Windows services, **Taqseem database** and **Taqseem website**: they
-start with Windows, without any window, and restart by themselves if they stop. Other office
+start with Windows, without any window, and restart by themselves if they stop. The Start menu's
+Taqseem folder has **Stop Taqseem** (stops both, and they stay stopped after a restart) and
+**Start Taqseem** (starts both again and opens the website); each asks for administrator permission. Other office
 computers use the address `http://<this computer>:3000` (a firewall rule is added).
 
 **Updates:** send a newer setup file. It stops the services, replaces the program, backs up the
