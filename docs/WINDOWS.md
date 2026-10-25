@@ -113,3 +113,42 @@ Node.js, pnpm and Git (type YES); say no if other programs on the laptop use the
 The script was written and reviewed for Windows PowerShell 5.1 but could not be run on Windows
 where it was built. If a step fails, the message and `.setup\setup-log.txt` show which one; send
 the log and it will be fixed.
+
+## Installer for customers (TaqseemSetup.exe)
+
+For a customer who should not see the code or deal with a database: send them one file.
+
+**Make it** (on your computer, from this folder): `pnpm package:windows`. It builds
+`dist\TaqseemSetup-<version>.exe` (about 57 MB). The first run installs Inno Setup for your user
+and downloads PostgreSQL and WinSW; later runs reuse them. The setup file holds the compiled
+website (no source code, comments or tests), its own Node.js and PostgreSQL, the database
+updates, and the setup scripts.
+
+**The customer** double-clicks it, clicks Yes for administrator rights, and follows the wizard:
+
+1. Where to install (default `C:\Program Files\Taqseem`).
+2. On a new computer: **Demo data** (to try it) or **My business** (business name, owner's name
+   and email).
+3. Where Taqseem is already installed: **Update and keep my data** (default), or **Start fresh**
+   (type DELETE; everything is deleted).
+4. The first sign-in is shown at the end (and saved in `C:\ProgramData\Taqseem\first-login.txt`);
+   "Open Taqseem" opens the browser. A Start-menu (and optional desktop) icon opens it later.
+
+Taqseem then runs as two Windows services, **Taqseem database** and **Taqseem website**: they
+start with Windows, without any window, and restart by themselves if they stop. Other office
+computers use the address `http://<this computer>:3000` (a firewall rule is added).
+
+**Updates:** send a newer setup file. It stops the services, replaces the program, backs up the
+database (`C:\ProgramData\Taqseem\backups`, last 10 kept) if it has changes, applies them and
+starts again. Data is never in the program folder.
+
+**Uninstall:** Windows Settings → Apps → Taqseem. It asks whether to delete the data too (default
+no: it stays in `C:\ProgramData\Taqseem` for a later install).
+
+Ports: the database uses 5433 (or the next free port) so it never clashes with another
+PostgreSQL; the website uses 3000, or the next free port when 3000 is taken (for example by a
+development copy started with `taqseem.bat`). The chosen ports and generated passwords are in
+`C:\ProgramData\Taqseem\settings.env`, readable by administrators only. Logs: `C:\ProgramData\Taqseem\logs`.
+
+Without a code-signing certificate Windows shows "Windows protected your PC" at first: More info →
+Run anyway. A certificate (about USD 100–300 a year) removes that warning.

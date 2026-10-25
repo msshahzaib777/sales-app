@@ -17,6 +17,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "tenant:create": "tsx prisma/create-tenant.ts",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/package.ps1",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "db:reset": "prisma migrate reset && prisma db seed"
@@ -50,6 +51,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^18.0.9",
+    "esbuild": "0.25.12",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "eslint-config-prettier": "^10.1.8",

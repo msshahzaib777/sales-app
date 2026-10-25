@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The Windows installer (scripts/windows/package.ps1) ships the self-contained server; normal
+  // `next start` (taqseem.bat, development) does not use it.
+  // It builds into its own folder, so packaging never touches the build a running website uses.
+  ...(process.env.TAQSEEM_STANDALONE
+    ? { output: "standalone" as const, distDir: ".next-package" }
+    : {}),
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
