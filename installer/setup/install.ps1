@@ -174,7 +174,11 @@ if ($newDatabase) {
   # Again here: "start fresh" may have just deleted the folder.
   New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
   cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /T /Q >nul 2>&1"
-  $pwFile = Join-Path $DataDir "pw.tmp"
+  # In this user's own temp folder: initdb runs without administrator rights (see the folder
+  # permissions at the top) and could not read a file in the administrators-only data folder.
+  # Deleted straight after.
+  $pwFile = [IO.Path]::GetTempFileName()
+  Remove-Item (Join-Path $DataDir "pw.tmp") -Force -ErrorAction SilentlyContinue # left by older setups
   Set-Content -Path $pwFile -Value $s.PG_SUPER_PASSWORD -NoNewline -Encoding ASCII
   $r = Capture { & (Join-Path $PgBin "initdb.exe") -D $DbDir -U postgres "--pwfile=$pwFile" -A scram-sha-256 -E UTF8 --no-locale }
   Remove-Item $pwFile -Force -ErrorAction SilentlyContinue
