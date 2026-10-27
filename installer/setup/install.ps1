@@ -46,16 +46,31 @@ New-Item -ItemType Directory -Force -Path $DataDir, $LogDir, $BackupDir, $Servic
 $DbDir = Join-Path $DataDir "db"
 New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
 $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+# Administrators own everything in the data folder first: files left by another account, by an
+# older setup or by hand can otherwise refuse the changes below (and hide settings.env, so the
+# database passwords could not be read). /A: the Administrators group, not this user.
+cmd /c "takeown /F `"$DataDir`" /R /A /D Y >nul 2>&1"
 cmd /c "icacls `"$DataDir`" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /Q >nul 2>&1"
 cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /Q >nul 2>&1"
 cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /T /Q >nul 2>&1"
 Start-Transcript -Path (Join-Path $LogDir "install-log.txt") -Append | Out-Null
 
+# Anyone on this computer may read the logs, so a failed setup can be looked into without taking
+# over the folder (/C: carry on past a file that is in use).
+function Open-Logs { cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1" }
+
 function Step($text) { Write-Host "==> $text" }
 function Fail($text) {
   Write-Host "FAILED: $text"
-  Stop-Transcript | Out-Null
+  try { Stop-Transcript | Out-Null } catch {}
+  Open-Logs
   exit 1
+}
+
+# Any error the script did not expect still ends with one clear FAILED line (shown by the setup
+# window), instead of a PowerShell error the window cuts off.
+trap {
+  Fail "$($_.Exception.Message) (install.ps1 line $($_.InvocationInfo.ScriptLineNumber))"
 }
 
 # Runs a program, returns its output and exit code (stderr warnings are not failures).
@@ -139,6 +154,43 @@ function Tool($name, [string[]]$arguments, [hashtable]$env = @{}) {
   }
 }
 
+function Wait-Database {
+  for ($i = 0; $i -lt 60 -and -not (Test-Port ([int]$s.PG_PORT)); $i++) { Start-Sleep -Seconds 1 }
+}
+
+# The passwords in settings.env no longer match the database (the file was lost or rewritten):
+# with the data kept, the database is started once allowing local sign-in without a password,
+# the superuser gets the password from settings.env, and the normal sign-in rules are put back.
+# PostgreSQL listens on this computer only, and only for this minute.
+function Repair-Passwords {
+  Step "Resetting the database passwords to the ones in settings.env"
+  $hba = Join-Path $DbDir "pg_hba.conf"
+  $saved = "$hba.taqseem-saved"
+  Copy-Item $hba $saved -Force
+  $result = $null
+  try {
+    Stop-Services
+    @("host all all 127.0.0.1/32 trust", "host all all ::1/128 trust") | Set-Content -Path $hba -Encoding ASCII
+    Start-Service $DbService
+    Wait-Database
+    $result = Tool "db.mjs" @("set-super-password") @{
+      SALES_PG_SUPER_URL = "postgresql://postgres@localhost:$($s.PG_PORT)/postgres"
+      SALES_PG_SUPER_PASSWORD = $s.PG_SUPER_PASSWORD
+    }
+  } catch {
+    # Caught here, not by the trap, so the sign-in rules below are always put back.
+    $result = @{ Code = 1; Out = $_.Exception.Message }
+  } finally {
+    Copy-Item $saved $hba -Force
+    Remove-Item $saved -Force -ErrorAction SilentlyContinue
+    Capture { sc.exe stop $DbService } | Out-Null
+    for ($i = 0; $i -lt 30 -and (Get-Service $DbService).Status -ne "Stopped"; $i++) { Start-Sleep -Seconds 1 }
+    Start-Service $DbService
+    Wait-Database
+  }
+  if (-not $result -or $result.Code -ne 0) { Fail "Resetting the database passwords failed: $($result.Out)" }
+}
+
 Write-Host "Taqseem setup: $Mode$(if ($Fresh) { ' (fresh)' })"
 Write-Host "Program: $AppDir"
 Write-Host "Data:    $DataDir"
@@ -156,11 +208,20 @@ if ($Fresh) {
 
 # -- 2. Settings: ports and secrets, kept between updates -----------------------
 $s = Read-Settings
-if (-not $s.PG_PORT) { $s.PG_PORT = Free-Port 5433 }
+$hadSettings = [bool]$s.PG_SUPER_PASSWORD
+if (-not $hadSettings -and (Test-Path (Join-Path $DbDir "PG_VERSION"))) {
+  Write-Host "    settings.env is missing or unreadable: new passwords are set on the existing database."
+}
+if (-not $s.PG_PORT) {
+  # The database service already has its port (settings.env may have been lost).
+  $image = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$DbService" -ErrorAction SilentlyContinue).ImagePath
+  if ($image -match '-p\s+(\d+)') { $s.PG_PORT = $Matches[1] } else { $s.PG_PORT = Free-Port 5433 }
+}
 if (-not $s.PORT) { $s.PORT = Free-Port 3000 }
 if (-not $s.PG_SUPER_PASSWORD) { $s.PG_SUPER_PASSWORD = Random-Hex 16 }
 if (-not $s.APP_DB_PASSWORD) { $s.APP_DB_PASSWORD = Random-Hex 16 }
 if (-not $s.AUTH_SECRET) { $s.AUTH_SECRET = Random-Hex 32 }
+if ($hadSettings) { Copy-Item $Settings "$Settings.bak" -Force }
 Write-Settings $s
 $superUrl = "postgresql://postgres:$($s.PG_SUPER_PASSWORD)@localhost:$($s.PG_PORT)/postgres"
 $appUrl = "postgresql://sales_app:$($s.APP_DB_PASSWORD)@localhost:$($s.PG_PORT)/sales_app?schema=public"
@@ -201,7 +262,12 @@ if (-not (Test-Port ([int]$s.PG_PORT))) {
   Fail "The database did not start. $(if ($log) { "See $($log.FullName)" })"
 }
 
-$r = Tool "db.mjs" @("ensure") @{ SALES_PG_SUPER_URL = $superUrl; SALES_APP_DB_PASSWORD = $s.APP_DB_PASSWORD }
+$ensureEnv = @{ SALES_PG_SUPER_URL = $superUrl; SALES_APP_DB_PASSWORD = $s.APP_DB_PASSWORD }
+$r = Tool "db.mjs" @("ensure") $ensureEnv
+if ($r.Code -ne 0 -and $r.Out -match "password authentication failed") {
+  Repair-Passwords
+  $r = Tool "db.mjs" @("ensure") $ensureEnv
+}
 if ($r.Code -ne 0) { Fail "Preparing the database failed: $($r.Out)" }
 
 # -- 4. Database changes (after a backup when there is data) ---------------------
@@ -259,7 +325,16 @@ if (Service-Exists $WebService) {
   for ($i = 0; $i -lt 30 -and (Get-Service $WebService).Status -ne "Stopped"; $i++) { Start-Sleep -Seconds 1 }
 }
 $exe = Join-Path $ServiceDir "$WebService.exe"
-Copy-Item (Join-Path $AppDir "service\WinSW.exe") $exe -Force
+# The stopped service can hold its program for a few seconds more: try again before giving up.
+for ($i = 1; ; $i++) {
+  try {
+    Copy-Item (Join-Path $AppDir "service\WinSW.exe") $exe -Force
+    break
+  } catch {
+    if ($i -ge 15) { Fail "Could not replace $exe ($($_.Exception.Message)). Restart the computer and run the setup again." }
+    Start-Sleep -Seconds 2
+  }
+}
 $xmlEscape = { param($v) [System.Security.SecurityElement]::Escape($v) }
 @"
 <service>
@@ -308,4 +383,5 @@ New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Protocol TCP 
 
 Write-Host "Done: http://localhost:$($s.PORT)"
 Stop-Transcript | Out-Null
+Open-Logs
 exit 0
