@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     [{ value: "Sold (billed)" }, xMoney(r.soldTotals.amount)],
     [{ value: "Orders billed" }, { value: r.deliveries.orders }],
     [{ value: "Day-end not entered" }, { value: r.deliveries.stillOut }],
+    [{ value: "Counter sales" }, { value: r.counter.sales }, xMoney(r.counter.billed)],
   ];
   if (r.money) {
     rows.push(
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
     ...r.deliveries.list.map((o) => [
       { value: o.number },
       { value: o.customerName },
-      { value: o.status },
+      { value: o.counter ? "COUNTER SALE" : o.status },
       xMoney(o.amount),
     ]),
   );

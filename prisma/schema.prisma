@@ -186,6 +186,13 @@ enum TripStatus {
   CANCELLED
 }
 
+/// Delivery: goes out on a trip. Counter: the customer collects it at the warehouse; the sale is
+/// posted (stock out, bill to the ledger) when it is saved, with no trip or day-end.
+enum OrderFulfilment {
+  DELIVERY
+  COUNTER
+}
+
 enum OrderSource {
   OFFICE
   WHATSAPP
@@ -1076,6 +1083,7 @@ model SalesOrder {
   deliveryDate        DateTime         @db.Date
   status              SalesOrderStatus @default(BOOKED)
   source              OrderSource      @default(OFFICE)
+  fulfilment          OrderFulfilment  @default(DELIVERY)
   /// The order would take the customer past their credit limit and was entered by someone who
   /// cannot allow that; it waits for the owner (dispatch refuses it until approved).
   needsCreditApproval Boolean          @default(false)
@@ -1112,6 +1120,7 @@ model SalesOrder {
   @@index([tenantId, tripId])
   @@index([tenantId, customerId, orderDate])
   @@index([tenantId, deliveryDate])
+  @@index([tenantId, fulfilment, orderDate])
 }
 
 /// `companyId` is copied from the product so bills can be split by company without joins and stay

@@ -42,6 +42,7 @@ export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) 
     money,
     adjustmentsPending,
     tripsOnDay,
+    counterSales,
   ] = await Promise.all([
     ctx.db.salesOrder.groupBy({
       by: ["status"],
@@ -87,6 +88,17 @@ export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) 
         },
       },
     }),
+    // The chosen day's counter sales (collected at the warehouse, no trip).
+    ctx.db.bill.aggregate({
+      where: {
+        billDate: today,
+        status: "POSTED",
+        postedAt: { not: null },
+        salesOrder: { fulfilment: "COUNTER" },
+      },
+      _sum: { netAmount: true },
+      _count: { _all: true },
+    }),
   ]);
 
   const dayOrders = tripsOnDay.flatMap((t) => t.orders);
@@ -117,6 +129,7 @@ export async function getDashboard(ctx: ServiceCtx, opts: { date?: Date } = {}) 
     damagedQty: lines.reduce((s, l) => s + l.damagedQuantity, 0),
     /** Bills posted at dispatch, after returns once day-end is entered. */
     billed: dayOrders.reduce((s, o) => (o.bill?.postedAt ? s.add(o.bill.netAmount) : s), D(0)),
+    counter: { sales: counterSales._count._all, billed: counterSales._sum.netAmount ?? D(0) },
   };
 
   const booked = tomorrowOrders.find((g) => g.status === "BOOKED")?._count._all ?? 0;

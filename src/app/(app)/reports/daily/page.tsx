@@ -177,7 +177,16 @@ function KeyNumbers({ r }: { r: DailyReport }) {
       <Figure
         label="Orders delivered"
         value={`${r.deliveries.orders - r.deliveries.stillOut} of ${r.deliveries.orders}`}
-        note={r.deliveries.stillOut ? `${r.deliveries.stillOut} day-end not entered` : undefined}
+        note={
+          [
+            r.deliveries.stillOut ? `${r.deliveries.stillOut} day-end not entered` : null,
+            r.counter.sales
+              ? `+ ${r.counter.sales} counter sale${r.counter.sales === 1 ? "" : "s"}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined
+        }
       />
       {r.money ? (
         <>
@@ -228,6 +237,12 @@ function Deliveries({ r }: { r: DailyReport }) {
         damaged {formatDozens(d.damagedQty)}. Billed{" "}
         <strong className="tabular-nums">{formatMoney(d.billed)}</strong>.
       </p>
+      {r.counter.sales ? (
+        <p>
+          Counter sales (collected at the warehouse): {r.counter.sales}, billed{" "}
+          <strong className="tabular-nums">{formatMoney(r.counter.billed)}</strong>.
+        </p>
+      ) : null}
       {d.list.length > 0 ? (
         <table className="w-full border-collapse">
           <thead>
@@ -247,7 +262,9 @@ function Deliveries({ r }: { r: DailyReport }) {
                   </Link>
                 </td>
                 <td className={td}>{o.customerName}</td>
-                <td className={td}>{STATUS[o.status] ?? o.status}</td>
+                <td className={td}>
+                  {o.counter ? "Counter sale" : (STATUS[o.status] ?? o.status)}
+                </td>
                 <td className={`${td} ${num}`}>{formatMoney(o.amount)}</td>
               </tr>
             ))}

@@ -2,6 +2,35 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Counter sales — done
+
+A customer (always a real customer record) collects goods at the warehouse instead of a delivery.
+**Orders → Counter sale** (`/orders/counter`, also on the dashboard's quick actions) uses the
+order screen: same customer and product search, prices, discounts and credit panel, plus **Paid
+now** (amount, cash / cheque / online). One save (`src/server/services/sales/counter.ts`):
+
+- books the order and bill (`bookOrder`, split out of `createSalesOrder`), marked
+  `SalesOrder.fulfilment = COUNTER` (new enum; every existing order is `DELIVERY`);
+- refuses if the warehouse has less stock on hand, takes it out and posts the bill to the customer
+  ledger per company: the same code as trip dispatch, now in `sales/post-bill.ts`
+  (`assertStockOnHand`, `stockOut`, `postOrderBill`);
+- records the amount paid as a customer payment (oldest debt first, like money collected on
+  delivery); the rest stays on the customer's account;
+- marks the order Delivered with no trip and no day-end.
+
+Credit: only what is left on account counts toward the limit. Past the limit, staff are refused
+(there is no later approval step), and the owner can tick "Allow". Bills share the normal
+numbering.
+
+Where counter sales appear: the Orders list (Type filter, "Counter" badge), the order page
+("Counter sale #n · collected at …"), the stock card ("Counter sale"), the dashboard (a Counter
+sales figure for the chosen day), and the daily report (counted apart from deliveries; products
+sold and totals include them). Analysis and ledgers include them automatically, because they are
+ordinary posted bills.
+
+**Open:** goods brought back after a counter sale have no return screen yet. Correct them with a
+stock adjustment and a customer payment or adjustment for now.
+
 ## Sack returns, and ledgers one click away — done
 
 **Sacks.** Companies send goods in sacks and credit each empty sack sent back on the next bill.
@@ -28,8 +57,6 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 Tests: two integration tests for sack returns. The delivery and payments tests now pin the clock
 to 25 Oct 2026, because opening balances are dated "today" and the tests failed once the real date
 passed their fixture dates.
-
-**Open:** counter sales (customers buying at the warehouse, no delivery) are planned, not built.
 
 ## Advances to companies pay later bills — done
 

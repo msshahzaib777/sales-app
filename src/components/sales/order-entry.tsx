@@ -56,6 +56,7 @@ export function OrderEntry({
   warehouses,
   canOverrideCredit,
   initial,
+  mode = "order",
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   customers: CustomerOption[];
@@ -71,7 +72,10 @@ export function OrderEntry({
     note?: string;
     lines?: Line[];
   };
+  /** "counter": a sale collected at the warehouse, posted when saved, with payment taken now. */
+  mode?: "order" | "counter";
 }) {
+  const counter = mode === "counter";
   const isNew = !initial.orderId;
   const [state, formAction, saving] = useActionState(action, idleState);
   const withRequestId = useRequestId();
@@ -82,6 +86,8 @@ export function OrderEntry({
   const [loading, startLoading] = useTransition();
   const [lines, setLines] = useState<Line[]>(initial.lines ?? []);
   const [allowOver, setAllowOver] = useState(false);
+  const [paid, setPaid] = useState("");
+  const [method, setMethod] = useState("CASH");
   const productSearch = useRef<HTMLInputElement>(null);
   const qtyInputs = useRef(new Map<string, HTMLInputElement>());
   // After picking a customer, the product search appears once their products have loaded.
@@ -130,12 +136,15 @@ export function OrderEntry({
     if (product && qty) priced.push({ ...priceLine(product, qty), product });
   }
   const { total, byCompany } = billTotals(priced);
+  const paidNow = /^\d+(\.\d{1,2})?$/.test(paid.trim()) ? Number(paid) : 0;
+  // What a counter sale leaves on the customer's account.
+  const onAccount = Math.max(Number(total.netAmount.toString()) - paidNow, 0);
   const credit = context
     ? checkCredit({
         creditLimit: context.customer.creditLimit,
         pending: context.pending,
         openOrders: context.openOrders,
-        thisOrder: total.netAmount,
+        thisOrder: counter ? onAccount : total.netAmount,
       })
     : null;
 
@@ -249,38 +258,53 @@ export function OrderEntry({
             </div>
           ) : null}
           <div className="grid gap-4 sm:grid-cols-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="orderDate">Order date</Label>
-              <Input
-                id="orderDate"
-                name="orderDate"
-                type="date"
-                defaultValue={initial.orderDate}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="deliveryDate">Delivery date</Label>
-              <Input
-                id="deliveryDate"
-                name="deliveryDate"
-                type="date"
-                defaultValue={initial.deliveryDate}
-                required
-                aria-invalid={fieldError(state, "deliveryDate") ? true : undefined}
-              />
-              <FieldError id="deliveryDate-error" message={fieldError(state, "deliveryDate")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="source">Taken via</Label>
-              <NativeSelect id="source" name="source" defaultValue={initial.source ?? "OFFICE"}>
-                {SOURCES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
+            {counter ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="saleDate">Sale date</Label>
+                <Input
+                  id="saleDate"
+                  name="saleDate"
+                  type="date"
+                  defaultValue={initial.orderDate}
+                  required
+                />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="orderDate">Order date</Label>
+                  <Input
+                    id="orderDate"
+                    name="orderDate"
+                    type="date"
+                    defaultValue={initial.orderDate}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="deliveryDate">Delivery date</Label>
+                  <Input
+                    id="deliveryDate"
+                    name="deliveryDate"
+                    type="date"
+                    defaultValue={initial.deliveryDate}
+                    required
+                    aria-invalid={fieldError(state, "deliveryDate") ? true : undefined}
+                  />
+                  <FieldError id="deliveryDate-error" message={fieldError(state, "deliveryDate")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="source">Taken via</Label>
+                  <NativeSelect id="source" name="source" defaultValue={initial.source ?? "OFFICE"}>
+                    {SOURCES.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
+              </>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="note">Note</Label>
               <Input id="note" name="note" defaultValue={initial.note} maxLength={500} />
@@ -294,6 +318,7 @@ export function OrderEntry({
           error={contextError}
           credit={credit}
           byCompany={byCompany}
+          counter={counter}
         />
       </div>
 
@@ -455,14 +480,26 @@ export function OrderEntry({
         </section>
       ) : null}
 
+      {counter && context && context.warehouseId ? (
+        <PaidNow
+          state={state}
+          paid={paid}
+          setPaid={setPaid}
+          method={method}
+          setMethod={setMethod}
+          total={total.netAmount.toString()}
+          onAccount={onAccount}
+        />
+      ) : null}
+
       {credit?.over ? (
         <div
           role="alert"
           className="border-destructive max-w-2xl space-y-2 rounded-md border-2 p-3 text-sm"
         >
           <p className="font-medium">
-            This order takes the customer {formatMoney(credit.over)} past their credit limit of{" "}
-            {formatMoney(credit.limit)}.
+            This {counter ? "sale" : "order"} takes the customer {formatMoney(credit.over)} past
+            their credit limit of {formatMoney(credit.limit)}.
           </p>
           {canOverrideCredit ? (
             <label className="flex items-center gap-2">
@@ -473,6 +510,8 @@ export function OrderEntry({
               />
               Allow past the credit limit
             </label>
+          ) : counter ? (
+            <p>Take more payment now, or ask the owner to allow it.</p>
           ) : (
             <p>
               You can still book it; it will wait for the owner&apos;s approval before dispatch.
@@ -484,7 +523,7 @@ export function OrderEntry({
       <FormMessage state={state} />
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={saving || !context || lines.length === 0}>
-          {saving ? "Saving…" : isNew ? "Book order" : "Save changes"}
+          {saving ? "Saving…" : counter ? "Save sale" : isNew ? "Book order" : "Save changes"}
         </Button>
         {isNew ? (
           <Button
@@ -494,7 +533,7 @@ export function OrderEntry({
             variant="outline"
             disabled={saving || !context || lines.length === 0}
           >
-            Book and enter next
+            {counter ? "Save and enter next" : "Book and enter next"}
           </Button>
         ) : null}
         <Button asChild variant="ghost">
@@ -505,13 +544,100 @@ export function OrderEntry({
   );
 }
 
+const METHODS = [
+  { value: "CASH", label: "Cash" },
+  { value: "CHEQUE", label: "Cheque" },
+  { value: "ONLINE", label: "Online" },
+];
+
+/** Counter sale: what the customer pays now; the rest goes on their account. */
+function PaidNow({
+  state,
+  paid,
+  setPaid,
+  method,
+  setMethod,
+  total,
+  onAccount,
+}: {
+  state: ActionState;
+  paid: string;
+  setPaid: (v: string) => void;
+  method: string;
+  setMethod: (v: string) => void;
+  total: string;
+  onAccount: number;
+}) {
+  const field = (name: string, label: string, props: React.ComponentProps<typeof Input> = {}) => (
+    <div className="space-y-1.5">
+      <Label htmlFor={`counter-${name}`}>{label}</Label>
+      <Input
+        id={`counter-${name}`}
+        name={name}
+        aria-invalid={fieldError(state, name) ? true : undefined}
+        {...props}
+      />
+      <FieldError id={`counter-${name}-error`} message={fieldError(state, name)} />
+    </div>
+  );
+  return (
+    <fieldset className="max-w-4xl space-y-3 rounded-lg border p-4">
+      <legend className="px-1 text-sm font-medium">Paid now</legend>
+      <div className="grid gap-4 sm:grid-cols-4">
+        {field("paidAmount", "Amount paid", {
+          inputMode: "decimal",
+          autoComplete: "off",
+          value: paid,
+          onChange: (e) => setPaid(e.target.value),
+          placeholder: "0",
+        })}
+        <div className="space-y-1.5">
+          <Label htmlFor="counter-method">How</Label>
+          <NativeSelect
+            id="counter-method"
+            name="method"
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+          >
+            {METHODS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        {method === "CHEQUE" ? (
+          <>
+            {field("chequeNo", "Cheque no.", { maxLength: 30 })}
+            {field("bankName", "Bank", { maxLength: 60 })}
+            {field("chequeDate", "Cheque date", { type: "date" })}
+          </>
+        ) : method === "ONLINE" ? (
+          field("reference", "Reference", { maxLength: 80 })
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2 text-sm">
+        <Button type="button" size="sm" variant="outline" onClick={() => setPaid(total)}>
+          Paid in full ({formatMoney(total)})
+        </Button>
+        <p className="self-center" aria-live="polite">
+          On the customer&apos;s account:{" "}
+          <span className="font-medium tabular-nums">{formatMoney(onAccount)}</span>
+        </p>
+      </div>
+    </fieldset>
+  );
+}
+
 function CustomerPanel({
   context,
   loading,
   error,
   credit,
   byCompany,
+  counter,
 }: {
+  counter: boolean;
   context: OrderEntryContext | null;
   loading: boolean;
   error: string | null;
@@ -560,7 +686,7 @@ function CustomerPanel({
         ))}
         <dt>Other open orders</dt>
         <dd className="text-right tabular-nums">{formatMoney(context.openOrders)}</dd>
-        <dt>This order</dt>
+        <dt>This order{counter ? " (on account)" : ""}</dt>
         <dd className="text-right tabular-nums">{formatMoney(credit?.thisOrder ?? "0")}</dd>
         {[...byCompany].length > 1
           ? [...byCompany].map(([companyId, t]) => (

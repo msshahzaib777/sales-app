@@ -39,6 +39,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
       status: filterParam(sp, "orderStatus"),
       areaId: filterParam(sp, "areaId"),
       needsApproval: filterParam(sp, "approval") === "needed",
+      fulfilment: filterParam(sp, "type"),
       ...parseDateRange(sp),
     }),
     areaOptions(ctx),
@@ -47,8 +48,15 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
     <>
       <PageHeader
         title="Orders"
-        description="Customer orders for delivery. Booked and planned orders reserve stock until dispatch."
-        actions={<LinkButton href="/orders/new">New order</LinkButton>}
+        description="Customer orders for delivery, and counter sales collected at the warehouse. Booked and planned orders reserve stock until dispatch."
+        actions={
+          <>
+            <LinkButton href="/orders/counter" variant="outline">
+              Counter sale
+            </LinkButton>
+            <LinkButton href="/orders/new">New order</LinkButton>
+          </>
+        }
       />
       <Notice notice={sp.notice} />
       <ListToolbar
@@ -69,6 +77,15 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
             label: "Area",
             value: filterParam(sp, "areaId"),
             options: areas.map((a) => ({ value: a.id, label: `${a.name} · ${a.warehouse.name}` })),
+          },
+          {
+            name: "type",
+            label: "Type",
+            value: filterParam(sp, "type"),
+            options: [
+              { value: "DELIVERY", label: "Deliveries" },
+              { value: "COUNTER", label: "Counter sales" },
+            ],
           },
           {
             name: "approval",
@@ -99,7 +116,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
                 <SelectAll name="ids" label="Select all orders on this page" />
               </Th>
               <Th>Order</Th>
-              <Th>Delivery</Th>
+              <Th>Date</Th>
               <Th>Customer</Th>
               <Th>Area</Th>
               <Th className="text-right">Dozens</Th>
@@ -145,7 +162,11 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
                   {o.bill ? formatMoney(o.bill.netAmount) : "—"}
                 </Td>
                 <Td>
-                  <OrderStatusBadge status={o.status} needsCreditApproval={o.needsCreditApproval} />
+                  <OrderStatusBadge
+                    status={o.status}
+                    needsCreditApproval={o.needsCreditApproval}
+                    counter={o.fulfilment === "COUNTER"}
+                  />
                 </Td>
               </tr>
             ))}

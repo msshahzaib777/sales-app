@@ -43,6 +43,7 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         id: true,
         number: true,
         status: true,
+        fulfilment: true,
         customer: { select: { name: true } },
         lines: {
           select: {
@@ -111,18 +112,21 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
 
   const kept = (l: { quantity: number; returnedQuantity: number; damagedQuantity: number }) =>
     l.quantity - l.returnedQuantity - l.damagedQuantity;
-  const reconciled = orders.filter((o) => o.status !== "DISPATCHED");
+  // Deliveries only: counter sales are collected at the warehouse (no trip, no day-end).
+  const deliveryOrders = orders.filter((o) => o.fulfilment === "DELIVERY");
+  const counterOrders = orders.filter((o) => o.fulfilment === "COUNTER");
+  const reconciled = deliveryOrders.filter((o) => o.status !== "DISPATCHED");
   const deliveries = {
-    orders: orders.length,
-    delivered: orders.filter((o) => o.status === "DELIVERED").length,
-    partly: orders.filter((o) => o.status === "PARTIALLY_DELIVERED").length,
-    returned: orders.filter((o) => o.status === "RETURNED").length,
-    stillOut: orders.filter((o) => o.status === "DISPATCHED").length,
-    sent: orders.flatMap((o) => o.lines).reduce((s, l) => s + l.quantity, 0),
+    orders: deliveryOrders.length,
+    delivered: deliveryOrders.filter((o) => o.status === "DELIVERED").length,
+    partly: deliveryOrders.filter((o) => o.status === "PARTIALLY_DELIVERED").length,
+    returned: deliveryOrders.filter((o) => o.status === "RETURNED").length,
+    stillOut: deliveryOrders.filter((o) => o.status === "DISPATCHED").length,
+    sent: deliveryOrders.flatMap((o) => o.lines).reduce((s, l) => s + l.quantity, 0),
     kept: reconciled.flatMap((o) => o.lines).reduce((s, l) => s + kept(l), 0),
-    returnedQty: orders.flatMap((o) => o.lines).reduce((s, l) => s + l.returnedQuantity, 0),
-    damagedQty: orders.flatMap((o) => o.lines).reduce((s, l) => s + l.damagedQuantity, 0),
-    billed: sum(orders, (o) => o.bill?.netAmount),
+    returnedQty: deliveryOrders.flatMap((o) => o.lines).reduce((s, l) => s + l.returnedQuantity, 0),
+    damagedQty: deliveryOrders.flatMap((o) => o.lines).reduce((s, l) => s + l.damagedQuantity, 0),
+    billed: sum(deliveryOrders, (o) => o.bill?.netAmount),
     list: orders
       .map((o) => ({
         id: o.id,
@@ -130,6 +134,7 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         customerName: o.customer.name,
         status: o.status,
         amount: o.bill?.netAmount ?? ZERO,
+        counter: o.fulfilment === "COUNTER",
       }))
       .sort((a, b) => a.number - b.number),
   };
@@ -225,6 +230,8 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
     showCost,
     issues,
     deliveries,
+    /** Counter sales billed on the day (collected at the warehouse). */
+    counter: { sales: counterOrders.length, billed: sum(counterOrders, (o) => o.bill?.netAmount) },
     productsSold,
     soldTotals: {
       quantity: productsSold.reduce((s, p) => s + p.quantity, 0),

@@ -8,6 +8,7 @@ import type { ActionState } from "@/lib/action-state";
 import { runAction } from "./actions";
 import { requireTenantContext } from "./auth/session";
 import { ServiceError } from "./services/errors";
+import { createCounterSale } from "./services/sales/counter";
 import {
   approveCreditOverride,
   cancelSalesOrder,
@@ -74,6 +75,26 @@ export async function saveSalesOrderAction(
       ? // The next order keeps this one's delivery date.
         `/orders/new?notice=booked&last=${savedId}&date=${deliveryDate}`
       : `/orders/${savedId}?notice=${id ? "saved" : "booked"}`,
+  );
+}
+
+/** Saves a counter sale, then opens it (or a blank counter sale for "Save and next"). */
+export async function saveCounterSaleAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let savedId = "";
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("operations.manage");
+    savedId = (await createCounterSale(ctx, orderInput(formData))).id;
+  }, formData);
+  if (result.status !== "success") return result;
+  revalidatePath("/orders");
+  revalidatePath("/inventory");
+  redirect(
+    formData.get("intent") === "next"
+      ? `/orders/counter?notice=sold&last=${savedId}`
+      : `/orders/${savedId}?notice=sold`,
   );
 }
 

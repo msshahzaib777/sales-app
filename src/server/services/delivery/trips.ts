@@ -2,8 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import type { TripStatus } from "@/generated/prisma/enums";
-import { byRoute, loadByProduct, takeFromBatches } from "@/lib/delivery";
-import { formatDozens } from "@/lib/units";
+import { byRoute, loadByProduct } from "@/lib/delivery";
 import { recordIdSchema } from "@/lib/validation/master";
 import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
 import {
@@ -18,10 +17,9 @@ import { assertCan } from "../../auth/permissions";
 import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
-import { batchBalances, found, nextDocumentNumber } from "../posting";
+import { found, nextDocumentNumber } from "../posting";
 import type { DateRange } from "../purchasing/filters";
-import type { FrozenPrevious } from "../sales/bills";
-import { customerPending } from "../sales/positions";
+import { assertStockOnHand, postOrderBill, stockOut } from "../sales/post-bill";
 
 // Delivery trips (SPEC §7, Phase 1): staff put a day's booked orders on a bike with a driver (the
 // orders become Planned), print the loading sheet and bills, then dispatch. Dispatch, in one
@@ -209,52 +207,6 @@ export async function cancelTrip(ctx: ServiceCtx, input: unknown) {
 
 // ───────────────────────── Dispatch ─────────────────────────
 
-/** Saleable stock movements out of the warehouse for one line, oldest batches first. */
-async function stockOut(
-  tx: TenantTx,
-  ctx: ServiceCtx,
-  m: { productId: string; warehouseId: string; quantity: number; orderId: string; at: Date },
-  batchLeft: Map<string, { id: string; available: number }[]>,
-) {
-  let batches = batchLeft.get(m.productId);
-  if (!batches) {
-    const rows = await tx.batch.findMany({
-      where: { productId: m.productId, warehouseId: m.warehouseId },
-      orderBy: [{ receivedDate: "asc" }, { createdAt: "asc" }],
-      select: { id: true },
-    });
-    const balances = await batchBalances(
-      tx,
-      rows.map((r) => r.id),
-    );
-    batches = rows.map((r) => ({ id: r.id, available: balances.get(r.id) ?? 0 }));
-    batchLeft.set(m.productId, batches);
-  }
-  const { slices, unbatched } = takeFromBatches(m.quantity, batches);
-  for (const s of slices) batches.find((b) => b.id === s.batchId)!.available -= s.quantity;
-  const parts: { batchId: string | null; quantity: number }[] = [
-    ...slices,
-    ...(unbatched > 0 ? [{ batchId: null, quantity: unbatched }] : []),
-  ];
-  for (const part of parts) {
-    await tx.stockMovement.create({
-      data: {
-        tenantId: ctx.user.tenantId,
-        type: "DISPATCH",
-        productId: m.productId,
-        warehouseId: m.warehouseId,
-        batchId: part.batchId,
-        bucket: "SALEABLE",
-        quantity: -part.quantity,
-        occurredAt: m.at,
-        referenceType: "SalesOrder",
-        referenceId: m.orderId,
-        createdById: ctx.user.id,
-      },
-    });
-  }
-}
-
 export async function dispatchTrip(ctx: ServiceCtx, input: unknown) {
   assertCan(ctx.user.role, "operations.manage");
   const { id } = recordIdSchema.parse(input);
@@ -275,26 +227,8 @@ export async function dispatchTrip(ctx: ServiceCtx, input: unknown) {
 
       // Enough stock on hand for the whole load?
       const allLines = orders.flatMap((o) => o.lines);
+      await assertStockOnHand(tx, trip.warehouseId, allLines);
       const load = loadByProduct(allLines);
-      const onHand = await tx.stockMovement.groupBy({
-        by: ["productId"],
-        where: {
-          warehouseId: trip.warehouseId,
-          bucket: "SALEABLE",
-          productId: { in: [...load.keys()] },
-        },
-        _sum: { quantity: true },
-      });
-      const have = new Map(onHand.map((g) => [g.productId, g._sum.quantity ?? 0]));
-      const names = new Map(allLines.map((l) => [l.productId, l.product.name]));
-      const short = [...load]
-        .filter(([pid, qty]) => qty > (have.get(pid) ?? 0))
-        .map(
-          ([pid, qty]) =>
-            `${names.get(pid)} (needs ${formatDozens(qty)}, ${formatDozens(Math.max(have.get(pid) ?? 0, 0))} on hand)`,
-        );
-      if (short.length > 0)
-        throw new ServiceError(`Not enough stock to dispatch: ${short.join("; ")}.`);
 
       // Claim the trip first, so a double click cannot dispatch it twice.
       const claimed = await tx.deliveryTrip.updateMany({
@@ -319,41 +253,7 @@ export async function dispatchTrip(ctx: ServiceCtx, input: unknown) {
             batchLeft,
           );
         }
-        const bill = order.bill!;
-        const pending = await customerPending(tx, order.customerId);
-        const frozen: FrozenPrevious = [...pending.byCompany]
-          .filter(([, v]) => !v.isZero())
-          .map(([companyId, amount]) => ({ companyId, amount: amount.toFixed(2) }));
-        await tx.bill.update({
-          where: { id: bill.id },
-          data: {
-            postedAt: new Date(),
-            billDate: trip.tripDate,
-            previousBalance: pending.total,
-            previousByCompany: frozen,
-          },
-        });
-        const byCompany = new Map<string, Prisma.Decimal>();
-        for (const l of order.lines)
-          byCompany.set(l.companyId, (byCompany.get(l.companyId) ?? D(0)).add(l.netAmount));
-        for (const [companyId, amount] of byCompany) {
-          if (amount.isZero()) continue;
-          await tx.ledgerEntry.create({
-            data: {
-              tenantId: ctx.user.tenantId,
-              partyType: "CUSTOMER",
-              customerId: order.customerId,
-              companyId,
-              type: "SALES_BILL",
-              entryDate: trip.tripDate,
-              debit: amount,
-              description: `Bill #${bill.number} (order #${order.number})`,
-              referenceType: "Bill",
-              referenceId: bill.id,
-              createdById: ctx.user.id,
-            },
-          });
-        }
+        await postOrderBill(tx, ctx, order, trip.tripDate);
         await tx.salesOrder.update({ where: { id: order.id }, data: { status: "DISPATCHED" } });
       }
       await writeAudit(tx, ctx.user, {

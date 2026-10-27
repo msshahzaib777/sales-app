@@ -173,6 +173,22 @@ export async function getStockCard(ctx: ServiceCtx, productId: string, range: Da
     },
     orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
   });
+  // Stock out for a counter sale is labelled as such, not "Dispatched".
+  const counterIds = new Set(
+    (
+      await ctx.db.salesOrder.findMany({
+        where: {
+          fulfilment: "COUNTER",
+          id: {
+            in: movements
+              .filter((m) => m.type === "DISPATCH" && m.referenceType === "SalesOrder")
+              .map((m) => m.referenceId!),
+          },
+        },
+        select: { id: true },
+      })
+    ).map((o) => o.id),
+  );
   let saleable = opening.saleable;
   let damagedBalance = opening.damaged;
   const rows = movements.map((m) => {
@@ -181,7 +197,10 @@ export async function getStockCard(ctx: ServiceCtx, productId: string, range: Da
     return {
       id: m.id,
       occurredAt: m.occurredAt,
-      typeLabel: MOVEMENT_LABEL[m.type],
+      typeLabel:
+        m.type === "DISPATCH" && m.referenceId && counterIds.has(m.referenceId)
+          ? "Counter sale"
+          : MOVEMENT_LABEL[m.type],
       bucket: m.bucket,
       quantity: m.quantity,
       saleable,

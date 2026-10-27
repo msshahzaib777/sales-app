@@ -127,6 +127,12 @@ function quickActions(role: Role, d: Dashboard): QuickAction[] {
     },
     { href: "/orders/new", label: "New order", icon: "order", permission: "operations.manage" },
     {
+      href: "/orders/counter",
+      label: "Counter sale",
+      icon: "order",
+      permission: "operations.manage",
+    },
+    {
       href: "/payments/new",
       label: "Receive payment",
       icon: "payment",
@@ -283,6 +289,16 @@ function TodaysWork({
             d.sent
               ? `sent ${formatDozens(d.sent)}${d.returnedQty ? ` · returned ${formatDozens(d.returnedQty)}` : ""}${d.damagedQty ? ` · damaged ${formatDozens(d.damagedQty)}` : ""}`
               : undefined
+          }
+        />
+        <Stat
+          label="Counter sales"
+          value={formatMoney(d.counter.billed)}
+          href={`/orders?type=COUNTER&from=${on}&to=${on}`}
+          note={
+            d.counter.sales
+              ? `${d.counter.sales} sale${d.counter.sales === 1 ? "" : "s"} at the warehouse`
+              : "None"
           }
         />
         <Stat
