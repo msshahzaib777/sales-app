@@ -207,16 +207,26 @@ begin
     ExpandConstant('{app}\setup\install.ps1') + '" ' + Params + ' > "' + Output + '" 2>&1"',
     '', SW_HIDE, ewWaitUntilTerminated, Code);
   Succeeded := Code = 0;
+  { Readable by everyone on this computer (it holds no passwords), now that nothing has it open. }
+  Exec(ExpandConstant('{sys}\icacls.exe'), '"' + Output + '" /grant *S-1-5-32-545:R /Q',
+    '', SW_HIDE, ewWaitUntilTerminated, I);
   if not Succeeded then
   begin
+    { The FAILED line says what went wrong; otherwise the last lines that have text. }
     Tail := '';
     if LoadStringsFromFile(Output, Lines) then
-      for I := GetArrayLength(Lines) - 12 to GetArrayLength(Lines) - 1 do
-        if I >= 0 then Tail := Tail + Lines[I] + #13#10;
+    begin
+      for I := 0 to GetArrayLength(Lines) - 1 do
+        if Pos('FAILED:', Lines[I]) = 1 then Tail := Tail + Lines[I] + #13#10;
+      if Tail = '' then
+        for I := GetArrayLength(Lines) - 15 to GetArrayLength(Lines) - 1 do
+          if (I >= 0) and (Trim(Lines[I]) <> '') then Tail := Tail + Lines[I] + #13#10;
+    end;
+    if Tail = '' then Tail := '(The setup printed nothing.)' + #13#10;
     MsgBox('Taqseem was copied but could not be set up (code ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
       Tail + #13#10 +
-      'The details are in ' + DataDir() + '\logs. ' +
-      'Run TaqseemSetup again; it continues where it stopped.', mbError, MB_OK);
+      'The details are in ' + DataDir() + '\logs\install-output.txt. Your data is not deleted: ' +
+      'send this message to support, or run TaqseemSetup again.', mbError, MB_OK);
     Exit;
   end;
   if LoadStringsFromFile(DataDir() + '\first-login.txt', Lines) then

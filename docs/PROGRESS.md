@@ -2,6 +2,24 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Installer: updates no longer need the data folder deleted — done
+
+Updating could fail after the files were copied. When the data folder's ownership or permissions
+kept the setup from reading `settings.env`, it wrote new database passwords that the existing
+database did not accept, and every later run failed the same way. Deleting
+`C:\ProgramData\Taqseem` (all data) was the only way out. Now (`installer/setup/install.ps1`):
+- Administrators take ownership of the data folder first (`takeown /A`), before its permissions
+  are set.
+- When `settings.env` is lost, the database port is taken from the existing service; the old file
+  is kept as `settings.env.bak` before every write.
+- If the passwords no longer match ("password authentication failed"), the setup repairs them with
+  the data kept: one restart allowing local sign-in without a password, the superuser password set
+  from `settings.env` (`db.mjs set-super-password`), then the normal `pg_hba.conf` restored (always,
+  even on error) and the database restarted. Tested on a throwaway cluster.
+- Any unexpected error ends with one `FAILED:` line, which the setup window shows. The logs,
+  including `install-output.txt`, are readable by every user. Replacing the website service's
+  program retries while Windows still holds it.
+
 ## Dashboard trends, quick counter bills, new customers on orders, +92 phones — done
 
 **Trends on the dashboard** (`dashboard-charts.ts`, `components/dashboard/charts.tsx`): plain
