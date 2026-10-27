@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ForbiddenError } from "../../auth/permissions";
 import { prisma } from "../../db/client";
 import { createTenantDb } from "../../db/tenant";
 import { getDashboard } from "../dashboard";
+import { getDashboardCharts } from "../dashboard-charts";
 import { getStockCard } from "../inventory";
 import { createArea } from "../master/areas";
 import type { ServiceCtx } from "../master/common";
@@ -73,6 +74,14 @@ async function setup() {
 }
 
 let t: Awaited<ReturnType<typeof setup>>;
+// Opening balances are dated "today": keep today on the sale day.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-20T07:00:00Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 beforeEach(async () => {
   t = await setup();
 });
@@ -200,6 +209,41 @@ describe("counter sale", () => {
     expect(report.specialRates.map((s) => [s.counter, s.difference.toFixed(2)])).toEqual([
       [true, "-96.00"], // (180 − 228) × 2
     ]);
+  });
+
+  it("creates a walk-in customer from name and phone, with no area", async () => {
+    const r = await createCounterSale(t.as("STAFF"), {
+      newCustomerName: "Walk-in Bilal",
+      newCustomerPhone: "3214445566",
+      warehouseId: t.main.id,
+      saleDate: DAY,
+      lines: [{ productId: t.chips.id, quantity: "1" }],
+    });
+    const order = await t.ctx.db.salesOrder.findUniqueOrThrow({
+      where: { id: r.id },
+      include: { customer: true },
+    });
+    expect(order.customer).toMatchObject({
+      name: "Walk-in Bilal",
+      phone: "+92 3214445566",
+      areaId: null,
+    });
+    // Paid nothing: on their account.
+    expect((await customerPending(t.ctx.db, order.customerId)).total.toFixed(2)).toBe("224.00");
+  });
+
+  it("feeds the dashboard trends; money trends only for money roles", async () => {
+    await createCounterSale(t.ctx, sale("2", { paidAmount: "100" }));
+    const date = new Date(`${DAY}T00:00:00.000Z`);
+    const c = await getDashboardCharts(t.ctx, date);
+    expect(c.sales).toHaveLength(30);
+    expect(c.sales.at(-1)).toEqual({ date: DAY, delivery: 0, counter: 448 });
+    expect(c.salesByCompany).toEqual([{ name: "Crunchy", amount: 448 }]);
+    expect(c.billedVsCollected!.at(-1)).toMatchObject({ billed: 448, collected: 100 });
+    // Opening balance 4000 + 448 − 100; we owe Crunchy for the goods received (30 dz × 100).
+    expect(c.owed!.at(-1)).toMatchObject({ customers: 4348, companies: 3000 });
+    const staff = await getDashboardCharts(t.as("STAFF"), date);
+    expect([staff.billedVsCollected, staff.owed]).toEqual([null, null]);
   });
 
   it("is not allowed without operations access", async () => {

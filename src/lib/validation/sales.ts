@@ -8,6 +8,7 @@ import {
   optionalDateSchema,
   optionalMoneySchema,
   optionalText,
+  phoneSchema,
   requestIdSchema,
 } from "./master";
 import { PAYMENT_METHODS } from "./purchasing";
@@ -51,10 +52,40 @@ const warehouseIdSchema = z
   .preprocess(blankToUndefined, idSchema.optional())
   .transform((v) => v ?? null);
 
+/** The chosen customer, or blank with a new customer's name and phone (created with the order). */
+const customerFields = {
+  customerId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
+  newCustomerName: optionalText(120),
+  newCustomerPhone: phoneSchema,
+  /** Area of the new customer (decides the warehouse; needed for deliveries). */
+  newCustomerAreaId: z
+    .preprocess(blankToUndefined, idSchema.optional())
+    .transform((v) => v ?? null),
+};
+
+function requireCustomer(
+  o: { customerId: string | null; newCustomerName: string | null; newCustomerPhone: string | null },
+  ctx: z.RefinementCtx,
+) {
+  if (o.customerId) return;
+  if (!o.newCustomerName)
+    ctx.addIssue({
+      code: "custom",
+      path: ["newCustomerName"],
+      message: "Choose a customer, or enter the new customer's name",
+    });
+  if (!o.newCustomerPhone)
+    ctx.addIssue({
+      code: "custom",
+      path: ["newCustomerPhone"],
+      message: "Enter the new customer's phone",
+    });
+}
+
 export const salesOrderSchema = z
   .object({
     requestId: requestIdSchema,
-    customerId: idSchema,
+    ...customerFields,
     warehouseId: warehouseIdSchema,
     orderDate: dateSchema("order date"),
     deliveryDate: dateSchema("delivery date"),
@@ -66,7 +97,8 @@ export const salesOrderSchema = z
   .refine((o) => o.deliveryDate >= o.orderDate, {
     path: ["deliveryDate"],
     message: "Delivery cannot be before the order date",
-  });
+  })
+  .superRefine(requireCustomer);
 
 export type SalesOrderInput = z.infer<typeof salesOrderSchema>;
 
@@ -77,7 +109,7 @@ export type SalesOrderInput = z.infer<typeof salesOrderSchema>;
 export const counterSaleSchema = z
   .object({
     requestId: requestIdSchema,
-    customerId: idSchema,
+    ...customerFields,
     warehouseId: warehouseIdSchema,
     saleDate: dateSchema("sale date"),
     note: optionalText(500),
@@ -92,6 +124,7 @@ export const counterSaleSchema = z
     chequeDate: optionalDateSchema("cheque date"),
   })
   .superRefine((s, ctx) => {
+    requireCustomer(s, ctx);
     if (!s.paidAmount || Number(s.paidAmount) <= 0 || s.method !== "CHEQUE") return;
     if (!s.chequeNo)
       ctx.addIssue({ code: "custom", path: ["chequeNo"], message: "Enter the cheque number" });

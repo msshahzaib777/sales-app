@@ -1,3 +1,4 @@
+import { normalizePkPhone } from "@/lib/phone";
 import Papa from "papaparse";
 import { readSheet } from "read-excel-file/node";
 import type { ZodError } from "zod";
@@ -266,8 +267,9 @@ export type CustomerLookups = {
   existingKeys: Set<string>;
 };
 
+/** Name and phone, compared however the phone was typed ("0300-…" and "+92 300…" match). */
 export const customerKey = (name: string, phone: string | null | undefined) =>
-  `${nameKey(name)}|${(phone ?? "").replace(/\D/g, "")}`;
+  `${nameKey(name)}|${(normalizePkPhone(phone ?? "") ?? phone ?? "").replace(/\D/g, "")}`;
 
 export function validateCustomerRows(
   table: Table,

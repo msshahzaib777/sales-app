@@ -2,6 +2,34 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Dashboard trends, quick counter bills, new customers on orders, +92 phones — done
+
+**Trends on the dashboard** (`dashboard-charts.ts`, `components/dashboard/charts.tsx`): plain
+server-drawn SVG, no chart library, so the page stays light. Hovering shows values; each chart has a
+"Show as table" view. All end on the dashboard's day:
+- sales per day for 30 days (deliveries and counter sales stacked) and sales by company;
+- billed vs collected per week for 12 weeks (payments roles);
+- what customers owe us and what we owe companies at each week's end (ledger roles).
+No profit or cost. Colors are the validated categorical slots 1 and 2 (`--series-1/2` in
+`globals.css`, light and dark).
+
+**Quick counter bill:** "Paid in full" is ticked by default (untick to take part or nothing), and
+**Save and print bill** opens the bill with the print dialog. Back leads to the next counter sale.
+
+**New customer on the order** (counter sale and delivery order): type the phone or name in the
+customer box, and if nothing matches, Enter offers "+ New customer". Fill in name and phone (and
+the area, required for a delivery and optional at the counter). Anyone who enters orders can do
+this. The customer is created as a retailer, with WhatsApp set to the same number, in the same
+save (`customerForNewOrder` in `orders.ts`). If an active customer already has that phone, the
+order goes to them instead.
+
+**Phones are always +92:** every phone (customers, WhatsApp, companies, bookers, staff, business)
+is stored as `+92 3001234567` (`src/lib/phone.ts`). Numbers typed as 0300-…, 300…, +92 300 … or
+0092 … all become that, and other countries are refused. Searches match however the number is
+typed (`phoneContains`). Pickers also match the 0300… form. The import's duplicate check compares
+normalized numbers. Migration `20261103090000_phone_plus92` converts existing numbers and leaves
+anything that is not a Pakistani number as it was.
+
 ## Changed rate on an order line — done
 
 Sometimes a product is sold to one customer at another rate. On the order screen (new order, edit,

@@ -44,6 +44,21 @@ export function areaOptions(ctx: ServiceCtx) {
   });
 }
 
+/** Areas for a new customer typed on an order: the area decides the warehouse. */
+export async function areasForOrders(ctx: ServiceCtx) {
+  const rows = await ctx.db.area.findMany({
+    where: { isActive: true, warehouse: { isActive: true } },
+    orderBy: [{ warehouse: { name: "asc" } }, { sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, warehouseId: true, warehouse: { select: { name: true } } },
+  });
+  return rows.map((a) => ({
+    id: a.id,
+    name: a.name,
+    warehouseId: a.warehouseId,
+    warehouseName: a.warehouse.name,
+  }));
+}
+
 export async function getArea(ctx: ServiceCtx, id: string) {
   assertCan(ctx.user.role, "masterData.manage");
   const row = await ctx.db.area.findUnique({ where: { id } });

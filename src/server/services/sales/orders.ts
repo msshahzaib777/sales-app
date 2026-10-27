@@ -13,15 +13,16 @@ import {
   priceLineAt,
   type PricedLine,
 } from "@/lib/sales";
-import { recordIdSchema } from "@/lib/validation/master";
+import { customerSchema, recordIdSchema } from "@/lib/validation/master";
 import { salesOrderSchema, type SalesOrderInput } from "@/lib/validation/sales";
-import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
+import { icontains, matchEveryWord, phoneContains, searchNumber } from "@/lib/list-params";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
 import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
+import { createCustomerTx } from "../master/customers";
 import { found, nextDocumentNumber } from "../posting";
 import type { DateRange } from "../purchasing/filters";
 import { customerPending, openOrdersTotal, stockPositions } from "./positions";
@@ -216,7 +217,9 @@ export async function bookOrder(
   data: Omit<SalesOrderInput, "requestId"> & { requestId?: string },
   opts: { fulfilment?: "DELIVERY" | "COUNTER"; paidNow?: Prisma.Decimal } = {},
 ) {
-  const customer = await tx.customer.findUnique({ where: { id: data.customerId } });
+  const customer = data.customerId
+    ? await tx.customer.findUnique({ where: { id: data.customerId } })
+    : await customerForNewOrder(tx, ctx, data, opts.fulfilment ?? "DELIVERY");
   if (!customer || !customer.isActive) throw new ServiceError("Choose an active customer.");
   const warehouseId = await orderWarehouse(tx, customer, data.warehouseId);
   const products = await loadProducts(
@@ -354,6 +357,38 @@ export async function createSalesOrder(ctx: ServiceCtx, input: unknown): Promise
       };
     },
     { timeout: 30_000 },
+  );
+}
+
+/**
+ * A customer typed on the order (name and phone): the active customer with that phone if there is
+ * one, otherwise a new retailer created with the order, by anyone who may enter orders. A delivery
+ * needs the customer's area (it decides the warehouse and the route).
+ */
+async function customerForNewOrder(
+  tx: TenantTx,
+  ctx: ServiceCtx,
+  data: Pick<SalesOrderInput, "newCustomerName" | "newCustomerPhone" | "newCustomerAreaId">,
+  fulfilment: "DELIVERY" | "COUNTER",
+) {
+  const phone = data.newCustomerPhone!;
+  const existing = await tx.customer.findFirst({
+    where: { isActive: true, OR: [{ phone }, { whatsapp: phone }] },
+    orderBy: { createdAt: "asc" },
+  });
+  if (existing) return existing;
+  if (fulfilment === "DELIVERY" && !data.newCustomerAreaId)
+    throw new ServiceError("Choose the new customer's area, so the order can go on a route.");
+  return createCustomerTx(
+    tx,
+    ctx,
+    customerSchema.parse({
+      name: data.newCustomerName,
+      phone,
+      whatsapp: phone,
+      type: "RETAILER",
+      areaId: data.newCustomerAreaId ?? "",
+    }),
   );
 }
 
@@ -568,7 +603,7 @@ export async function listSalesOrders(ctx: ServiceCtx, f: OrderFilters) {
       : matchEveryWord(f.q, (w): Prisma.SalesOrderWhereInput[] => [
           { customer: { name: icontains(w) } },
           { customer: { shopName: icontains(w) } },
-          { customer: { phone: { contains: w } } },
+          { customer: { phone: phoneContains(w) } },
           { customer: { area: { name: icontains(w) } } },
           { lines: { some: { product: { code: icontains(w) } } } },
           { lines: { some: { product: { name: icontains(w) } } } },
@@ -676,17 +711,22 @@ export async function orderEntryContext(
   opts: { warehouseId?: string; excludeOrderId?: string } = {},
 ) {
   assertCan(ctx.user.role, "operations.manage");
-  const customer = found(
-    await ctx.db.customer.findUnique({
-      where: { id: customerId },
-      include: { area: { select: { name: true, warehouseId: true } } },
-    }),
-    "customer",
-  );
-  const warehouseId = customer.area?.warehouseId ?? opts.warehouseId ?? null;
+  // No customer id: a new customer typed on the order (nothing owed yet; the warehouse is given).
+  const customer = customerId
+    ? found(
+        await ctx.db.customer.findUnique({
+          where: { id: customerId },
+          include: { area: { select: { name: true, warehouseId: true } } },
+        }),
+        "customer",
+      )
+    : null;
+  const warehouseId = customer?.area?.warehouseId ?? opts.warehouseId ?? null;
   const [pending, openOrders, companies] = await Promise.all([
-    customerPending(ctx.db, customerId),
-    openOrdersTotal(ctx.db, customerId, opts.excludeOrderId),
+    customer
+      ? customerPending(ctx.db, customer.id)
+      : { total: new Prisma.Decimal(0), oldBalance: new Prisma.Decimal(0), byCompany: new Map() },
+    customer ? openOrdersTotal(ctx.db, customer.id, opts.excludeOrderId) : new Prisma.Decimal(0),
     ctx.db.company.findMany({ select: { id: true, name: true } }),
   ]);
   const companyName = new Map(companies.map((c) => [c.id, c.name]));
@@ -754,26 +794,38 @@ export async function orderEntryContext(
     }));
   }
 
-  const last = await ctx.db.salesOrder.findFirst({
-    where: {
-      customerId,
-      status: { not: "CANCELLED" },
-      ...(opts.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
-    },
-    orderBy: [{ orderDate: "desc" }, { number: "desc" }],
-    include: { lines: { select: { productId: true, quantity: true } } },
-  });
+  const last = !customer
+    ? null
+    : await ctx.db.salesOrder.findFirst({
+        where: {
+          customerId,
+          status: { not: "CANCELLED" },
+          ...(opts.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
+        },
+        orderBy: [{ orderDate: "desc" }, { number: "desc" }],
+        include: { lines: { select: { productId: true, quantity: true } } },
+      });
 
   return {
-    customer: {
-      id: customer.id,
-      name: customer.name,
-      shopName: customer.shopName,
-      areaName: customer.area?.name ?? null,
-      creditLimit: customer.creditLimit?.toFixed(2) ?? null,
-      isFlagged: customer.isFlagged,
-      flagReason: customer.flagReason,
-    },
+    customer: customer
+      ? {
+          id: customer.id,
+          name: customer.name,
+          shopName: customer.shopName,
+          areaName: customer.area?.name ?? null,
+          creditLimit: customer.creditLimit?.toFixed(2) ?? null,
+          isFlagged: customer.isFlagged,
+          flagReason: customer.flagReason,
+        }
+      : {
+          id: "",
+          name: "New customer",
+          shopName: null,
+          areaName: null,
+          creditLimit: null,
+          isFlagged: false,
+          flagReason: null,
+        },
     warehouseId,
     pending: pending.total.toFixed(2),
     // The old balance (paper bills, no company) first, under companyId "".

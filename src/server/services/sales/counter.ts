@@ -40,6 +40,9 @@ export async function createCounterSale(ctx: ServiceCtx, input: unknown) {
         ctx,
         {
           customerId: data.customerId,
+          newCustomerName: data.newCustomerName,
+          newCustomerPhone: data.newCustomerPhone,
+          newCustomerAreaId: data.newCustomerAreaId,
           warehouseId: data.warehouseId,
           orderDate: data.saleDate,
           deliveryDate: data.saleDate,

@@ -105,7 +105,10 @@ beforeEach(async () => {
   t = await setup();
 });
 
-const order = (lines: { productId: string; quantity: string }[], extra: object = {}) => ({
+const order = (
+  lines: { productId: string; quantity: string; rate?: string; rateNote?: string }[],
+  extra: object = {},
+) => ({
   customerId: t.customer.id,
   orderDate: "2026-10-24",
   deliveryDate: "2026-10-25",
@@ -195,6 +198,62 @@ describe("booking an order", () => {
     );
     expect(b.id).toBe(a.id);
     expect(await t.ctx.db.salesOrder.count()).toBe(1);
+  });
+});
+
+describe("new customer typed on the order", () => {
+  const newOrder = (extra: object) =>
+    createSalesOrder(t.staff, {
+      orderDate: "2026-10-24",
+      deliveryDate: "2026-10-25",
+      lines: [{ productId: t.chips.id, quantity: "1" }],
+      ...extra,
+    });
+
+  it("creates the customer from name and phone (+92), and reuses them by phone", async () => {
+    const area = await t.ctx.db.area.findFirstOrThrow();
+    const r = await newOrder({
+      newCustomerName: "Naveed Traders",
+      newCustomerPhone: "0300-5556667",
+      newCustomerAreaId: area.id,
+    });
+    const order = await getSalesOrder(t.ctx, r.id);
+    const created = await t.ctx.db.customer.findUniqueOrThrow({ where: { id: order.customerId } });
+    expect(created).toMatchObject({
+      name: "Naveed Traders",
+      phone: "+92 3005556667",
+      whatsapp: "+92 3005556667",
+      type: "RETAILER",
+      areaId: area.id,
+    });
+    expect(
+      await t.ctx.db.auditLog.count({ where: { entityType: "Customer", entityId: created.id } }),
+    ).toBe(1);
+
+    // The same phone typed another way is the same customer, not a second one.
+    const again = await newOrder({
+      newCustomerName: "Naveed",
+      newCustomerPhone: "+92 300 5556667",
+      newCustomerAreaId: area.id,
+    });
+    expect((await getSalesOrder(t.ctx, again.id)).customerId).toBe(created.id);
+    expect(await t.ctx.db.customer.count({ where: { phone: "+92 3005556667" } })).toBe(1);
+
+    // Found by phone the way it is usually typed.
+    const list = await listSalesOrders(t.ctx, { page: 1, q: "0300-555" });
+    expect(list.total).toBe(2);
+  });
+
+  it("needs a name and a phone, and an area for a delivery", async () => {
+    await expect(newOrder({ newCustomerName: "No Phone" })).rejects.toThrow(/phone/);
+    await expect(newOrder({ newCustomerPhone: "03001112222" })).rejects.toThrow(/name/);
+    await expect(
+      newOrder({ newCustomerName: "X", newCustomerPhone: "+44 20 7946 0958" }),
+    ).rejects.toThrow(/Pakistani number/);
+    await expect(
+      newOrder({ newCustomerName: "X", newCustomerPhone: "03001112222" }),
+    ).rejects.toThrow(/area/);
+    expect(await t.ctx.db.customer.count({ where: { phone: "+92 3001112222" } })).toBe(0);
   });
 });
 

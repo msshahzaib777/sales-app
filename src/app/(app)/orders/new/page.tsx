@@ -10,6 +10,7 @@ import { requireTenantContext } from "@/server/auth/session";
 import { filterParam } from "@/lib/list-params";
 import { saveSalesOrderAction } from "@/server/sales-actions";
 import { parseDateRange } from "@/server/services/purchasing/filters";
+import { areasForOrders } from "@/server/services/master/areas";
 import { warehouseOptions } from "@/server/services/master/warehouses";
 import { customersForOrders } from "@/server/services/sales/orders";
 
@@ -20,7 +21,7 @@ export default async function NewOrderPage({ searchParams }: PageProps<"/orders/
   const { notice, last } = sp;
   const ctx = await requireTenantContext("operations.manage");
   const lastId = filterParam(sp, "last");
-  const [customers, warehouses, lastOrder] = await Promise.all([
+  const [customers, warehouses, lastOrder, areas] = await Promise.all([
     customersForOrders(ctx),
     warehouseOptions(ctx),
     lastId
@@ -29,6 +30,7 @@ export default async function NewOrderPage({ searchParams }: PageProps<"/orders/
           select: { id: true, number: true, customer: { select: { name: true } } },
         })
       : null,
+    areasForOrders(ctx),
   ]);
   const today = businessToday();
   // ?date= keeps the delivery date of the order just saved; ?customerId= starts with a customer.
@@ -62,6 +64,7 @@ export default async function NewOrderPage({ searchParams }: PageProps<"/orders/
         action={saveSalesOrderAction.bind(null, null)}
         customers={customers}
         warehouses={warehouses}
+        areas={areas}
         canOverrideCredit={can(ctx.user.role, "orders.overrideCreditLimit")}
         initial={{
           orderDate: toDateInput(today),

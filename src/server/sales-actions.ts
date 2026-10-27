@@ -104,7 +104,9 @@ export async function saveCounterSaleAction(
   redirect(
     formData.get("intent") === "next"
       ? `/orders/counter?notice=sold&last=${savedId}`
-      : `/orders/${savedId}?notice=sold`,
+      : formData.get("intent") === "print"
+        ? `/orders/${savedId}/bill?print=1`
+        : `/orders/${savedId}?notice=sold`,
   );
 }
 

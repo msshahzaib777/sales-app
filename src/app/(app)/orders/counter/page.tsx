@@ -8,6 +8,7 @@ import { filterParam } from "@/lib/list-params";
 import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveCounterSaleAction } from "@/server/sales-actions";
+import { areasForOrders } from "@/server/services/master/areas";
 import { warehouseOptions } from "@/server/services/master/warehouses";
 import { customersForOrders, getOrderSummary } from "@/server/services/sales/orders";
 
@@ -18,10 +19,11 @@ export default async function CounterSalePage({ searchParams }: PageProps<"/orde
   const ctx = await requireTenantContext("operations.manage");
   const lastId = filterParam(sp, "last");
   const customerId = filterParam(sp, "customerId");
-  const [customers, warehouses, last] = await Promise.all([
+  const [customers, warehouses, last, areas] = await Promise.all([
     customersForOrders(ctx),
     warehouseOptions(ctx),
     lastId ? getOrderSummary(ctx, lastId) : null,
+    areasForOrders(ctx),
   ]);
   return (
     <>
@@ -48,6 +50,7 @@ export default async function CounterSalePage({ searchParams }: PageProps<"/orde
         action={saveCounterSaleAction}
         customers={customers}
         warehouses={warehouses}
+        areas={areas}
         canOverrideCredit={can(ctx.user.role, "orders.overrideCreditLimit")}
         initial={{
           orderDate: toDateInput(businessToday()),
