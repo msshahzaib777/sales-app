@@ -142,7 +142,18 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
                   ) : null}
                 </Td>
               ) : null}
-              <Td className="text-right tabular-nums">{formatMoney(l.rate)}</Td>
+              <Td className="text-right tabular-nums">
+                {formatMoney(l.rate)}
+                {l.standardRate ? (
+                  <div className="text-xs">
+                    <Badge variant="secondary">Special rate</Badge>{" "}
+                    <span className="text-muted-foreground line-through">
+                      {formatMoney(l.standardRate)}
+                    </span>
+                    {l.rateNote ? <div className="text-muted-foreground">{l.rateNote}</div> : null}
+                  </div>
+                ) : null}
+              </Td>
               <Td>
                 {l.discountAmount.gt(0)
                   ? `${formatDiscount(l)} (−${formatMoney(l.discountAmount)})`

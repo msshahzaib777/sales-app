@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import type { SalesOrderStatus } from "@/generated/prisma/enums";
+import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import type { DiscountType } from "@/lib/pricing";
 import {
@@ -9,7 +10,7 @@ import {
   checkCredit,
   type CreditCheck,
   isOpenOrder,
-  priceLine,
+  priceLineAt,
   type PricedLine,
 } from "@/lib/sales";
 import { recordIdSchema } from "@/lib/validation/master";
@@ -61,13 +62,17 @@ async function loadProducts(tx: TenantTx, warehouseId: string, productIds: strin
   return byId;
 }
 
+/** An order line as priced, with the reason when its rate was changed. */
+type OrderLine = PricedLine & { rateNote?: string | null };
+
+/** Prices each line: the product's rate and discount, or the rate typed for this order. */
 function priceLines(
   products: Awaited<ReturnType<typeof loadProducts>>,
-  input: SalesOrderInput,
-): PricedLine[] {
+  input: Pick<SalesOrderInput, "lines">,
+): OrderLine[] {
   return input.lines.map((line) => {
     const p = products.get(line.productId)!;
-    return priceLine(
+    const priced = priceLineAt(
       {
         id: p.id,
         companyId: p.companyId,
@@ -81,7 +86,9 @@ function priceLines(
         })),
       },
       line.quantity,
+      line.rate,
     );
+    return { ...priced, rateNote: priced.standardRate ? line.rateNote : null };
   });
 }
 
@@ -127,6 +134,7 @@ export async function writeBillRevision(
         companyId: l.companyId,
         quantity: l.quantity,
         rate: l.rate.toFixed(2),
+        ...(l.standardRate ? { standardRate: l.standardRate.toFixed(2) } : {}),
         discountType: l.discountType,
         discountValue: l.discountValue.toFixed(2),
         grossAmount: l.grossAmount.toFixed(2),
@@ -144,7 +152,7 @@ export async function writeBillRevision(
   });
 }
 
-const lineRows = (ctx: ServiceCtx, lines: PricedLine[]) =>
+const lineRows = (ctx: ServiceCtx, lines: OrderLine[]) =>
   lines.map((l) => ({
     tenantId: ctx.user.tenantId,
     productId: l.productId,
@@ -157,6 +165,8 @@ const lineRows = (ctx: ServiceCtx, lines: PricedLine[]) =>
     discountAmount: money(l.discountAmount),
     taxAmount: money(l.taxAmount),
     netAmount: money(l.netAmount),
+    standardRate: l.standardRate ? money(l.standardRate) : null,
+    rateNote: l.rateNote ?? null,
   }));
 
 /** Credit decision: allowed by the owner, waiting for the owner, or (owner, not ticked) refused. */
@@ -286,6 +296,9 @@ export async function bookOrder(
         productId: l.productId,
         quantity: l.quantity,
         netAmount: l.netAmount,
+        ...(l.standardRate
+          ? { rate: l.rate, standardRate: l.standardRate, rateNote: l.rateNote }
+          : {}),
       })),
       total: total.netAmount,
       companies: [...byCompany.keys()],
@@ -430,7 +443,11 @@ export async function updateSalesOrder(
         },
         newValue: {
           deliveryDate: after.deliveryDate,
-          lines: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+          lines: lines.map((l) => ({
+            productId: l.productId,
+            quantity: l.quantity,
+            ...(l.standardRate ? { rate: l.rate, standardRate: l.standardRate } : {}),
+          })),
           total: total.netAmount,
         },
       });
@@ -509,6 +526,8 @@ export type OrderFilters = {
   needsApproval?: boolean;
   /** DELIVERY or COUNTER. */
   fulfilment?: string;
+  /** Only orders with a rate changed on a line. */
+  specialRate?: boolean;
   page: number;
 } & DateRange;
 
@@ -537,6 +556,7 @@ export async function listSalesOrders(ctx: ServiceCtx, f: OrderFilters) {
       : {}),
     ...(f.areaId ? { customer: { areaId: f.areaId } } : {}),
     ...(f.needsApproval ? { needsCreditApproval: true } : {}),
+    ...(f.specialRate ? { lines: { some: { standardRate: { not: null } } } } : {}),
     ...(f.fulfilment === "DELIVERY" || f.fulfilment === "COUNTER"
       ? { fulfilment: f.fulfilment }
       : {}),
@@ -683,6 +703,8 @@ export async function orderEntryContext(
     tiers: { minQuantity: number; discountType: DiscountType; discountValue: string }[];
     available: number;
     onHand: number;
+    /** The rate this customer last got when it was changed for them (a hint only). */
+    lastSpecialRate: { rate: string; date: string } | null;
   }[] = [];
   if (warehouseId) {
     const rows = await ctx.db.product.findMany({
@@ -690,7 +712,23 @@ export async function orderEntryContext(
       include: { discountTiers: { orderBy: { minQuantity: "asc" } } },
       orderBy: { code: "asc" },
     });
-    const positions = await stockPositions(ctx.db, warehouseId, undefined, opts.excludeOrderId);
+    const [positions, specials] = await Promise.all([
+      stockPositions(ctx.db, warehouseId, undefined, opts.excludeOrderId),
+      ctx.db.salesOrderLine.findMany({
+        where: {
+          standardRate: { not: null },
+          salesOrder: {
+            customerId,
+            status: { not: "CANCELLED" },
+            ...(opts.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
+          },
+        },
+        orderBy: [{ salesOrder: { orderDate: "desc" } }, { salesOrder: { number: "desc" } }],
+        distinct: ["productId"],
+        select: { productId: true, rate: true, salesOrder: { select: { orderDate: true } } },
+      }),
+    ]);
+    const special = new Map(specials.map((s) => [s.productId, s]));
     products = rows.map((p) => ({
       id: p.id,
       code: p.code,
@@ -707,6 +745,12 @@ export async function orderEntryContext(
       })),
       available: positions.get(p.id)?.available ?? 0,
       onHand: positions.get(p.id)?.onHand ?? 0,
+      lastSpecialRate: special.has(p.id)
+        ? {
+            rate: special.get(p.id)!.rate.toFixed(2),
+            date: formatDate(special.get(p.id)!.salesOrder.orderDate),
+          }
+        : null,
     }));
   }
 

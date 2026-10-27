@@ -188,6 +188,20 @@ describe("counter sale", () => {
     expect(d.work.day.orders).toBe(0);
   });
 
+  it("sells at a changed rate", async () => {
+    // 2 dz at 180, no discount.
+    const r = await createCounterSale(
+      t.as("STAFF"),
+      sale("2", { lines: [{ productId: t.chips.id, quantity: "2", rate: "180" }] }),
+    );
+    const bill = await t.ctx.db.bill.findFirstOrThrow({ where: { salesOrderId: r.id } });
+    expect(bill.netAmount.toFixed(2)).toBe("360.00");
+    const report = await dailyReport(t.ctx, new Date(`${DAY}T00:00:00.000Z`));
+    expect(report.specialRates.map((s) => [s.counter, s.difference.toFixed(2)])).toEqual([
+      [true, "-96.00"], // (180 − 228) × 2
+    ]);
+  });
+
   it("is not allowed without operations access", async () => {
     const platform: ServiceCtx = { ...t.ctx, user: { ...t.ctx.user, role: "SUPER_ADMIN" } };
     await expect(createCounterSale(platform, sale("1"))).rejects.toThrow(ForbiddenError);

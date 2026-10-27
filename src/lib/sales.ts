@@ -36,7 +36,40 @@ export type PricedLine = {
   discountAmount: Decimal;
   taxAmount: Decimal;
   netAmount: Decimal;
+  /** The product's normal rate, set only when the rate was changed for this order. */
+  standardRate?: Decimal;
 };
+
+/**
+ * Prices a line at a rate typed on the order (a lower or higher rate for this customer): that rate
+ * is the final price per dozen, with no company discount or slab. A blank rate, or the product's
+ * own rate, prices the line normally.
+ */
+export function priceLineAt(
+  product: PricedProduct,
+  quantity: number,
+  rate: DecimalValue | null | undefined,
+): PricedLine {
+  if (rate === null || rate === undefined || rate === "" || D(rate).eq(D(product.saleRate)))
+    return priceLine(product, quantity);
+  const amounts = calculateLineAmounts({
+    quantity,
+    baseUnitsPerPriceUnit: PACKETS_PER_DOZEN,
+    rate: D(rate),
+    discountType: "NONE",
+    discountValue: 0,
+  });
+  return {
+    productId: product.id,
+    companyId: product.companyId,
+    quantity,
+    rate: D(rate),
+    discountType: "NONE",
+    discountValue: ZERO,
+    ...amounts,
+    standardRate: D(product.saleRate),
+  };
+}
 
 /** Prices one order line: sale rate, and the company discount (or the slab the quantity reaches). */
 export function priceLine(product: PricedProduct, quantity: number): PricedLine {

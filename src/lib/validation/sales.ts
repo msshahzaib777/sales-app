@@ -17,6 +17,11 @@ export const ORDER_SOURCES = ["OFFICE", "WHATSAPP", "BOOKER_APP"] as const;
 export const salesOrderLineSchema = z.object({
   productId: idSchema,
   quantity: dozensSchema("quantity", { min: 0.5 }),
+  /** A rate per dozen changed for this order; blank = the product's rate and discount. */
+  rate: optionalMoneySchema("rate").refine((v) => v === null || Number(v) > 0, {
+    message: "The rate must be more than zero",
+  }),
+  rateNote: optionalText(100),
 });
 
 const orderLinesSchema = z

@@ -198,6 +198,57 @@ describe("booking an order", () => {
   });
 });
 
+describe("changed rate on an order", () => {
+  it("staff may change a line's rate; it has no discount, survives edits and is a hint next time", async () => {
+    const r = await createSalesOrder(
+      t.staff,
+      order([
+        { productId: t.chips.id, quantity: "5", rate: "200", rateNote: "old customer" },
+        { productId: t.nimko.id, quantity: "2" },
+      ]),
+    );
+    const full = await getSalesOrder(t.ctx, r.id);
+    const chips = full.lines.find((l) => l.productId === t.chips.id)!;
+    expect([
+      chips.rate.toFixed(2),
+      chips.standardRate?.toFixed(2),
+      chips.discountType,
+      chips.netAmount.toFixed(2),
+      chips.rateNote,
+    ]).toEqual(["200.00", "228.00", "NONE", "1000.00", "old customer"]);
+    const nimko = full.lines.find((l) => l.productId === t.nimko.id)!;
+    expect(nimko.standardRate).toBeNull();
+    expect(full.bill!.netAmount.toFixed(2)).toBe("1460.00"); // 1000 + 460
+
+    // Editing keeps the rate it is sent with; a blank rate goes back to normal pricing.
+    await updateSalesOrder(
+      t.staff,
+      r.id,
+      order([{ productId: t.chips.id, quantity: "6", rate: "200", rateNote: "old customer" }]),
+    );
+    const edited = await getSalesOrder(t.ctx, r.id);
+    expect(edited.bill!.netAmount.toFixed(2)).toBe("1200.00");
+    expect(edited.lines[0]!.standardRate?.toFixed(2)).toBe("228.00");
+
+    // Next order: the last changed rate is offered as a hint; the normal rate still applies.
+    const entry = await orderEntryContext(t.ctx, t.customer.id);
+    const hint = entry.products.find((p) => p.id === t.chips.id)!.lastSpecialRate;
+    expect(hint?.rate).toBe("200.00");
+    expect(entry.products.find((p) => p.id === t.nimko.id)!.lastSpecialRate).toBeNull();
+    const next = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1" }]));
+    expect((await getSalesOrder(t.ctx, next.id)).bill!.netAmount.toFixed(2)).toBe("224.00");
+
+    const list = await listSalesOrders(t.ctx, { page: 1, specialRate: true });
+    expect(list.rows.map((o) => o.id)).toEqual([r.id]);
+  });
+
+  it("refuses a rate of zero", async () => {
+    await expect(
+      createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1", rate: "0" }])),
+    ).rejects.toThrow(/more than zero/);
+  });
+});
+
 describe("credit limit", () => {
   // Limit 10,000; pending 4,000 (opening balances).
   const big = () => order([{ productId: t.chips.id, quantity: "30" }]); // 30 dz × (228 − 8) = 6,600

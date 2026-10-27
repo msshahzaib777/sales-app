@@ -7,6 +7,7 @@ import {
   isOpenOrder,
   minimumPayment,
   priceLine,
+  priceLineAt,
 } from "./sales";
 
 const chips = {
@@ -45,6 +46,26 @@ describe("priceLine", () => {
   it("prices loose packets at the per-dozen rate", () => {
     const line = priceLine(nimko, 5); // 5 packets of 230 / dozen
     expect(line.netAmount.toFixed(2)).toBe("95.83");
+  });
+});
+
+describe("priceLineAt", () => {
+  it("prices at the typed rate with no discount, and keeps the normal rate", () => {
+    const line = priceLineAt(chips, 42, "200"); // 3.5 dz at 200
+    expect([
+      line.rate.toFixed(2),
+      line.discountAmount.toFixed(2),
+      line.netAmount.toFixed(2),
+    ]).toEqual(["200.00", "0.00", "700.00"]);
+    expect(line.discountType).toBe("NONE");
+    expect(line.standardRate?.toFixed(2)).toBe("228.00");
+  });
+
+  it("a blank rate, or the product's own rate, prices normally", () => {
+    for (const rate of [null, undefined, "", "228", "228.00"]) {
+      const line = priceLineAt(chips, 42, rate);
+      expect([line.netAmount.toFixed(2), line.standardRate]).toEqual(["784.00", undefined]);
+    }
   });
 });
 

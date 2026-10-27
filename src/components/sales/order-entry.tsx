@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
-import { billTotals, checkCredit, priceLine, type PricedLine } from "@/lib/sales";
+import { billTotals, checkCredit, priceLineAt, type PricedLine } from "@/lib/sales";
 import { formatDozens, PACKETS_PER_HALF_DOZEN, parseQuantity, quantityText } from "@/lib/units";
 import { orderEntryContextAction } from "@/server/sales-actions";
 import type { OrderEntryContext } from "@/server/services/sales/orders";
@@ -27,7 +27,8 @@ type CustomerOption = {
   phone: string | null;
   area: { name: string } | null;
 };
-type Line = { productId: string; qty: string };
+/** `rate`: a rate per dozen typed for this order (blank = the product's rate and discount). */
+type Line = { productId: string; qty: string; rate?: string; rateNote?: string };
 type Product = OrderEntryContext["products"][number];
 
 const SOURCES = [
@@ -35,6 +36,12 @@ const SOURCES = [
   { value: "WHATSAPP", label: "WhatsApp" },
   { value: "BOOKER_APP", label: "Booker app" },
 ];
+
+/** A typed rate in rupees (up to 2 decimals, more than zero), or null. */
+function typedRate(rate: string | undefined): string | null {
+  const v = rate?.trim() ?? "";
+  return /^\d+(\.\d{1,2})?$/.test(v) && Number(v) > 0 ? v : null;
+}
 
 /** "3.5" or "3dz 6pk" → 42 packets; null unless a positive number of whole or half dozens. */
 function halfDozens(qty: string): number | null {
@@ -133,7 +140,8 @@ export function OrderEntry({
   for (const line of lines) {
     const product = productById.get(line.productId);
     const qty = halfDozens(line.qty);
-    if (product && qty) priced.push({ ...priceLine(product, qty), product });
+    if (product && qty)
+      priced.push({ ...priceLineAt(product, qty, typedRate(line.rate)), product });
   }
   const { total, byCompany } = billTotals(priced);
   const paidNow = /^\d+(\.\d{1,2})?$/.test(paid.trim()) ? Number(paid) : 0;
@@ -435,7 +443,21 @@ export function OrderEntry({
                       />
                       <FieldError id={`qty-${product.id}-error`} message={error} />
                     </Td>
-                    <Td className="text-right tabular-nums">{formatMoney(product.saleRate)}</Td>
+                    <Td className="text-right">
+                      <RateCell
+                        line={line}
+                        product={product}
+                        special={Boolean(p?.standardRate)}
+                        error={fieldError(state, `lines.${i}.rate`)}
+                        onChange={(change) =>
+                          setLines((ls) =>
+                            ls.map((l) =>
+                              l.productId === line.productId ? { ...l, ...change } : l,
+                            ),
+                          )
+                        }
+                      />
+                    </Td>
                     <Td className="text-right tabular-nums">
                       {p && p.discountAmount.gt(0) ? `−${formatMoney(p.discountAmount)}` : "—"}
                     </Td>
@@ -541,6 +563,79 @@ export function OrderEntry({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Rate / dz of one line: blank uses the product's rate (shown as the placeholder). A typed rate
+ * is the final price for this order, with no discount, and asks for a reason. The customer's last
+ * special rate for the product is offered as a hint only.
+ */
+function RateCell({
+  line,
+  product,
+  special,
+  error,
+  onChange,
+}: {
+  line: Line;
+  product: Product;
+  special: boolean;
+  error?: string;
+  onChange: (change: Partial<Line>) => void;
+}) {
+  const id = `rate-${product.id}`;
+  const last = product.lastSpecialRate;
+  return (
+    <div className="ml-auto w-32 space-y-1 text-left">
+      <label htmlFor={id} className="sr-only">
+        Rate per dozen for {product.name}
+      </label>
+      <Input
+        id={id}
+        name="rate"
+        inputMode="decimal"
+        autoComplete="off"
+        className="h-8 text-right tabular-nums"
+        placeholder={product.saleRate}
+        value={line.rate ?? ""}
+        onChange={(e) => onChange({ rate: e.target.value })}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+      />
+      <FieldError id={`${id}-error`} message={error} />
+      {special ? (
+        <>
+          <p className="text-xs">
+            <Badge variant="secondary">Special rate</Badge>{" "}
+            <span className="text-muted-foreground line-through">
+              {formatMoney(product.saleRate)}
+            </span>
+          </p>
+          <Input
+            name="rateNote"
+            aria-label={`Reason for the rate of ${product.name}`}
+            placeholder="Reason (optional)"
+            maxLength={100}
+            className="h-7 text-xs"
+            value={line.rateNote ?? ""}
+            onChange={(e) => onChange({ rateNote: e.target.value })}
+          />
+        </>
+      ) : (
+        <input type="hidden" name="rateNote" value="" />
+      )}
+      {last && !line.rate ? (
+        <button
+          type="button"
+          className="text-muted-foreground text-xs underline underline-offset-2"
+          onClick={() => onChange({ rate: last.rate })}
+          title="Use this rate on this order"
+        >
+          Last time {formatMoney(last.rate)} ({last.date})
+        </button>
+      ) : null}
+    </div>
   );
 }
 

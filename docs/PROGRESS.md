@@ -2,6 +2,25 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Changed rate on an order line — done
+
+Sometimes a product is sold to one customer at another rate. On the order screen (new order, edit,
+counter sale), **Rate / dz** is editable on each line:
+
+- Blank uses the product's rate and the company discount or slab, as before. A typed rate is the
+  final price per dozen, with no discount (`priceLineAt` in `src/lib/sales.ts`, used by the screen
+  and the server). The line shows **Special rate** with the normal rate struck through, and an
+  optional reason.
+- Anyone who can enter orders may change it (owner's choice). Every change is listed instead:
+  the daily report has a **Rates changed on bills** section (bill, customer, product, normal rate,
+  charged, difference, reason, who entered the order), also in the Excel export, and a line in
+  "Needs attention". The Orders list has a **Rate: Changed rate** filter.
+- `SalesOrderLine.standardRate` (the normal rate, set only when changed) and `rateNote`.
+  `rate` stays what is charged, so the bill prints the changed rate, and day-end returns and
+  damage re-price at it. Edits before dispatch keep it. Bill revisions and the audit log record it.
+- Hint: when the customer got a changed rate for a product before, the line shows "Last time 100
+  (27 Oct)". Clicking it fills that rate. Otherwise the normal rate is used.
+
 ## Counter sales — done
 
 A customer (always a real customer record) collects goods at the warehouse instead of a delivery.

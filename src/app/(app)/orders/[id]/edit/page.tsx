@@ -62,6 +62,9 @@ export default async function EditOrderPage({ params }: PageProps<"/orders/[id]/
           lines: order.lines.map((l) => ({
             productId: l.productId,
             qty: quantityText(l.quantity),
+            ...(l.standardRate
+              ? { rate: l.rate.toFixed(2), rateNote: l.rateNote ?? undefined }
+              : {}),
           })),
         }}
       />

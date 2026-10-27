@@ -1138,8 +1138,13 @@ model SalesOrderLine {
   /// Delivered = quantity − returned − damaged.
   returnedQuantity Int          @default(0)
   damagedQuantity  Int          @default(0)
-  /// Sale rate per price unit.
+  /// Sale rate per price unit: what is charged (a changed rate when standardRate is set).
   rate             Decimal      @db.Decimal(14, 2)
+  /// The product's normal rate when the rate was changed on this order (no discount then); null
+  /// when the normal rate and discount apply.
+  standardRate     Decimal?     @db.Decimal(14, 2)
+  /// Why the rate was changed (optional).
+  rateNote         String?
   discountType     DiscountType @default(NONE)
   discountValue    Decimal      @default(0) @db.Decimal(14, 2)
   grossAmount      Decimal      @db.Decimal(14, 2)

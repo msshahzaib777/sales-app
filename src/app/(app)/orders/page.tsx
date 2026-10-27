@@ -40,6 +40,7 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
       areaId: filterParam(sp, "areaId"),
       needsApproval: filterParam(sp, "approval") === "needed",
       fulfilment: filterParam(sp, "type"),
+      specialRate: filterParam(sp, "rate") === "special",
       ...parseDateRange(sp),
     }),
     areaOptions(ctx),
@@ -86,6 +87,12 @@ export default async function OrdersPage({ searchParams }: PageProps<"/orders">)
               { value: "DELIVERY", label: "Deliveries" },
               { value: "COUNTER", label: "Counter sales" },
             ],
+          },
+          {
+            name: "rate",
+            label: "Rate",
+            value: filterParam(sp, "rate"),
+            options: [{ value: "special", label: "Changed rate" }],
           },
           {
             name: "approval",
