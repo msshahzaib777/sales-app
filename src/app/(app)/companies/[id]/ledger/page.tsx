@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { businessToday, formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { requireTenantContext } from "@/server/auth/session";
+import { sackCounts } from "@/server/services/purchasing/claims";
 import { getCompanyLedger } from "@/server/services/purchasing/company-ledger";
 import { defaultLedgerRange, parseDateRange } from "@/server/services/purchasing/filters";
 
@@ -49,7 +50,10 @@ async function Ledger({
   const parsed = parseDateRange(sp);
   const range = parsed.from || parsed.to ? parsed : defaultLedgerRange(businessToday());
   const ctx = await requireTenantContext("ledgers.view");
-  const ledger = await orNotFound(getCompanyLedger(ctx, id, range));
+  const [ledger, sacks] = await Promise.all([
+    orNotFound(getCompanyLedger(ctx, id, range)),
+    sackCounts(ctx.db, [id]).then((m) => m.get(id) ?? null),
+  ]);
   const { company, summary } = ledger;
   const query = new URLSearchParams({
     ...(range.from ? { from: toDateInput(range.from) } : {}),
@@ -66,6 +70,14 @@ async function Ledger({
             <LinkButton href={`/purchases/payments/new?companyId=${company.id}`}>
               New payment
             </LinkButton>
+            {company.sackRate || sacks ? (
+              <LinkButton
+                href={`/purchases/claims/sacks?companyId=${company.id}`}
+                variant="outline"
+              >
+                Return sacks
+              </LinkButton>
+            ) : null}
             <PrintButton />
             <LinkButton href={`/companies/${company.id}/statement?${query}`} variant="outline">
               Printable statement
@@ -89,6 +101,15 @@ async function Ledger({
         />
         <Amount label="Claims waiting for next bill" value={summary.pendingClaims} />
       </div>
+      {sacks ? (
+        <p className="text-sm">
+          Sacks: {sacks.received} received, {sacks.returned} returned
+          {sacks.received >= sacks.returned
+            ? ` · ${sacks.received - sacks.returned} still to send back`
+            : null}
+          {company.sackRate ? ` · ${formatMoney(company.sackRate)} a sack` : null}
+        </p>
+      ) : null}
 
       <form method="get" className="flex flex-wrap items-end gap-2 print:hidden">
         <div className="space-y-1">

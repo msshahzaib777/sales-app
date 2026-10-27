@@ -111,8 +111,8 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
                 {canSeeLedger ? (
                   <Link
                     href={`/customers/${c.id}/statement`}
-                    className="underline-offset-4 hover:underline"
-                    title="Statement"
+                    className="underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                    title="Open statement (ledger)"
                   >
                     {formatMoney(c.balance)}
                   </Link>

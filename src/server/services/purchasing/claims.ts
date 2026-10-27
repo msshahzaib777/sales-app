@@ -4,7 +4,12 @@ import { Prisma } from "@/generated/prisma/client";
 import type { ClaimStatus, ClaimType } from "@/generated/prisma/enums";
 import { businessToday } from "@/lib/dates";
 import { PACKETS_PER_DOZEN } from "@/lib/units";
-import { claimSchema, reverseSchema, settleClaimSchema } from "@/lib/validation/purchasing";
+import {
+  claimSchema,
+  reverseSchema,
+  sackReturnSchema,
+  settleClaimSchema,
+} from "@/lib/validation/purchasing";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
@@ -22,6 +27,8 @@ import type { DateRange } from "./filters";
 //   stock. It waits (AWAITING, no money) until the user settles it with the company: accepted in
 //   full or for less (credit posted, PENDING), or rejected (REJECTED, nothing posted).
 // - A claim logged by hand on the claims screen is posted at once (PENDING).
+// - A sack return (empty sacks sent back) has no product: quantity is the number of sacks, valued
+//   at the company's sack price, and is posted at once (PENDING).
 // The company's next bill deducts PENDING claims (goods-receipts.ts), which makes them APPLIED.
 
 const STATUSES: ClaimStatus[] = ["AWAITING", "PENDING", "APPLIED", "REJECTED", "REVERSED"];
@@ -38,6 +45,7 @@ export async function listClaims(
       : matchEveryWord(f.q, (w): Prisma.CompanyClaimWhereInput[] => [
           { product: { name: icontains(w) } },
           { product: { code: icontains(w) } },
+          ...("sacks".startsWith(w.toLowerCase()) ? [{ type: "SACK_RETURN" as const }] : []),
           { company: { name: icontains(w) } },
           { note: icontains(w) },
         ])),
@@ -120,7 +128,8 @@ export async function logClaim(
   ctx: ServiceCtx,
   c: {
     companyId: string;
-    product: { id: string; name: string };
+    /** Null for a sack return. */
+    product: { id: string; name: string } | null;
     type: ClaimType;
     claimDate: Date;
     quantity: number;
@@ -138,7 +147,7 @@ export async function logClaim(
       tenantId: ctx.user.tenantId,
       number: await nextDocumentNumber(tx, ctx, "COMPANY_CLAIM"),
       companyId: c.companyId,
-      productId: c.product.id,
+      productId: c.product?.id ?? null,
       type: c.type,
       claimDate: c.claimDate,
       quantity: c.quantity,
@@ -152,8 +161,19 @@ export async function logClaim(
       createdById: ctx.user.id,
     },
   });
-  if (!c.awaiting) await postClaimCredit(tx, ctx, claim, c.product.name, c.claimDate);
+  if (!c.awaiting)
+    await postClaimCredit(tx, ctx, claim, claimSubject(claim, c.product), c.claimDate);
   return claim;
+}
+
+/** What a claim is for, in words: the product, or "100 sacks returned". */
+export function claimSubject(
+  claim: { type: ClaimType; quantity: number },
+  product: { name: string } | null,
+) {
+  if (claim.type === "SACK_RETURN" || !product)
+    return `${claim.quantity} ${claim.quantity === 1 ? "sack" : "sacks"} returned`;
+  return product.name;
 }
 
 async function postClaimCredit(
@@ -166,7 +186,7 @@ async function postClaimCredit(
     amount: Prisma.Decimal;
     note: string | null;
   },
-  productName: string,
+  subject: string,
   date: Date,
 ) {
   await postCompanyLedger(tx, ctx, {
@@ -174,9 +194,108 @@ async function postClaimCredit(
     type: "COMPANY_CLAIM",
     entryDate: date,
     debit: claim.amount,
-    description: `Claim #${claim.number}: ${productName}${claim.note ? ` (${claim.note})` : ""}`,
+    description: `Claim #${claim.number}: ${subject}${claim.note ? ` (${claim.note})` : ""}`,
     referenceType: "CompanyClaim",
     referenceId: claim.id,
+  });
+}
+
+/**
+ * Empty sacks sent back to a company: a credit of sacks × the company's sack price (or the price
+ * typed by a role that sees costs), deducted on the company's next bill like any claim.
+ */
+export async function returnSacks(ctx: ServiceCtx, input: unknown) {
+  assertCan(ctx.user.role, "payments.manage");
+  const data = sackReturnSchema.parse(input);
+  return ctx.db.$transaction(async (tx) => {
+    if (data.requestId) {
+      const existing = await tx.companyClaim.findUnique({
+        where: { tenantId_requestId: { tenantId: ctx.user.tenantId, requestId: data.requestId } },
+      });
+      if (existing) return existing;
+    }
+    const company = found(
+      await tx.company.findUnique({ where: { id: data.companyId } }),
+      "company",
+    );
+    const rate =
+      can(ctx.user.role, "financials.view") && data.rate !== null
+        ? new Prisma.Decimal(data.rate)
+        : company.sackRate;
+    if (!rate || rate.lte(0))
+      throw new ServiceError(
+        `Set the sack price of ${company.name} first (Companies → ${company.name}), or type the price.`,
+      );
+    const claim = await logClaim(tx, ctx, {
+      companyId: company.id,
+      product: null,
+      type: "SACK_RETURN",
+      claimDate: data.returnDate,
+      quantity: data.sacks,
+      rate,
+      amount: rate.mul(data.sacks),
+      note: data.note,
+      requestId: data.requestId,
+    });
+    await writeAudit(tx, ctx.user, {
+      action: "POST",
+      entityType: "CompanyClaim",
+      entityId: claim.id,
+      newValue: claim,
+      requestId: data.requestId,
+    });
+    return claim;
+  });
+}
+
+/**
+ * Sacks per company: received on goods receipts and returned (sack returns not cancelled), so
+ * the office knows how many empty sacks are waiting to go back.
+ */
+export async function sackCounts(
+  tx: Pick<TenantTx, "goodsReceipt" | "companyClaim">,
+  companyIds?: string[],
+) {
+  const companyFilter = companyIds ? { companyId: { in: companyIds } } : {};
+  const [received, returned] = await Promise.all([
+    tx.goodsReceipt.groupBy({
+      by: ["companyId"],
+      where: { status: "POSTED", sacksReceived: { gt: 0 }, ...companyFilter },
+      _sum: { sacksReceived: true },
+    }),
+    tx.companyClaim.groupBy({
+      by: ["companyId"],
+      where: { type: "SACK_RETURN", status: { not: "REVERSED" }, ...companyFilter },
+      _sum: { quantity: true },
+    }),
+  ]);
+  const counts = new Map<string, { received: number; returned: number }>();
+  const of = (id: string) =>
+    counts.get(id) ?? counts.set(id, { received: 0, returned: 0 }).get(id)!;
+  for (const r of received) of(r.companyId).received = r._sum.sacksReceived ?? 0;
+  for (const r of returned) of(r.companyId).returned = r._sum.quantity ?? 0;
+  return counts;
+}
+
+/** Companies for the sack return form: sack price and sacks still with us. */
+export async function sackReturnOptions(ctx: ServiceCtx) {
+  assertCan(ctx.user.role, "payments.manage");
+  const [companies, counts] = await Promise.all([
+    ctx.db.company.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, sackRate: true },
+    }),
+    sackCounts(ctx.db),
+  ]);
+  return companies.map((c) => {
+    const n = counts.get(c.id);
+    return {
+      id: c.id,
+      name: c.name,
+      sackRate: c.sackRate?.toFixed(2) ?? null,
+      withUs: n ? n.received - n.returned : null,
+    };
   });
 }
 
@@ -217,7 +336,7 @@ export async function settleClaim(ctx: ServiceCtx, input: unknown) {
         where: { id: claim.id },
         data: { status: "PENDING", amount, ...settled },
       });
-      await postClaimCredit(tx, ctx, after, claim.product.name, today);
+      await postClaimCredit(tx, ctx, after, claimSubject(claim, claim.product), today);
     }
     await writeAudit(tx, ctx.user, {
       action: data.decision === "REJECT" ? "REJECT" : "APPROVE",

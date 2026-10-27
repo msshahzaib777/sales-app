@@ -93,7 +93,7 @@ export default async function CompaniesPage({ searchParams }: PageProps<"/compan
                 <Td className="text-right font-medium tabular-nums">
                   <Link
                     href={`/companies/${c.id}/ledger`}
-                    className="underline-offset-4 hover:underline"
+                    className="underline decoration-dotted underline-offset-4 hover:decoration-solid"
                     aria-label={`Ledger of ${c.name}: ${formatMoney(c.payable)}`}
                   >
                     {formatMoney(c.payable)}

@@ -538,6 +538,8 @@ async function main() {
             orderBookerName: c.orderBookerName,
             orderBookerPhone: c.orderBookerPhone,
             paymentTermsDays: c.paymentTermsDays,
+            // Snacks come in sacks; each empty one sent back is credited on the next bill.
+            sackRate: "150",
           },
         });
         companies.push({

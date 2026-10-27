@@ -196,6 +196,7 @@ export async function createGoodsReceipt(ctx: ServiceCtx, input: unknown) {
           warehouseId: company.warehouseId,
           receivedDate: data.receivedDate,
           supplierRef: data.supplierRef,
+          sacksReceived: data.sacksReceived,
           note: data.note,
           requestId: data.requestId,
           createdById: ctx.user.id,

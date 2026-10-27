@@ -11,7 +11,7 @@ import { runAction } from "./actions";
 import { payBillFromAdvance } from "./services/purchasing/advances";
 import { requireTenantContext } from "./auth/session";
 import { updateBillDueDate } from "./services/purchasing/bills";
-import { cancelClaim, settleClaim, createClaim } from "./services/purchasing/claims";
+import { cancelClaim, createClaim, returnSacks, settleClaim } from "./services/purchasing/claims";
 import { cancelGoodsReceipt, createGoodsReceipt } from "./services/purchasing/goods-receipts";
 import { createCompanyPayment, reverseCompanyPayment } from "./services/purchasing/payments";
 import {
@@ -197,6 +197,20 @@ export async function saveClaimAction(
   }, formData);
   if (result.status !== "success") return result;
   revalidatePath("/purchases/claims");
+  redirect("/purchases/claims?notice=posted");
+}
+
+export async function returnSacksAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction<undefined>(async () => {
+    const ctx = await requireTenantContext("payments.manage");
+    await returnSacks(ctx, fields(formData));
+  }, formData);
+  if (result.status !== "success") return result;
+  revalidatePath("/purchases/claims");
+  revalidatePath("/companies");
   redirect("/purchases/claims?notice=posted");
 }
 

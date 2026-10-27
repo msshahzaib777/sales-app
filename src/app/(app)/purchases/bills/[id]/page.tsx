@@ -100,9 +100,11 @@ async function Bill({ params }: { params: Promise<{ id: string }> }) {
           {bill.appliedClaims.map((c) => (
             <tr key={c.id}>
               <Td>
-                Less claim #{c.number}: {c.product.name}
+                Less claim #{c.number}: {c.product?.name ?? "empty sacks returned"}
               </Td>
-              <Td className="text-right tabular-nums">{formatDozens(c.quantity)}</Td>
+              <Td className="text-right tabular-nums">
+                {c.product ? formatDozens(c.quantity) : `${c.quantity} sacks`}
+              </Td>
               <Td />
               <Td className="text-right tabular-nums">−{formatMoney(c.amount)}</Td>
             </tr>

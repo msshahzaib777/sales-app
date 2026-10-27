@@ -15,7 +15,7 @@ import { createProduct } from "../master/products";
 import { createWarehouse } from "../master/warehouses";
 import { getCompanyBill, listCompanyBills, openBillsFor, updateBillDueDate } from "./bills";
 import { companyAdvances, payBillFromAdvance } from "./advances";
-import { cancelClaim, createClaim } from "./claims";
+import { cancelClaim, createClaim, returnSacks, sackCounts } from "./claims";
 import { getCompanyLedger } from "./company-ledger";
 import { cancelGoodsReceipt, createGoodsReceipt } from "./goods-receipts";
 import { createCompanyPayment, reverseCompanyPayment } from "./payments";
@@ -402,6 +402,77 @@ describe("cancelling a goods receipt", () => {
     expect(await t.ctx.db.companyPaymentAllocation.count()).toBe(0);
     const left = await companyAdvances(t.ctx.db, t.company.id);
     expect(left.map((a) => [a.paymentId, D(a.left)])).toEqual([[payment.id, "100.00"]]);
+  });
+});
+
+describe("sack returns", () => {
+  const setSackRate = (rate: string) =>
+    updateCompany(t.ctx, t.company.id, {
+      warehouseId: t.warehouse.id,
+      name: "Crunchy",
+      paymentTermsDays: "15",
+      sackRate: rate,
+    });
+
+  it("credits returned sacks at the company's sack price and deducts them on the next bill", async () => {
+    const r = await receive(t.ctx, {
+      receivedDate: "2026-10-05",
+      sacksReceived: "120",
+      lines: [{ productId: t.p1.id, quantity: "20" }],
+    });
+    expect(r.sacksReceived).toBe(120);
+    // No sack price yet, and none typed: refused.
+    await expect(
+      returnSacks(t.ctx, { companyId: t.company.id, returnDate: "2026-10-06", sacks: "100" }),
+    ).rejects.toThrow(/sack price/);
+    await setSackRate("150");
+    await expect(
+      returnSacks(t.as("STAFF"), { companyId: t.company.id, returnDate: "2026-10-06", sacks: "1" }),
+    ).rejects.toThrow(ForbiddenError);
+    const input = {
+      requestId: randomUUID(),
+      companyId: t.company.id,
+      returnDate: "2026-10-06",
+      sacks: "100",
+    };
+    const claim = await returnSacks(t.ctx, input);
+    expect(await returnSacks(t.ctx, input)).toMatchObject({ id: claim.id });
+    expect(claim).toMatchObject({ type: "SACK_RETURN", productId: null, quantity: 100 });
+    expect(D(claim.amount)).toBe("15000.00");
+    expect((await sackCounts(t.ctx.db, [t.company.id])).get(t.company.id)).toEqual({
+      received: 120,
+      returned: 100,
+    });
+
+    // We owe 20 dz × 1200 = 24000, less 15000 for the sacks.
+    const ledger = await getCompanyLedger(t.ctx, t.company.id, {});
+    expect(D(ledger.summary.payableNow)).toBe("9000.00");
+    expect(D(ledger.summary.pendingClaims)).toBe("15000.00");
+
+    // The next bill deducts it: 30 dz × 1200 = 36000 − 15000.
+    const next = await receive(t.ctx, {
+      receivedDate: "2026-10-10",
+      lines: [{ productId: t.p1.id, quantity: "30" }],
+    });
+    expect(D(next.companyBill.claimDeduction)).toBe("15000.00");
+    expect(D(next.companyBill.netAmount)).toBe("21000.00");
+    const bill = await getCompanyBill(t.ctx, next.companyBill.id);
+    expect(bill.appliedClaims.map((c) => [c.number, c.product])).toEqual([[claim.number, null]]);
+  });
+
+  it("takes a typed price, and cancelling reverses the credit and the count", async () => {
+    await setSackRate("150");
+    const claim = await returnSacks(t.ctx, {
+      companyId: t.company.id,
+      returnDate: "2026-10-06",
+      sacks: "10",
+      rate: "140",
+    });
+    expect(D(claim.amount)).toBe("1400.00");
+    await cancelClaim(t.ctx, { id: claim.id, reason: "counted twice" });
+    expect((await sackCounts(t.ctx.db, [t.company.id])).get(t.company.id)).toBeUndefined();
+    const ledger = await getCompanyLedger(t.ctx, t.company.id, {});
+    expect(D(ledger.summary.payableNow)).toBe("0.00");
   });
 });
 

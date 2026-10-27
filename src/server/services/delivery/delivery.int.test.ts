@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ForbiddenError } from "../../auth/permissions";
 import { prisma } from "../../db/client";
@@ -132,6 +132,15 @@ async function setup() {
 }
 
 let t: Awaited<ReturnType<typeof setup>>;
+// Opening balances are dated "today": keep today fixed, just after the fixture dates.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-25T07:00:00Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(async () => {
   t = await setup();
 });

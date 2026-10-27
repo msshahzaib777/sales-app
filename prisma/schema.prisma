@@ -101,6 +101,8 @@ enum ClaimType {
   /// Damaged stock sent back to the company.
   RETURN_TO_COMPANY
   OTHER
+  /// Empty sacks sent back to the company; it credits Company.sackRate for each.
+  SACK_RETURN
 }
 
 enum ClaimStatus {
@@ -387,6 +389,8 @@ model Company {
   orderBookerPhone String?
   /// Due date of a company bill = receipt date + this many days (editable per bill).
   paymentTermsDays Int      @default(0)
+  /// What the company credits for each empty sack we send back (null: it does not take sacks back).
+  sackRate         Decimal? @db.Decimal(14, 2)
   isActive         Boolean  @default(true)
   /// Client-generated id of the create request; a retried create returns the same record.
   requestId        String?
@@ -701,6 +705,8 @@ model GoodsReceipt {
   receivedDate    DateTime      @db.Date
   /// Company's own invoice / delivery note number.
   supplierRef     String?
+  /// Sacks the goods came in; we send them back empty for a credit (Company.sackRate).
+  sacksReceived   Int           @default(0)
   status          PostingStatus @default(POSTED)
   reversedAt      DateTime?
   reversalReason  String?
@@ -839,7 +845,8 @@ model CompanyClaim {
   tenantId        String
   number          Int
   companyId       String
-  productId       String
+  /// Null for a sack return (quantity is then the number of sacks).
+  productId       String?
   type            ClaimType
   status          ClaimStatus @default(PENDING)
   claimDate       DateTime    @db.Date
@@ -866,7 +873,7 @@ model CompanyClaim {
 
   tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company       Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
-  product       Product      @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  product       Product?     @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
   salesOrder    SalesOrder?  @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
   appliedToBill CompanyBill? @relation(fields: [tenantId, appliedToBillId], references: [tenantId, id], onDelete: Restrict)
 

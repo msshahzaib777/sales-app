@@ -122,7 +122,7 @@ export const packetsSchema = (label: string, { min = 0 } = {}) =>
     (packets) => packets >= min,
     min > 0 ? `Enter the ${label}` : `The ${label} cannot be negative`,
   );
-const intSchema = (label: string, min: number, max: number) =>
+export const intSchema = (label: string, min: number, max: number) =>
   z.preprocess(
     numberText,
     z.coerce
@@ -190,6 +190,8 @@ export const companySchema = z.object({
   paymentTermsDays: intSchema("payment terms", 0, 365),
   /** What we owe the company at the start (negative if they owe us). */
   openingBalance: signedMoneySchema("opening balance"),
+  /** Credit per empty sack sent back; blank when the company does not take sacks back. */
+  sackRate: optionalMoneySchema("sack price"),
 });
 
 export const DISCOUNT_TYPES = ["NONE", "AMOUNT_PER_UNIT", "PERCENT"] as const;

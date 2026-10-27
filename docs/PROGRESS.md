@@ -2,6 +2,35 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Sack returns, and ledgers one click away — done
+
+**Sacks.** Companies send goods in sacks and credit each empty sack sent back on the next bill.
+
+- Company form: **Sack price (PKR)**, the credit per sack. Blank means the company does not take
+  sacks back. The demo companies have 150.
+- Goods receipt: **Sacks received** (optional). It is shown on the receipt.
+- **Purchases → Claims → Return sacks** (`/purchases/claims/sacks`, also a button on the company
+  ledger): company, date and number of sacks. Roles that see costs may type another price. It is a
+  company claim of type `SACK_RETURN` with no product (`CompanyClaim.productId` is now nullable;
+  quantity = sacks). It posts the credit at once and is deducted on the company's next bill like
+  any accepted claim, so no new money path was added. Cancelling it reverses the credit.
+- The company ledger shows sacks received, returned and still to send back (`sackCounts`). Sacks
+  from before the app are not counted, so returns are never limited by the count.
+- Sack credits are left out of the analysis report's "Damage claimed".
+
+**Ledgers.** Ledgers used to open only by clicking a balance figure. Now:
+
+- **Ledgers** in the sidebar (`/ledgers`, ledger roles only) lists every company with its ledger,
+  and the customers with search, each opening their statement.
+- The edit pages have **Statement (ledger)** (customer) and **Ledger** (company) buttons.
+- The balance figures on the Customers and Companies lists are underlined, so they read as links.
+
+Tests: two integration tests for sack returns. The delivery and payments tests now pin the clock
+to 25 Oct 2026, because opening balances are dated "today" and the tests failed once the real date
+passed their fixture dates.
+
+**Open:** counter sales (customers buying at the warehouse, no delivery) are planned, not built.
+
 ## Advances to companies pay later bills — done
 
 Money paid to a company with no bill to match (paid ahead of a delivery, or more than the bills)
