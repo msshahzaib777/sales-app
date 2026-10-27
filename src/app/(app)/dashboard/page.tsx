@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { Bars, Lines, shortDate, StackedColumns } from "@/components/dashboard/charts";
 import { type QuickAction, QuickActions } from "@/components/dashboard/quick-actions";
 import { RequirePermission } from "@/components/layout/no-access";
 
@@ -16,6 +17,7 @@ import type { Role } from "@/generated/prisma/enums";
 import { can, type Permission } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { type Dashboard, DUE_SOON_DAYS, getDashboard } from "@/server/services/dashboard";
+import { getDashboardCharts, SALES_DAYS, WEEKS } from "@/server/services/dashboard-charts";
 import { parseDateRange } from "@/server/services/purchasing/filters";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -99,7 +101,94 @@ async function DashboardView({
         <OverLimit customers={d.overLimit} />
         <LowStock stock={d.lowStock} />
       </div>
+      <Suspense fallback={<p className="text-muted-foreground text-sm">Loading trends…</p>}>
+        <Trends date={d.today} />
+      </Suspense>
     </div>
+  );
+}
+
+/** How the business is moving, up to the dashboard's day. */
+async function Trends({ date }: { date: Date }) {
+  const ctx = await requireTenantContext("operations.manage");
+  const c = await getDashboardCharts(ctx, date);
+  const sales = c.sales.reduce((s, d) => s + d.delivery + d.counter, 0);
+  return (
+    <section aria-labelledby="trends" className="space-y-3">
+      <h2 id="trends" className="text-lg font-semibold">
+        Trends
+      </h2>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel
+          title={`Sales, last ${SALES_DAYS} days`}
+          href="/reports/analysis"
+          linkLabel="Analysis"
+        >
+          <p className="text-sm">
+            <span className="text-2xl font-semibold">{formatMoney(sales)}</span>{" "}
+            <span className="text-muted-foreground">billed</span>
+          </p>
+          <StackedColumns
+            title={`Sales per day, last ${SALES_DAYS} days`}
+            series={[
+              { name: "Deliveries", color: "var(--series-1)" },
+              { name: "Counter sales", color: "var(--series-2)" },
+            ]}
+            data={c.sales.map((d) => ({
+              label: shortDate(d.date),
+              values: [d.delivery, d.counter],
+            }))}
+          />
+        </Panel>
+        <Panel title={`Sales by company, last ${SALES_DAYS} days`}>
+          {c.salesByCompany.length ? (
+            <Bars
+              title="Sales by company"
+              color="var(--series-1)"
+              data={c.salesByCompany.map((s) => ({ label: s.name, value: s.amount }))}
+            />
+          ) : (
+            <p className="text-muted-foreground text-sm">No sales in these days.</p>
+          )}
+        </Panel>
+        {c.billedVsCollected ? (
+          <Panel title={`Billed and collected, last ${WEEKS} weeks`} href="/payments">
+            <p className="text-muted-foreground text-sm">
+              Collections below billing means customers owe more each week.
+            </p>
+            <Lines
+              title={`Billed and collected per week, last ${WEEKS} weeks`}
+              series={[
+                { name: "Billed", color: "var(--series-1)" },
+                { name: "Collected", color: "var(--series-2)" },
+              ]}
+              data={c.billedVsCollected.map((w) => ({
+                label: shortDate(w.weekEnding),
+                values: [w.billed, w.collected],
+              }))}
+            />
+          </Panel>
+        ) : null}
+        {c.owed ? (
+          <Panel title={`What is owed, last ${WEEKS} weeks`} href="/ledgers" linkLabel="Ledgers">
+            <p className="text-muted-foreground text-sm">
+              At the end of each week: what customers owe us, and what we owe companies.
+            </p>
+            <Lines
+              title={`Balances at week end, last ${WEEKS} weeks`}
+              series={[
+                { name: "Customers owe us", color: "var(--series-1)" },
+                { name: "We owe companies", color: "var(--series-2)" },
+              ]}
+              data={c.owed.map((w) => ({
+                label: shortDate(w.weekEnding),
+                values: [w.customers, w.companies],
+              }))}
+            />
+          </Panel>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -126,6 +215,12 @@ function quickActions(role: Role, d: Dashboard): QuickAction[] {
       urgent: w.notOnTripTomorrow ? `${w.notOnTripTomorrow} for tomorrow not on a trip` : undefined,
     },
     { href: "/orders/new", label: "New order", icon: "order", permission: "operations.manage" },
+    {
+      href: "/orders/counter",
+      label: "Counter sale",
+      icon: "order",
+      permission: "operations.manage",
+    },
     {
       href: "/payments/new",
       label: "Receive payment",
@@ -283,6 +378,16 @@ function TodaysWork({
             d.sent
               ? `sent ${formatDozens(d.sent)}${d.returnedQty ? ` · returned ${formatDozens(d.returnedQty)}` : ""}${d.damagedQty ? ` · damaged ${formatDozens(d.damagedQty)}` : ""}`
               : undefined
+          }
+        />
+        <Stat
+          label="Counter sales"
+          value={formatMoney(d.counter.billed)}
+          href={`/orders?type=COUNTER&from=${on}&to=${on}`}
+          note={
+            d.counter.sales
+              ? `${d.counter.sales} sale${d.counter.sales === 1 ? "" : "s"} at the warehouse`
+              : "None"
           }
         />
         <Stat

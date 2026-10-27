@@ -75,7 +75,11 @@ export async function getCompany(ctx: ServiceCtx, id: string) {
   const row = await ctx.db.company.findUnique({ where: { id } });
   if (!row) throw new ServiceError("This company was not found.");
   const openingBalance = await getOpeningBalance(ctx.db, { kind: "COMPANY", companyId: id });
-  return { ...row, openingBalance: openingBalance.toFixed(2) };
+  return {
+    ...row,
+    sackRate: row.sackRate?.toFixed(2) ?? null,
+    openingBalance: openingBalance.toFixed(2),
+  };
 }
 
 export async function createCompany(ctx: ServiceCtx, input: unknown) {

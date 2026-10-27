@@ -33,7 +33,7 @@ export default async function GoodsReceiptPage({
         <BackLink href="/purchases/receipts">Goods receipts</BackLink>
         <PageHeader
           title={`Goods receipt #${r.number}`}
-          description={`${r.company.name} · ${r.warehouse.name} · received ${formatDate(r.receivedDate)}${r.supplierRef ? ` · invoice ${r.supplierRef}` : ""}`}
+          description={`${r.company.name} · ${r.warehouse.name} · received ${formatDate(r.receivedDate)}${r.supplierRef ? ` · invoice ${r.supplierRef}` : ""}${r.sacksReceived ? ` · ${r.sacksReceived} sacks` : ""}`}
         />
         <Notice
           notice={notice}

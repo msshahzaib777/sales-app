@@ -10,6 +10,7 @@ type Defaults = {
   orderBookerPhone?: string | null;
   paymentTermsDays?: number;
   openingBalance?: string;
+  sackRate?: string | null;
 };
 
 export function companyFields(d: Defaults, warehouses: { id: string; name: string }[]): FieldDef[] {
@@ -79,6 +80,15 @@ export function companyFields(d: Defaults, warehouses: { id: string; name: strin
       defaultValue: d.openingBalance && d.openingBalance !== "0.00" ? d.openingBalance : "",
       hint: "What you owed this company when you started using the app (minus if they owed you). Changes post the difference to the ledger.",
       width: "md",
+    },
+    {
+      kind: "text",
+      name: "sackRate",
+      label: "Sack price (PKR)",
+      inputMode: "decimal",
+      defaultValue: d.sackRate,
+      hint: "What the company credits for each empty sack you send back. Blank if it does not take sacks back.",
+      width: "sm",
     },
   ];
 }

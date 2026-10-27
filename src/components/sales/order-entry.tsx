@@ -13,7 +13,8 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
-import { billTotals, checkCredit, priceLine, type PricedLine } from "@/lib/sales";
+import { localPhone } from "@/lib/phone";
+import { billTotals, checkCredit, priceLineAt, type PricedLine } from "@/lib/sales";
 import { formatDozens, PACKETS_PER_HALF_DOZEN, parseQuantity, quantityText } from "@/lib/units";
 import { orderEntryContextAction } from "@/server/sales-actions";
 import type { OrderEntryContext } from "@/server/services/sales/orders";
@@ -27,7 +28,8 @@ type CustomerOption = {
   phone: string | null;
   area: { name: string } | null;
 };
-type Line = { productId: string; qty: string };
+/** `rate`: a rate per dozen typed for this order (blank = the product's rate and discount). */
+type Line = { productId: string; qty: string; rate?: string; rateNote?: string };
 type Product = OrderEntryContext["products"][number];
 
 const SOURCES = [
@@ -35,6 +37,12 @@ const SOURCES = [
   { value: "WHATSAPP", label: "WhatsApp" },
   { value: "BOOKER_APP", label: "Booker app" },
 ];
+
+/** A typed rate in rupees (up to 2 decimals, more than zero), or null. */
+function typedRate(rate: string | undefined): string | null {
+  const v = rate?.trim() ?? "";
+  return /^\d+(\.\d{1,2})?$/.test(v) && Number(v) > 0 ? v : null;
+}
 
 /** "3.5" or "3dz 6pk" → 42 packets; null unless a positive number of whole or half dozens. */
 function halfDozens(qty: string): number | null {
@@ -56,6 +64,8 @@ export function OrderEntry({
   warehouses,
   canOverrideCredit,
   initial,
+  mode = "order",
+  areas = [],
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   customers: CustomerOption[];
@@ -71,7 +81,12 @@ export function OrderEntry({
     note?: string;
     lines?: Line[];
   };
+  /** "counter": a sale collected at the warehouse, posted when saved, with payment taken now. */
+  mode?: "order" | "counter";
+  /** For a new customer typed on the order: their area decides the warehouse. */
+  areas?: { id: string; name: string; warehouseId: string; warehouseName: string }[];
 }) {
+  const counter = mode === "counter";
   const isNew = !initial.orderId;
   const [state, formAction, saving] = useActionState(action, idleState);
   const withRequestId = useRequestId();
@@ -82,6 +97,19 @@ export function OrderEntry({
   const [loading, startLoading] = useTransition();
   const [lines, setLines] = useState<Line[]>(initial.lines ?? []);
   const [allowOver, setAllowOver] = useState(false);
+  // A customer not in the list yet: created with the order from name and phone.
+  const [newCustomer, setNewCustomer] = useState<{
+    name: string;
+    phone: string;
+    areaId: string;
+  } | null>(null);
+  const newArea = areas.find((a) => a.id === newCustomer?.areaId);
+  // A new counter customer without an area is served from the chosen warehouse.
+  const newWarehouseId = newArea?.warehouseId ?? (counter ? warehouseId || warehouses[0]?.id : "");
+  const [paid, setPaid] = useState("");
+  // Most counter customers pay the whole bill: ticked by default, untick to enter an amount.
+  const [paidFull, setPaidFull] = useState(counter);
+  const [method, setMethod] = useState("CASH");
   const productSearch = useRef<HTMLInputElement>(null);
   const qtyInputs = useRef(new Map<string, HTMLInputElement>());
   // After picking a customer, the product search appears once their products have loaded.
@@ -97,11 +125,12 @@ export function OrderEntry({
   const pendingFocus = useRef<string | null>(null);
 
   // Load the customer panel and product list whenever the customer (or warehouse) changes.
+  const isNewCustomer = newCustomer !== null;
   useEffect(() => {
-    if (!customerId) return;
+    if (!customerId && !(isNewCustomer && newWarehouseId)) return;
     startLoading(async () => {
       const result = await orderEntryContextAction(customerId, {
-        warehouseId: warehouseId || undefined,
+        warehouseId: (customerId ? warehouseId : newWarehouseId) || undefined,
         excludeOrderId: initial.orderId,
       });
       if ("error" in result) {
@@ -112,7 +141,7 @@ export function OrderEntry({
         setContext(result);
       }
     });
-  }, [customerId, warehouseId, initial.orderId]);
+  }, [customerId, warehouseId, initial.orderId, isNewCustomer, newWarehouseId]);
 
   useEffect(() => {
     if (pendingFocus.current) {
@@ -127,20 +156,29 @@ export function OrderEntry({
   for (const line of lines) {
     const product = productById.get(line.productId);
     const qty = halfDozens(line.qty);
-    if (product && qty) priced.push({ ...priceLine(product, qty), product });
+    if (product && qty)
+      priced.push({ ...priceLineAt(product, qty, typedRate(line.rate)), product });
   }
   const { total, byCompany } = billTotals(priced);
+  const paidNow = paidFull
+    ? Number(total.netAmount.toString())
+    : /^\d+(\.\d{1,2})?$/.test(paid.trim())
+      ? Number(paid)
+      : 0;
+  // What a counter sale leaves on the customer's account.
+  const onAccount = Math.max(Number(total.netAmount.toString()) - paidNow, 0);
   const credit = context
     ? checkCredit({
         creditLimit: context.customer.creditLimit,
         pending: context.pending,
         openOrders: context.openOrders,
-        thisOrder: total.netAmount,
+        thisOrder: counter ? onAccount : total.netAmount,
       })
     : null;
 
   const chooseCustomer = (c: CustomerOption) => {
     focusSearchWhenLoaded.current = true;
+    setNewCustomer(null);
     setCustomerId(c.id);
     setLines([]);
     setAllowOver(false);
@@ -165,8 +203,18 @@ export function OrderEntry({
     );
   };
 
+  // Nothing matched what was typed: start a new customer with it as the phone or the name.
+  const startNewCustomer = (typed: string) => {
+    const isPhone = /^[+\d][\d\s-]*$/.test(typed);
+    setCustomerId("");
+    setContext(null);
+    setLines([]);
+    setAllowOver(false);
+    setNewCustomer({ name: isPhone ? "" : typed, phone: isPhone ? typed : "", areaId: "" });
+  };
+
   const customer = customers.find((c) => c.id === customerId);
-  const needsWarehouse = Boolean(context && !context.warehouseId);
+  const needsWarehouse = Boolean(context && !context.warehouseId && !newCustomer);
 
   return (
     <form
@@ -189,6 +237,9 @@ export function OrderEntry({
       className="space-y-6"
     >
       <input type="hidden" name="customerId" value={customerId} />
+      {newCustomer && !newArea ? (
+        <input type="hidden" name="warehouseId" value={newWarehouseId ?? ""} />
+      ) : null}
       {needsWarehouse || initial.warehouseId ? (
         <input type="hidden" name="warehouseId" value={warehouseId} />
       ) : null}
@@ -201,7 +252,9 @@ export function OrderEntry({
               label="Customer"
               items={customers}
               getKey={(c) => c.id}
-              rank={(c, q) => rankText(q, null, c.name, c.shopName, c.phone, c.area?.name)}
+              rank={(c, q) =>
+                rankText(q, null, c.name, c.shopName, c.phone, localPhone(c.phone), c.area?.name)
+              }
               render={(c) => (
                 <span>
                   <span className="font-medium">{c.name}</span>
@@ -213,6 +266,8 @@ export function OrderEntry({
                 </span>
               )}
               onSelect={chooseCustomer}
+              onNoMatch={startNewCustomer}
+              noMatchLabel={(q) => `+ New customer “${q}”`}
               placeholder="Name, shop, phone or area"
               autoFocus={!customerId}
               hint={
@@ -231,6 +286,23 @@ export function OrderEntry({
               </p>
             </div>
           )}
+          {newCustomer ? (
+            <NewCustomerFields
+              state={state}
+              value={newCustomer}
+              onChange={(v) => setNewCustomer({ ...newCustomer, ...v })}
+              onCancel={() => {
+                setNewCustomer(null);
+                setContext(null);
+                setLines([]);
+              }}
+              areas={areas}
+              counter={counter}
+              warehouses={warehouses}
+              warehouseId={newArea ? "" : (newWarehouseId ?? "")}
+              setWarehouseId={setWarehouseId}
+            />
+          ) : null}
           {needsWarehouse ? (
             <div className="space-y-1.5">
               <Label htmlFor="order-warehouse">Deliver from (customer has no area)</Label>
@@ -249,38 +321,53 @@ export function OrderEntry({
             </div>
           ) : null}
           <div className="grid gap-4 sm:grid-cols-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="orderDate">Order date</Label>
-              <Input
-                id="orderDate"
-                name="orderDate"
-                type="date"
-                defaultValue={initial.orderDate}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="deliveryDate">Delivery date</Label>
-              <Input
-                id="deliveryDate"
-                name="deliveryDate"
-                type="date"
-                defaultValue={initial.deliveryDate}
-                required
-                aria-invalid={fieldError(state, "deliveryDate") ? true : undefined}
-              />
-              <FieldError id="deliveryDate-error" message={fieldError(state, "deliveryDate")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="source">Taken via</Label>
-              <NativeSelect id="source" name="source" defaultValue={initial.source ?? "OFFICE"}>
-                {SOURCES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
+            {counter ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="saleDate">Sale date</Label>
+                <Input
+                  id="saleDate"
+                  name="saleDate"
+                  type="date"
+                  defaultValue={initial.orderDate}
+                  required
+                />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="orderDate">Order date</Label>
+                  <Input
+                    id="orderDate"
+                    name="orderDate"
+                    type="date"
+                    defaultValue={initial.orderDate}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="deliveryDate">Delivery date</Label>
+                  <Input
+                    id="deliveryDate"
+                    name="deliveryDate"
+                    type="date"
+                    defaultValue={initial.deliveryDate}
+                    required
+                    aria-invalid={fieldError(state, "deliveryDate") ? true : undefined}
+                  />
+                  <FieldError id="deliveryDate-error" message={fieldError(state, "deliveryDate")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="source">Taken via</Label>
+                  <NativeSelect id="source" name="source" defaultValue={initial.source ?? "OFFICE"}>
+                    {SOURCES.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </div>
+              </>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="note">Note</Label>
               <Input id="note" name="note" defaultValue={initial.note} maxLength={500} />
@@ -294,6 +381,7 @@ export function OrderEntry({
           error={contextError}
           credit={credit}
           byCompany={byCompany}
+          counter={counter}
         />
       </div>
 
@@ -410,7 +498,21 @@ export function OrderEntry({
                       />
                       <FieldError id={`qty-${product.id}-error`} message={error} />
                     </Td>
-                    <Td className="text-right tabular-nums">{formatMoney(product.saleRate)}</Td>
+                    <Td className="text-right">
+                      <RateCell
+                        line={line}
+                        product={product}
+                        special={Boolean(p?.standardRate)}
+                        error={fieldError(state, `lines.${i}.rate`)}
+                        onChange={(change) =>
+                          setLines((ls) =>
+                            ls.map((l) =>
+                              l.productId === line.productId ? { ...l, ...change } : l,
+                            ),
+                          )
+                        }
+                      />
+                    </Td>
                     <Td className="text-right tabular-nums">
                       {p && p.discountAmount.gt(0) ? `−${formatMoney(p.discountAmount)}` : "—"}
                     </Td>
@@ -455,14 +557,28 @@ export function OrderEntry({
         </section>
       ) : null}
 
+      {counter && context && context.warehouseId ? (
+        <PaidNow
+          state={state}
+          paid={paid}
+          setPaid={setPaid}
+          paidFull={paidFull}
+          setPaidFull={setPaidFull}
+          method={method}
+          setMethod={setMethod}
+          total={total.netAmount.toString()}
+          onAccount={onAccount}
+        />
+      ) : null}
+
       {credit?.over ? (
         <div
           role="alert"
           className="border-destructive max-w-2xl space-y-2 rounded-md border-2 p-3 text-sm"
         >
           <p className="font-medium">
-            This order takes the customer {formatMoney(credit.over)} past their credit limit of{" "}
-            {formatMoney(credit.limit)}.
+            This {counter ? "sale" : "order"} takes the customer {formatMoney(credit.over)} past
+            their credit limit of {formatMoney(credit.limit)}.
           </p>
           {canOverrideCredit ? (
             <label className="flex items-center gap-2">
@@ -473,6 +589,8 @@ export function OrderEntry({
               />
               Allow past the credit limit
             </label>
+          ) : counter ? (
+            <p>Take more payment now, or ask the owner to allow it.</p>
           ) : (
             <p>
               You can still book it; it will wait for the owner&apos;s approval before dispatch.
@@ -484,8 +602,19 @@ export function OrderEntry({
       <FormMessage state={state} />
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={saving || !context || lines.length === 0}>
-          {saving ? "Saving…" : isNew ? "Book order" : "Save changes"}
+          {saving ? "Saving…" : counter ? "Save sale" : isNew ? "Book order" : "Save changes"}
         </Button>
+        {counter ? (
+          <Button
+            type="submit"
+            name="intent"
+            value="print"
+            variant="outline"
+            disabled={saving || !context || lines.length === 0}
+          >
+            Save and print bill
+          </Button>
+        ) : null}
         {isNew ? (
           <Button
             type="submit"
@@ -494,7 +623,7 @@ export function OrderEntry({
             variant="outline"
             disabled={saving || !context || lines.length === 0}
           >
-            Book and enter next
+            {counter ? "Save and enter next" : "Book and enter next"}
           </Button>
         ) : null}
         <Button asChild variant="ghost">
@@ -505,13 +634,287 @@ export function OrderEntry({
   );
 }
 
+/**
+ * Rate / dz of one line: blank uses the product's rate (shown as the placeholder). A typed rate
+ * is the final price for this order, with no discount, and asks for a reason. The customer's last
+ * special rate for the product is offered as a hint only.
+ */
+function RateCell({
+  line,
+  product,
+  special,
+  error,
+  onChange,
+}: {
+  line: Line;
+  product: Product;
+  special: boolean;
+  error?: string;
+  onChange: (change: Partial<Line>) => void;
+}) {
+  const id = `rate-${product.id}`;
+  const last = product.lastSpecialRate;
+  return (
+    <div className="ml-auto w-32 space-y-1 text-left">
+      <label htmlFor={id} className="sr-only">
+        Rate per dozen for {product.name}
+      </label>
+      <Input
+        id={id}
+        name="rate"
+        inputMode="decimal"
+        autoComplete="off"
+        className="h-8 text-right tabular-nums"
+        placeholder={product.saleRate}
+        value={line.rate ?? ""}
+        onChange={(e) => onChange({ rate: e.target.value })}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+      />
+      <FieldError id={`${id}-error`} message={error} />
+      {special ? (
+        <>
+          <p className="text-xs">
+            <Badge variant="secondary">Special rate</Badge>{" "}
+            <span className="text-muted-foreground line-through">
+              {formatMoney(product.saleRate)}
+            </span>
+          </p>
+          <Input
+            name="rateNote"
+            aria-label={`Reason for the rate of ${product.name}`}
+            placeholder="Reason (optional)"
+            maxLength={100}
+            className="h-7 text-xs"
+            value={line.rateNote ?? ""}
+            onChange={(e) => onChange({ rateNote: e.target.value })}
+          />
+        </>
+      ) : (
+        <input type="hidden" name="rateNote" value="" />
+      )}
+      {last && !line.rate ? (
+        <button
+          type="button"
+          className="text-muted-foreground text-xs underline underline-offset-2"
+          onClick={() => onChange({ rate: last.rate })}
+          title="Use this rate on this order"
+        >
+          Last time {formatMoney(last.rate)} ({last.date})
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Name, phone and area of a customer created with this order. */
+function NewCustomerFields({
+  state,
+  value,
+  onChange,
+  onCancel,
+  areas,
+  counter,
+  warehouses,
+  warehouseId,
+  setWarehouseId,
+}: {
+  state: ActionState;
+  value: { name: string; phone: string; areaId: string };
+  onChange: (v: Partial<{ name: string; phone: string; areaId: string }>) => void;
+  onCancel: () => void;
+  areas: { id: string; name: string; warehouseName: string }[];
+  counter: boolean;
+  warehouses: { id: string; name: string }[];
+  warehouseId: string;
+  setWarehouseId: (id: string) => void;
+}) {
+  const err = (name: string) => fieldError(state, name);
+  return (
+    <fieldset className="space-y-3 rounded-lg border border-dashed p-3">
+      <legend className="px-1 text-sm font-medium">New customer</legend>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="new-customer-phone">Phone</Label>
+          <Input
+            id="new-customer-phone"
+            name="newCustomerPhone"
+            type="tel"
+            inputMode="tel"
+            placeholder="0300 1234567"
+            autoFocus={!value.phone}
+            value={value.phone}
+            onChange={(e) => onChange({ phone: e.target.value })}
+            aria-invalid={err("newCustomerPhone") ? true : undefined}
+          />
+          <p className="text-muted-foreground text-xs">Saved as +92</p>
+          <FieldError id="new-customer-phone-error" message={err("newCustomerPhone")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="new-customer-name">Name</Label>
+          <Input
+            id="new-customer-name"
+            name="newCustomerName"
+            maxLength={120}
+            autoFocus={Boolean(value.phone)}
+            value={value.name}
+            onChange={(e) => onChange({ name: e.target.value })}
+            aria-invalid={err("newCustomerName") ? true : undefined}
+          />
+          <FieldError id="new-customer-name-error" message={err("newCustomerName")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="new-customer-area">Area{counter ? " (optional)" : ""}</Label>
+          <NativeSelect
+            id="new-customer-area"
+            name="newCustomerAreaId"
+            value={value.areaId}
+            onChange={(e) => onChange({ areaId: e.target.value })}
+          >
+            <option value="">{counter ? "No area" : "Choose the area"}</option>
+            {areas.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} · {a.warehouseName}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        {counter && !value.areaId && warehouses.length > 1 ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="new-customer-warehouse">Warehouse</Label>
+            <NativeSelect
+              id="new-customer-warehouse"
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value)}
+            >
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        ) : null}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Saved as a retailer with this order. If a customer already has this phone, the order goes to
+        them instead.{" "}
+        <button type="button" className="underline underline-offset-2" onClick={onCancel}>
+          Cancel new customer
+        </button>
+      </p>
+    </fieldset>
+  );
+}
+
+const METHODS = [
+  { value: "CASH", label: "Cash" },
+  { value: "CHEQUE", label: "Cheque" },
+  { value: "ONLINE", label: "Online" },
+];
+
+/** Counter sale: what the customer pays now; the rest goes on their account. */
+function PaidNow({
+  state,
+  paid,
+  setPaid,
+  paidFull,
+  setPaidFull,
+  method,
+  setMethod,
+  total,
+  onAccount,
+}: {
+  state: ActionState;
+  paid: string;
+  setPaid: (v: string) => void;
+  paidFull: boolean;
+  setPaidFull: (v: boolean) => void;
+  method: string;
+  setMethod: (v: string) => void;
+  total: string;
+  onAccount: number;
+}) {
+  const field = (name: string, label: string, props: React.ComponentProps<typeof Input> = {}) => (
+    <div className="space-y-1.5">
+      <Label htmlFor={`counter-${name}`}>{label}</Label>
+      <Input
+        id={`counter-${name}`}
+        name={name}
+        aria-invalid={fieldError(state, name) ? true : undefined}
+        {...props}
+      />
+      <FieldError id={`counter-${name}-error`} message={fieldError(state, name)} />
+    </div>
+  );
+  return (
+    <fieldset className="max-w-4xl space-y-3 rounded-lg border p-4">
+      <legend className="px-1 text-sm font-medium">Paid now</legend>
+      <div className="grid gap-4 sm:grid-cols-4">
+        {field("paidAmount", "Amount paid", {
+          inputMode: "decimal",
+          autoComplete: "off",
+          value: paidFull ? total : paid,
+          readOnly: paidFull,
+          onChange: (e) => setPaid(e.target.value),
+          placeholder: "0",
+        })}
+        <div className="space-y-1.5">
+          <Label htmlFor="counter-method">How</Label>
+          <NativeSelect
+            id="counter-method"
+            name="method"
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+          >
+            {METHODS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        {method === "CHEQUE" ? (
+          <>
+            {field("chequeNo", "Cheque no.", { maxLength: 30 })}
+            {field("bankName", "Bank", { maxLength: 60 })}
+            {field("chequeDate", "Cheque date", { type: "date" })}
+          </>
+        ) : method === "ONLINE" ? (
+          field("reference", "Reference", { maxLength: 80 })
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2 text-sm">
+        <label className="flex items-center gap-2 font-medium">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={paidFull}
+            onChange={(e) => {
+              setPaidFull(e.target.checked);
+              if (!e.target.checked) setPaid("");
+            }}
+          />
+          Paid in full ({formatMoney(total)})
+        </label>
+        <p className="self-center" aria-live="polite">
+          On the customer&apos;s account:{" "}
+          <span className="font-medium tabular-nums">{formatMoney(onAccount)}</span>
+        </p>
+      </div>
+    </fieldset>
+  );
+}
+
 function CustomerPanel({
   context,
   loading,
   error,
   credit,
   byCompany,
+  counter,
 }: {
+  counter: boolean;
   context: OrderEntryContext | null;
   loading: boolean;
   error: string | null;
@@ -560,7 +963,7 @@ function CustomerPanel({
         ))}
         <dt>Other open orders</dt>
         <dd className="text-right tabular-nums">{formatMoney(context.openOrders)}</dd>
-        <dt>This order</dt>
+        <dt>This order{counter ? " (on account)" : ""}</dt>
         <dd className="text-right tabular-nums">{formatMoney(credit?.thisOrder ?? "0")}</dd>
         {[...byCompany].length > 1
           ? [...byCompany].map(([companyId, t]) => (

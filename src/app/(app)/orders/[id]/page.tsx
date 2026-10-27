@@ -29,14 +29,20 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
   const order = await orNotFound(getSalesOrder(ctx, id));
   const open = isOpenOrder(order.status);
   const companies = [...new Set(order.lines.map((l) => l.company.name))];
+  const counter = order.fulfilment === "COUNTER";
+  const where = `${order.customer.name}${order.customer.shopName ? `, ${order.customer.shopName}` : ""} · ${order.customer.area?.name ?? order.warehouse.name}`;
 
   return (
     <div className="space-y-6">
       <div>
         <BackLink href="/orders">Orders</BackLink>
         <PageHeader
-          title={`Order #${order.number}`}
-          description={`${order.customer.name}${order.customer.shopName ? `, ${order.customer.shopName}` : ""} · ${order.customer.area?.name ?? order.warehouse.name} · deliver ${formatDate(order.deliveryDate)} · via ${SOURCE[order.source]}`}
+          title={counter ? `Counter sale #${order.number}` : `Order #${order.number}`}
+          description={
+            counter
+              ? `${where} · collected at ${order.warehouse.name} on ${formatDate(order.deliveryDate)}`
+              : `${where} · deliver ${formatDate(order.deliveryDate)} · via ${SOURCE[order.source]}`
+          }
           actions={
             <>
               {order.bill ? (
@@ -51,18 +57,27 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
         <Notice
           notice={notice}
           next={
-            notice === "booked" || notice === "saved"
+            notice === "sold"
               ? [
                   { href: `/orders/${id}/bill`, label: "Print bill" },
-                  {
-                    href: `/orders/new?date=${toDateInput(order.deliveryDate)}`,
-                    label: "Book another",
-                  },
+                  { href: "/orders/counter", label: "Another counter sale" },
                 ]
-              : []
+              : notice === "booked" || notice === "saved"
+                ? [
+                    { href: `/orders/${id}/bill`, label: "Print bill" },
+                    {
+                      href: `/orders/new?date=${toDateInput(order.deliveryDate)}`,
+                      label: "Book another",
+                    },
+                  ]
+                : []
           }
         />
-        <OrderStatusBadge status={order.status} needsCreditApproval={order.needsCreditApproval} />
+        <OrderStatusBadge
+          status={order.status}
+          needsCreditApproval={order.needsCreditApproval}
+          counter={counter}
+        />
         {order.trip ? (
           <p className="mt-2 text-sm">
             On{" "}
@@ -127,7 +142,18 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
                   ) : null}
                 </Td>
               ) : null}
-              <Td className="text-right tabular-nums">{formatMoney(l.rate)}</Td>
+              <Td className="text-right tabular-nums">
+                {formatMoney(l.rate)}
+                {l.standardRate ? (
+                  <div className="text-xs">
+                    <Badge variant="secondary">Special rate</Badge>{" "}
+                    <span className="text-muted-foreground line-through">
+                      {formatMoney(l.standardRate)}
+                    </span>
+                    {l.rateNote ? <div className="text-muted-foreground">{l.rateNote}</div> : null}
+                  </div>
+                ) : null}
+              </Td>
               <Td>
                 {l.discountAmount.gt(0)
                   ? `${formatDiscount(l)} (−${formatMoney(l.discountAmount)})`
@@ -168,7 +194,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
           </tr>
         </tfoot>
       </DataTable>
-      {order.reconciledAt ? (
+      {order.reconciledAt && !counter ? (
         <p className="text-sm">
           Amounts above are as booked. After returns and damage the bill is{" "}
           <strong className="tabular-nums">{formatMoney(order.bill?.netAmount)}</strong>.

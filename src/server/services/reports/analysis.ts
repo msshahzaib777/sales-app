@@ -246,7 +246,12 @@ async function companyAnalysis(
 ) {
   const claims = await ctx.db.companyClaim.groupBy({
     by: ["companyId"],
-    where: { claimDate: dateWhere(current), status: { notIn: ["REVERSED", "REJECTED"] } },
+    // Damage only: sack returns are a refund of packaging, not damage.
+    where: {
+      claimDate: dateWhere(current),
+      status: { notIn: ["REVERSED", "REJECTED"] },
+      type: { not: "SACK_RETURN" },
+    },
     _sum: { claimedAmount: true, amount: true },
   });
   const ids = [...new Set([...byCompany.keys(), ...claims.map((c) => c.companyId)])];

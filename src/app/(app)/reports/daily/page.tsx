@@ -98,6 +98,7 @@ async function Report({ searchParams }: PageProps<"/reports/daily">) {
         <NeedsAttention issues={r.issues} />
         <KeyNumbers r={r} />
         <Deliveries r={r} />
+        <SpecialRates r={r} />
         <ProductsSold r={r} />
         {r.money ? <Money money={r.money} profit={r.profit} /> : null}
         {r.money ? <Pending pending={r.money.pending} /> : null}
@@ -147,9 +148,17 @@ function NeedsAttention({ issues }: { issues: DailyReport["issues"] }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  id,
+  children,
+}: {
+  title: string;
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="break-inside-avoid space-y-[0.4em]">
+    <section id={id} className="scroll-mt-4 break-inside-avoid space-y-[0.4em]">
       <h2 className="border-b border-black text-[1.05em] font-bold">{title}</h2>
       {children}
     </section>
@@ -177,7 +186,16 @@ function KeyNumbers({ r }: { r: DailyReport }) {
       <Figure
         label="Orders delivered"
         value={`${r.deliveries.orders - r.deliveries.stillOut} of ${r.deliveries.orders}`}
-        note={r.deliveries.stillOut ? `${r.deliveries.stillOut} day-end not entered` : undefined}
+        note={
+          [
+            r.deliveries.stillOut ? `${r.deliveries.stillOut} day-end not entered` : null,
+            r.counter.sales
+              ? `+ ${r.counter.sales} counter sale${r.counter.sales === 1 ? "" : "s"}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined
+        }
       />
       {r.money ? (
         <>
@@ -228,6 +246,12 @@ function Deliveries({ r }: { r: DailyReport }) {
         damaged {formatDozens(d.damagedQty)}. Billed{" "}
         <strong className="tabular-nums">{formatMoney(d.billed)}</strong>.
       </p>
+      {r.counter.sales ? (
+        <p>
+          Counter sales (collected at the warehouse): {r.counter.sales}, billed{" "}
+          <strong className="tabular-nums">{formatMoney(r.counter.billed)}</strong>.
+        </p>
+      ) : null}
       {d.list.length > 0 ? (
         <table className="w-full border-collapse">
           <thead>
@@ -247,13 +271,59 @@ function Deliveries({ r }: { r: DailyReport }) {
                   </Link>
                 </td>
                 <td className={td}>{o.customerName}</td>
-                <td className={td}>{STATUS[o.status] ?? o.status}</td>
+                <td className={td}>
+                  {o.counter ? "Counter sale" : (STATUS[o.status] ?? o.status)}
+                </td>
                 <td className={`${td} ${num}`}>{formatMoney(o.amount)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : null}
+    </Section>
+  );
+}
+
+/** Bills of the day with a rate changed on the order, line by line. Shown only when there are any. */
+function SpecialRates({ r }: { r: DailyReport }) {
+  if (r.specialRates.length === 0) return null;
+  return (
+    <Section title="Rates changed on bills" id="special-rates">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
+            <th className={th}>Bill</th>
+            <th className={th}>Customer</th>
+            <th className={th}>Product</th>
+            <th className={`${th} ${num}`}>Quantity</th>
+            <th className={`${th} ${num}`}>Normal rate</th>
+            <th className={`${th} ${num}`}>Charged</th>
+            <th className={`${th} ${num}`}>Difference</th>
+            <th className={th}>Reason · entered by</th>
+          </tr>
+        </thead>
+        <tbody>
+          {r.specialRates.map((s) => (
+            <tr key={`${s.orderId}:${s.code}`}>
+              <td className={td}>
+                <Link href={`/orders/${s.orderId}`} className="print:no-underline">
+                  #{s.number}
+                </Link>
+                {s.counter ? " (counter)" : ""}
+              </td>
+              <td className={td}>{s.customerName}</td>
+              <td className={td}>
+                {s.code} {s.productName}
+              </td>
+              <td className={`${td} ${num}`}>{formatDozens(s.quantity)}</td>
+              <td className={`${td} ${num}`}>{formatMoney(s.standardRate)}</td>
+              <td className={`${td} ${num}`}>{formatMoney(s.rate)}</td>
+              <td className={`${td} ${num}`}>{formatMoney(s.difference)}</td>
+              <td className={td}>{[s.note, s.by].filter(Boolean).join(" · ") || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </Section>
   );
 }

@@ -66,6 +66,11 @@ async function Editor({ params }: { params: Promise<{ id: string }> }) {
         actions={
           <>
             <LinkButton href={`/orders/new?customerId=${id}`}>New order</LinkButton>
+            {can(ctx.user.role, "ledgers.view") ? (
+              <LinkButton href={`/customers/${id}/statement`} variant="outline">
+                Statement (ledger)
+              </LinkButton>
+            ) : null}
             <LinkButton href={`/customers/${id}/old-bills`} variant="outline">
               Old balance (paper bills)
             </LinkButton>

@@ -10,6 +10,7 @@ import {
 } from "../src/generated/prisma/client";
 import { hashPassword } from "../src/server/auth/password";
 import { DEFAULT_EXPENSE_CATEGORIES } from "../src/lib/expenses";
+import { normalizePkPhone } from "../src/lib/phone";
 import { PACKETS_PER_DOZEN } from "../src/lib/units";
 import {
   calculateLineAmounts,
@@ -17,6 +18,9 @@ import {
   resolveDiscount,
   sumLineAmounts,
 } from "../src/lib/pricing";
+
+/** Phones as the app stores them: "+92 3001234567". */
+const pk = (phone: string) => normalizePkPhone(phone)!;
 
 // Demo tenant: 2 warehouses, 3 companies, 20 products, 30 customers, 4 bikes (CLAUDE.md), plus
 // opening balances, a received purchase per company, one delivered order with bill, payment and a
@@ -369,7 +373,7 @@ async function main() {
       name: "Demo Snacks Distributor",
       slug: "demo",
       address: "GT Road, Shahdara, Lahore",
-      phone: "042-37001122",
+      phone: pk("042-37001122"),
     },
   });
   const tenantId = tenant.id;
@@ -475,7 +479,7 @@ async function main() {
           userId: staffUser.id,
           name: "Kamran Javed",
           role: "OFFICE",
-          phone: "0300-2223344",
+          phone: pk("0300-2223344"),
           monthlySalary: 45000,
           joiningDate: day(-400),
         },
@@ -493,7 +497,7 @@ async function main() {
               tenantId,
               name,
               role: "DRIVER",
-              phone: `0345-10020${i}${i}`,
+              phone: pk(`0345-10020${i}${i}`),
               monthlySalary: 32000,
               joiningDate: day(-300 + i * 40),
             },
@@ -534,10 +538,12 @@ async function main() {
             warehouseId: warehouseIds[c.warehouse]!,
             name: c.name,
             contactName: c.contactName,
-            phone: c.phone,
+            phone: pk(c.phone),
             orderBookerName: c.orderBookerName,
-            orderBookerPhone: c.orderBookerPhone,
+            orderBookerPhone: pk(c.orderBookerPhone),
             paymentTermsDays: c.paymentTermsDays,
+            // Snacks come in sacks; each empty one sent back is credited on the next bill.
+            sackRate: "150",
           },
         });
         companies.push({
@@ -637,7 +643,7 @@ async function main() {
         routeCounters.set(area.id, seq);
         const owner = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
         const type = pick(CUSTOMER_TYPES);
-        const phone = `03${between(0, 4)}${between(0, 9)}-${between(1000000, 9999999)}`;
+        const phone = pk(`03${between(0, 4)}${between(0, 9)}-${between(1000000, 9999999)}`);
         const customer = await tx.customer.create({
           data: {
             tenantId,

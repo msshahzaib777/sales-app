@@ -101,6 +101,8 @@ enum ClaimType {
   /// Damaged stock sent back to the company.
   RETURN_TO_COMPANY
   OTHER
+  /// Empty sacks sent back to the company; it credits Company.sackRate for each.
+  SACK_RETURN
 }
 
 enum ClaimStatus {
@@ -182,6 +184,13 @@ enum TripStatus {
   DISPATCHED
   RECONCILED
   CANCELLED
+}
+
+/// Delivery: goes out on a trip. Counter: the customer collects it at the warehouse; the sale is
+/// posted (stock out, bill to the ledger) when it is saved, with no trip or day-end.
+enum OrderFulfilment {
+  DELIVERY
+  COUNTER
 }
 
 enum OrderSource {
@@ -387,6 +396,8 @@ model Company {
   orderBookerPhone String?
   /// Due date of a company bill = receipt date + this many days (editable per bill).
   paymentTermsDays Int      @default(0)
+  /// What the company credits for each empty sack we send back (null: it does not take sacks back).
+  sackRate         Decimal? @db.Decimal(14, 2)
   isActive         Boolean  @default(true)
   /// Client-generated id of the create request; a retried create returns the same record.
   requestId        String?
@@ -701,6 +712,8 @@ model GoodsReceipt {
   receivedDate    DateTime      @db.Date
   /// Company's own invoice / delivery note number.
   supplierRef     String?
+  /// Sacks the goods came in; we send them back empty for a credit (Company.sackRate).
+  sacksReceived   Int           @default(0)
   status          PostingStatus @default(POSTED)
   reversedAt      DateTime?
   reversalReason  String?
@@ -839,7 +852,8 @@ model CompanyClaim {
   tenantId        String
   number          Int
   companyId       String
-  productId       String
+  /// Null for a sack return (quantity is then the number of sacks).
+  productId       String?
   type            ClaimType
   status          ClaimStatus @default(PENDING)
   claimDate       DateTime    @db.Date
@@ -866,7 +880,7 @@ model CompanyClaim {
 
   tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   company       Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
-  product       Product      @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  product       Product?     @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
   salesOrder    SalesOrder?  @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
   appliedToBill CompanyBill? @relation(fields: [tenantId, appliedToBillId], references: [tenantId, id], onDelete: Restrict)
 
@@ -1069,6 +1083,7 @@ model SalesOrder {
   deliveryDate        DateTime         @db.Date
   status              SalesOrderStatus @default(BOOKED)
   source              OrderSource      @default(OFFICE)
+  fulfilment          OrderFulfilment  @default(DELIVERY)
   /// The order would take the customer past their credit limit and was entered by someone who
   /// cannot allow that; it waits for the owner (dispatch refuses it until approved).
   needsCreditApproval Boolean          @default(false)
@@ -1105,6 +1120,7 @@ model SalesOrder {
   @@index([tenantId, tripId])
   @@index([tenantId, customerId, orderDate])
   @@index([tenantId, deliveryDate])
+  @@index([tenantId, fulfilment, orderDate])
 }
 
 /// `companyId` is copied from the product so bills can be split by company without joins and stay
@@ -1122,8 +1138,13 @@ model SalesOrderLine {
   /// Delivered = quantity − returned − damaged.
   returnedQuantity Int          @default(0)
   damagedQuantity  Int          @default(0)
-  /// Sale rate per price unit.
+  /// Sale rate per price unit: what is charged (a changed rate when standardRate is set).
   rate             Decimal      @db.Decimal(14, 2)
+  /// The product's normal rate when the rate was changed on this order (no discount then); null
+  /// when the normal rate and discount apply.
+  standardRate     Decimal?     @db.Decimal(14, 2)
+  /// Why the rate was changed (optional).
+  rateNote         String?
   discountType     DiscountType @default(NONE)
   discountValue    Decimal      @default(0) @db.Decimal(14, 2)
   grossAmount      Decimal      @db.Decimal(14, 2)

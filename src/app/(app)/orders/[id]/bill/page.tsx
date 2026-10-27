@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { AutoPrint } from "@/components/layout/print-button";
 import { orNotFound } from "@/components/master/page-helpers";
 import { BillSheets } from "@/components/print/bill-sheets";
 import { PrintToolbar } from "@/components/print/print-frame";
@@ -32,7 +33,11 @@ export default async function BillPage({ params, searchParams }: PageProps<"/ord
   return (
     <div>
       <PrintToolbar
-        back={{ href: `/orders/${id}`, label: `Order #${view.order.number}` }}
+        back={
+          filterParam(sp, "print") === "1"
+            ? { href: "/orders/counter", label: "Next counter sale" }
+            : { href: `/orders/${id}`, label: `Order #${view.order.number}` }
+        }
         hint={paperHint(profile.print)}
       >
         <Link
@@ -57,6 +62,7 @@ export default async function BillPage({ params, searchParams }: PageProps<"/ord
         ) : null}
       </PrintToolbar>
       <BillSheets settings={profile.print} bills={billDocuments(view, profile.business, split)} />
+      {filterParam(sp, "print") === "1" ? <AutoPrint /> : null}
     </div>
   );
 }

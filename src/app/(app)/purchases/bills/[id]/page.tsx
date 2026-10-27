@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { Prisma } from "@/generated/prisma/client";
+
+import { ConfirmAction } from "@/components/form/confirm-action";
 import { DataTable, Td, Th } from "@/components/list/data-table";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
 import { orNotFound } from "@/components/master/page-helpers";
@@ -11,7 +14,8 @@ import { formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
-import { updateDueDateAction } from "@/server/purchasing-actions";
+import { updateDueDateAction, payBillFromAdvanceAction } from "@/server/purchasing-actions";
+import { companyAdvances } from "@/server/services/purchasing/advances";
 import { getCompanyBill } from "@/server/services/purchasing/bills";
 
 export const metadata: Metadata = { title: "Company bill" };
@@ -29,6 +33,8 @@ async function Bill({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const ctx = await requireTenantContext("payments.manage");
   const bill = await orNotFound(getCompanyBill(ctx, id));
+  const advances = await companyAdvances(ctx.db, bill.companyId);
+  const advance = advances.reduce((s, a) => s.add(a.left), new Prisma.Decimal(0));
   return (
     <div className="space-y-6">
       <PageHeader
@@ -94,9 +100,11 @@ async function Bill({ params }: { params: Promise<{ id: string }> }) {
           {bill.appliedClaims.map((c) => (
             <tr key={c.id}>
               <Td>
-                Less claim #{c.number}: {c.product.name}
+                Less claim #{c.number}: {c.product?.name ?? "empty sacks returned"}
               </Td>
-              <Td className="text-right tabular-nums">{formatDozens(c.quantity)}</Td>
+              <Td className="text-right tabular-nums">
+                {c.product ? formatDozens(c.quantity) : `${c.quantity} sacks`}
+              </Td>
               <Td />
               <Td className="text-right tabular-nums">−{formatMoney(c.amount)}</Td>
             </tr>
@@ -147,6 +155,28 @@ async function Bill({ params }: { params: Promise<{ id: string }> }) {
         )}
       </section>
 
+      {bill.status === "POSTED" && bill.state.outstanding.gt(0) && advance.gt(0) ? (
+        <section
+          aria-labelledby="advance-heading"
+          className="max-w-xl space-y-2 rounded-lg border border-amber-500 p-3"
+        >
+          <h2 id="advance-heading" className="font-medium">
+            Advance available: {formatMoney(advance)}
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            Money already paid to {bill.company.name} and not matched to any bill (
+            {advances.map((a) => `payment #${a.number}`).join(", ")}). Use it to pay this bill; the
+            ledger does not change, only which payment paid which bill.
+          </p>
+          <ConfirmAction
+            action={payBillFromAdvanceAction.bind(null, bill.id)}
+            label={`Use advance (${formatMoney(
+              advance.lt(bill.state.outstanding) ? advance : bill.state.outstanding,
+            )})`}
+            confirm={`Pay bill #${bill.number} from the advance paid to ${bill.company.name}?`}
+          />
+        </section>
+      ) : null}
       {bill.status === "POSTED" ? (
         <DueDateForm
           action={updateDueDateAction.bind(null, bill.id)}

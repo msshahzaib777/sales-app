@@ -46,6 +46,30 @@ export function allocateOldestFirst(amount: DecimalValue, bills: OpenBill[]): Al
   return result;
 }
 
+/** A posted payment with money not yet matched to any bill (an advance). */
+export type Advance = { paymentId: string; left: DecimalValue };
+export type AdvanceMatch = { paymentId: string; billId: string; amount: Decimal };
+
+/**
+ * Matches advances to open bills: the oldest bills first, each paid from the oldest advance
+ * first. Advances are given oldest first. What cannot be matched stays an advance.
+ */
+export function matchAdvances(advances: Advance[], bills: OpenBill[]): AdvanceMatch[] {
+  const left = advances.map((a) => ({ paymentId: a.paymentId, left: D(a.left) }));
+  const result: AdvanceMatch[] = [];
+  for (const bill of sortOldestFirst(bills)) {
+    let owed = D(bill.outstanding);
+    for (const a of left) {
+      if (owed.lte(0)) break;
+      if (a.left.lte(0)) continue;
+      const take = Prisma.Decimal.min(owed, a.left);
+      result.push({ paymentId: a.paymentId, billId: bill.id, amount: take });
+      a.left = a.left.sub(take);
+      owed = owed.sub(take);
+    }
+  }
+  return result;
+}
 /** Checks a manual allocation; returns error messages (empty when valid). */
 export function checkAllocations(
   amount: DecimalValue,

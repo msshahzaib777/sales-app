@@ -2,7 +2,13 @@ import "server-only";
 
 import type { Prisma } from "@/generated/prisma/client";
 import { formatDate } from "@/lib/dates";
-import { icontains, matchEveryWord, searchNumber, searchWords } from "@/lib/list-params";
+import {
+  icontains,
+  matchEveryWord,
+  phoneContains,
+  searchNumber,
+  searchWords,
+} from "@/lib/list-params";
 
 import { assertCan, can } from "../auth/permissions";
 import type { ServiceCtx } from "./master/common";
@@ -28,7 +34,7 @@ export async function globalSearch(ctx: ServiceCtx, q: string): Promise<SearchHi
       where: matchEveryWord(query, (w): Prisma.CustomerWhereInput[] => [
         { name: icontains(w) },
         { shopName: icontains(w) },
-        { phone: { contains: w } },
+        { phone: phoneContains(w) },
         { area: { name: icontains(w) } },
       ]),
       orderBy: [{ isActive: "desc" }, { name: "asc" }],

@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  BookOpen,
   Boxes,
   Building2,
   LayoutDashboard,
@@ -34,6 +35,7 @@ export const navItems: NavItem[] = [
   { title: "Companies", href: "/companies", icon: Building2 },
   { title: "Products", href: "/products", icon: Package },
   { title: "Payments", href: "/payments", icon: Wallet, permission: "payments.manage" },
+  { title: "Ledgers", href: "/ledgers", icon: BookOpen, permission: "ledgers.view" },
   { title: "Expenses", href: "/expenses", icon: Receipt, permission: "expenses.manage" },
   { title: "Reports", href: "/reports", icon: BarChart3 },
   { title: "Settings", href: "/settings", icon: Settings, permission: "settings.manage" },

@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@/generated/prisma/client";
 import type { SalesOrderStatus } from "@/generated/prisma/enums";
+import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import type { DiscountType } from "@/lib/pricing";
 import {
@@ -9,18 +10,19 @@ import {
   checkCredit,
   type CreditCheck,
   isOpenOrder,
-  priceLine,
+  priceLineAt,
   type PricedLine,
 } from "@/lib/sales";
-import { recordIdSchema } from "@/lib/validation/master";
+import { customerSchema, recordIdSchema } from "@/lib/validation/master";
 import { salesOrderSchema, type SalesOrderInput } from "@/lib/validation/sales";
-import { icontains, matchEveryWord, searchNumber } from "@/lib/list-params";
+import { icontains, matchEveryWord, phoneContains, searchNumber } from "@/lib/list-params";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
 import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
+import { createCustomerTx } from "../master/customers";
 import { found, nextDocumentNumber } from "../posting";
 import type { DateRange } from "../purchasing/filters";
 import { customerPending, openOrdersTotal, stockPositions } from "./positions";
@@ -61,13 +63,17 @@ async function loadProducts(tx: TenantTx, warehouseId: string, productIds: strin
   return byId;
 }
 
+/** An order line as priced, with the reason when its rate was changed. */
+type OrderLine = PricedLine & { rateNote?: string | null };
+
+/** Prices each line: the product's rate and discount, or the rate typed for this order. */
 function priceLines(
   products: Awaited<ReturnType<typeof loadProducts>>,
-  input: SalesOrderInput,
-): PricedLine[] {
+  input: Pick<SalesOrderInput, "lines">,
+): OrderLine[] {
   return input.lines.map((line) => {
     const p = products.get(line.productId)!;
-    return priceLine(
+    const priced = priceLineAt(
       {
         id: p.id,
         companyId: p.companyId,
@@ -81,7 +87,9 @@ function priceLines(
         })),
       },
       line.quantity,
+      line.rate,
     );
+    return { ...priced, rateNote: priced.standardRate ? line.rateNote : null };
   });
 }
 
@@ -127,6 +135,7 @@ export async function writeBillRevision(
         companyId: l.companyId,
         quantity: l.quantity,
         rate: l.rate.toFixed(2),
+        ...(l.standardRate ? { standardRate: l.standardRate.toFixed(2) } : {}),
         discountType: l.discountType,
         discountValue: l.discountValue.toFixed(2),
         grossAmount: l.grossAmount.toFixed(2),
@@ -144,7 +153,7 @@ export async function writeBillRevision(
   });
 }
 
-const lineRows = (ctx: ServiceCtx, lines: PricedLine[]) =>
+const lineRows = (ctx: ServiceCtx, lines: OrderLine[]) =>
   lines.map((l) => ({
     tenantId: ctx.user.tenantId,
     productId: l.productId,
@@ -157,6 +166,8 @@ const lineRows = (ctx: ServiceCtx, lines: PricedLine[]) =>
     discountAmount: money(l.discountAmount),
     taxAmount: money(l.taxAmount),
     netAmount: money(l.netAmount),
+    standardRate: l.standardRate ? money(l.standardRate) : null,
+    rateNote: l.rateNote ?? null,
   }));
 
 /** Credit decision: allowed by the owner, waiting for the owner, or (owner, not ticked) refused. */
@@ -195,6 +206,115 @@ async function shortages(
     .filter((s) => s.short > 0);
 }
 
+/**
+ * Creates the order, its bill and the first bill revision, inside the caller's transaction:
+ * prices the lines and checks the credit limit. A counter sale (`fulfilment` COUNTER) cannot wait
+ * for the owner's approval, so going past the limit is refused unless the owner allows it.
+ */
+export async function bookOrder(
+  tx: TenantTx,
+  ctx: ServiceCtx,
+  data: Omit<SalesOrderInput, "requestId"> & { requestId?: string },
+  opts: { fulfilment?: "DELIVERY" | "COUNTER"; paidNow?: Prisma.Decimal } = {},
+) {
+  const customer = data.customerId
+    ? await tx.customer.findUnique({ where: { id: data.customerId } })
+    : await customerForNewOrder(tx, ctx, data, opts.fulfilment ?? "DELIVERY");
+  if (!customer || !customer.isActive) throw new ServiceError("Choose an active customer.");
+  const warehouseId = await orderWarehouse(tx, customer, data.warehouseId);
+  const products = await loadProducts(
+    tx,
+    warehouseId,
+    data.lines.map((l) => l.productId),
+  );
+  const lines = priceLines(products, data);
+  const { total, byCompany } = billTotals(lines);
+
+  const pending = await customerPending(tx, customer.id);
+  // Paid at once (counter sale) does not use up credit.
+  const onAccount = Prisma.Decimal.max(money(total.netAmount).sub(opts.paidNow ?? 0), 0);
+  const credit = checkCredit({
+    creditLimit: customer.creditLimit?.toString() ?? null,
+    pending: pending.total.toString(),
+    openOrders: (await openOrdersTotal(tx, customer.id)).toString(),
+    thisOrder: onAccount.toString(),
+  });
+  const decision = creditDecision(ctx, credit, data.allowOverCredit);
+  if (opts.fulfilment === "COUNTER" && decision.needsCreditApproval)
+    throw new ServiceError(
+      `This sale takes the customer ${formatMoney(credit.over)} past their credit limit of ${formatMoney(credit.limit)}. Take more payment now, or ask the owner to allow it.`,
+    );
+
+  const order = await tx.salesOrder.create({
+    data: {
+      tenantId: ctx.user.tenantId,
+      number: await nextDocumentNumber(tx, ctx, "SALES_ORDER"),
+      customerId: customer.id,
+      warehouseId,
+      orderDate: data.orderDate,
+      deliveryDate: data.deliveryDate,
+      source: data.source,
+      fulfilment: opts.fulfilment ?? "DELIVERY",
+      note: data.note,
+      requestId: data.requestId,
+      needsCreditApproval: decision.needsCreditApproval,
+      creditOverrideById: decision.override ? ctx.user.id : null,
+      creditOverrideAt: decision.override ? new Date() : null,
+      createdById: ctx.user.id,
+      lines: { create: lineRows(ctx, lines).map(({ tenantId: _t, ...l }) => l) },
+    },
+  });
+  const bill = await tx.bill.create({
+    data: {
+      tenantId: ctx.user.tenantId,
+      number: await nextDocumentNumber(tx, ctx, "BILL"),
+      salesOrderId: order.id,
+      customerId: customer.id,
+      billDate: data.deliveryDate,
+      grossAmount: money(total.grossAmount),
+      discountAmount: money(total.discountAmount),
+      taxAmount: money(total.taxAmount),
+      netAmount: money(total.netAmount),
+      previousBalance: pending.total,
+    },
+  });
+  await writeBillRevision(
+    tx,
+    ctx,
+    bill.id,
+    1,
+    opts.fulfilment === "COUNTER" ? "Counter sale" : "Booked",
+    lines,
+  );
+  await writeAudit(tx, ctx.user, {
+    action: "CREATE",
+    entityType: "SalesOrder",
+    entityId: order.id,
+    newValue: {
+      number: order.number,
+      fulfilment: order.fulfilment,
+      customerId: customer.id,
+      deliveryDate: data.deliveryDate,
+      lines: lines.map((l) => ({
+        productId: l.productId,
+        quantity: l.quantity,
+        netAmount: l.netAmount,
+        ...(l.standardRate
+          ? { rate: l.rate, standardRate: l.standardRate, rateNote: l.rateNote }
+          : {}),
+      })),
+      total: total.netAmount,
+      companies: [...byCompany.keys()],
+      credit: credit.over
+        ? { over: credit.over, overrideBy: decision.override ? ctx.user.id : null }
+        : null,
+    },
+    requestId: data.requestId,
+  });
+  const names = new Map([...products.values()].map((p) => [p.id, p.name]));
+  return { order, bill, customer, warehouseId, lines, total, credit, decision, names };
+}
+
 export async function createSalesOrder(ctx: ServiceCtx, input: unknown): Promise<OrderResult> {
   assertCan(ctx.user.role, "operations.manage");
   const data = salesOrderSchema.parse(input);
@@ -221,90 +341,54 @@ export async function createSalesOrder(ctx: ServiceCtx, input: unknown): Promise
           };
         }
       }
-      const customer = await tx.customer.findUnique({ where: { id: data.customerId } });
-      if (!customer || !customer.isActive) throw new ServiceError("Choose an active customer.");
-      const warehouseId = await orderWarehouse(tx, customer, data.warehouseId);
-      const products = await loadProducts(
-        tx,
-        warehouseId,
-        data.lines.map((l) => l.productId),
-      );
-      const lines = priceLines(products, data);
-      const { total, byCompany } = billTotals(lines);
-
-      const pending = await customerPending(tx, customer.id);
-      const credit = checkCredit({
-        creditLimit: customer.creditLimit?.toString() ?? null,
-        pending: pending.total.toString(),
-        openOrders: (await openOrdersTotal(tx, customer.id)).toString(),
-        thisOrder: total.netAmount,
-      });
-      const decision = creditDecision(ctx, credit, data.allowOverCredit);
-
-      const order = await tx.salesOrder.create({
-        data: {
-          tenantId: ctx.user.tenantId,
-          number: await nextDocumentNumber(tx, ctx, "SALES_ORDER"),
-          customerId: customer.id,
-          warehouseId,
-          orderDate: data.orderDate,
-          deliveryDate: data.deliveryDate,
-          source: data.source,
-          note: data.note,
-          requestId: data.requestId,
-          needsCreditApproval: decision.needsCreditApproval,
-          creditOverrideById: decision.override ? ctx.user.id : null,
-          creditOverrideAt: decision.override ? new Date() : null,
-          createdById: ctx.user.id,
-          lines: { create: lineRows(ctx, lines).map(({ tenantId: _t, ...l }) => l) },
-        },
-      });
-      const bill = await tx.bill.create({
-        data: {
-          tenantId: ctx.user.tenantId,
-          number: await nextDocumentNumber(tx, ctx, "BILL"),
-          salesOrderId: order.id,
-          customerId: customer.id,
-          billDate: data.deliveryDate,
-          grossAmount: money(total.grossAmount),
-          discountAmount: money(total.discountAmount),
-          taxAmount: money(total.taxAmount),
-          netAmount: money(total.netAmount),
-          previousBalance: pending.total,
-        },
-      });
-      await writeBillRevision(tx, ctx, bill.id, 1, "Booked", lines);
-      await writeAudit(tx, ctx.user, {
-        action: "CREATE",
-        entityType: "SalesOrder",
-        entityId: order.id,
-        newValue: {
-          number: order.number,
-          customerId: customer.id,
-          deliveryDate: data.deliveryDate,
-          lines: lines.map((l) => ({
-            productId: l.productId,
-            quantity: l.quantity,
-            netAmount: l.netAmount,
-          })),
-          total: total.netAmount,
-          companies: [...byCompany.keys()],
-          credit: credit.over
-            ? { over: credit.over, overrideBy: decision.override ? ctx.user.id : null }
-            : null,
-        },
-        requestId: data.requestId,
-      });
-      const names = new Map([...products.values()].map((p) => [p.id, p.name]));
+      const booked = await bookOrder(tx, ctx, data);
       return {
-        id: order.id,
-        number: order.number,
-        credit,
-        needsCreditApproval: decision.needsCreditApproval,
-        shortages: await shortages(tx, warehouseId, lines, names, order.id),
+        id: booked.order.id,
+        number: booked.order.number,
+        credit: booked.credit,
+        needsCreditApproval: booked.decision.needsCreditApproval,
+        shortages: await shortages(
+          tx,
+          booked.warehouseId,
+          booked.lines,
+          booked.names,
+          booked.order.id,
+        ),
       };
     },
     { timeout: 30_000 },
+  );
+}
+
+/**
+ * A customer typed on the order (name and phone): the active customer with that phone if there is
+ * one, otherwise a new retailer created with the order, by anyone who may enter orders. A delivery
+ * needs the customer's area (it decides the warehouse and the route).
+ */
+async function customerForNewOrder(
+  tx: TenantTx,
+  ctx: ServiceCtx,
+  data: Pick<SalesOrderInput, "newCustomerName" | "newCustomerPhone" | "newCustomerAreaId">,
+  fulfilment: "DELIVERY" | "COUNTER",
+) {
+  const phone = data.newCustomerPhone!;
+  const existing = await tx.customer.findFirst({
+    where: { isActive: true, OR: [{ phone }, { whatsapp: phone }] },
+    orderBy: { createdAt: "asc" },
+  });
+  if (existing) return existing;
+  if (fulfilment === "DELIVERY" && !data.newCustomerAreaId)
+    throw new ServiceError("Choose the new customer's area, so the order can go on a route.");
+  return createCustomerTx(
+    tx,
+    ctx,
+    customerSchema.parse({
+      name: data.newCustomerName,
+      phone,
+      whatsapp: phone,
+      type: "RETAILER",
+      areaId: data.newCustomerAreaId ?? "",
+    }),
   );
 }
 
@@ -394,7 +478,11 @@ export async function updateSalesOrder(
         },
         newValue: {
           deliveryDate: after.deliveryDate,
-          lines: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+          lines: lines.map((l) => ({
+            productId: l.productId,
+            quantity: l.quantity,
+            ...(l.standardRate ? { rate: l.rate, standardRate: l.standardRate } : {}),
+          })),
           total: total.netAmount,
         },
       });
@@ -471,6 +559,10 @@ export type OrderFilters = {
   status?: string;
   areaId?: string;
   needsApproval?: boolean;
+  /** DELIVERY or COUNTER. */
+  fulfilment?: string;
+  /** Only orders with a rate changed on a line. */
+  specialRate?: boolean;
   page: number;
 } & DateRange;
 
@@ -499,6 +591,10 @@ export async function listSalesOrders(ctx: ServiceCtx, f: OrderFilters) {
       : {}),
     ...(f.areaId ? { customer: { areaId: f.areaId } } : {}),
     ...(f.needsApproval ? { needsCreditApproval: true } : {}),
+    ...(f.specialRate ? { lines: { some: { standardRate: { not: null } } } } : {}),
+    ...(f.fulfilment === "DELIVERY" || f.fulfilment === "COUNTER"
+      ? { fulfilment: f.fulfilment }
+      : {}),
     // The order number, the customer (name, shop, phone, area) or a product on the order (code or
     // name); every word must match somewhere. Kept apart from the area filter above, which also
     // filters `customer`.
@@ -507,7 +603,7 @@ export async function listSalesOrders(ctx: ServiceCtx, f: OrderFilters) {
       : matchEveryWord(f.q, (w): Prisma.SalesOrderWhereInput[] => [
           { customer: { name: icontains(w) } },
           { customer: { shopName: icontains(w) } },
-          { customer: { phone: { contains: w } } },
+          { customer: { phone: phoneContains(w) } },
           { customer: { area: { name: icontains(w) } } },
           { lines: { some: { product: { code: icontains(w) } } } },
           { lines: { some: { product: { name: icontains(w) } } } },
@@ -615,17 +711,22 @@ export async function orderEntryContext(
   opts: { warehouseId?: string; excludeOrderId?: string } = {},
 ) {
   assertCan(ctx.user.role, "operations.manage");
-  const customer = found(
-    await ctx.db.customer.findUnique({
-      where: { id: customerId },
-      include: { area: { select: { name: true, warehouseId: true } } },
-    }),
-    "customer",
-  );
-  const warehouseId = customer.area?.warehouseId ?? opts.warehouseId ?? null;
+  // No customer id: a new customer typed on the order (nothing owed yet; the warehouse is given).
+  const customer = customerId
+    ? found(
+        await ctx.db.customer.findUnique({
+          where: { id: customerId },
+          include: { area: { select: { name: true, warehouseId: true } } },
+        }),
+        "customer",
+      )
+    : null;
+  const warehouseId = customer?.area?.warehouseId ?? opts.warehouseId ?? null;
   const [pending, openOrders, companies] = await Promise.all([
-    customerPending(ctx.db, customerId),
-    openOrdersTotal(ctx.db, customerId, opts.excludeOrderId),
+    customer
+      ? customerPending(ctx.db, customer.id)
+      : { total: new Prisma.Decimal(0), oldBalance: new Prisma.Decimal(0), byCompany: new Map() },
+    customer ? openOrdersTotal(ctx.db, customer.id, opts.excludeOrderId) : new Prisma.Decimal(0),
     ctx.db.company.findMany({ select: { id: true, name: true } }),
   ]);
   const companyName = new Map(companies.map((c) => [c.id, c.name]));
@@ -642,6 +743,8 @@ export async function orderEntryContext(
     tiers: { minQuantity: number; discountType: DiscountType; discountValue: string }[];
     available: number;
     onHand: number;
+    /** The rate this customer last got when it was changed for them (a hint only). */
+    lastSpecialRate: { rate: string; date: string } | null;
   }[] = [];
   if (warehouseId) {
     const rows = await ctx.db.product.findMany({
@@ -649,7 +752,23 @@ export async function orderEntryContext(
       include: { discountTiers: { orderBy: { minQuantity: "asc" } } },
       orderBy: { code: "asc" },
     });
-    const positions = await stockPositions(ctx.db, warehouseId, undefined, opts.excludeOrderId);
+    const [positions, specials] = await Promise.all([
+      stockPositions(ctx.db, warehouseId, undefined, opts.excludeOrderId),
+      ctx.db.salesOrderLine.findMany({
+        where: {
+          standardRate: { not: null },
+          salesOrder: {
+            customerId,
+            status: { not: "CANCELLED" },
+            ...(opts.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
+          },
+        },
+        orderBy: [{ salesOrder: { orderDate: "desc" } }, { salesOrder: { number: "desc" } }],
+        distinct: ["productId"],
+        select: { productId: true, rate: true, salesOrder: { select: { orderDate: true } } },
+      }),
+    ]);
+    const special = new Map(specials.map((s) => [s.productId, s]));
     products = rows.map((p) => ({
       id: p.id,
       code: p.code,
@@ -666,29 +785,47 @@ export async function orderEntryContext(
       })),
       available: positions.get(p.id)?.available ?? 0,
       onHand: positions.get(p.id)?.onHand ?? 0,
+      lastSpecialRate: special.has(p.id)
+        ? {
+            rate: special.get(p.id)!.rate.toFixed(2),
+            date: formatDate(special.get(p.id)!.salesOrder.orderDate),
+          }
+        : null,
     }));
   }
 
-  const last = await ctx.db.salesOrder.findFirst({
-    where: {
-      customerId,
-      status: { not: "CANCELLED" },
-      ...(opts.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
-    },
-    orderBy: [{ orderDate: "desc" }, { number: "desc" }],
-    include: { lines: { select: { productId: true, quantity: true } } },
-  });
+  const last = !customer
+    ? null
+    : await ctx.db.salesOrder.findFirst({
+        where: {
+          customerId,
+          status: { not: "CANCELLED" },
+          ...(opts.excludeOrderId ? { id: { not: opts.excludeOrderId } } : {}),
+        },
+        orderBy: [{ orderDate: "desc" }, { number: "desc" }],
+        include: { lines: { select: { productId: true, quantity: true } } },
+      });
 
   return {
-    customer: {
-      id: customer.id,
-      name: customer.name,
-      shopName: customer.shopName,
-      areaName: customer.area?.name ?? null,
-      creditLimit: customer.creditLimit?.toFixed(2) ?? null,
-      isFlagged: customer.isFlagged,
-      flagReason: customer.flagReason,
-    },
+    customer: customer
+      ? {
+          id: customer.id,
+          name: customer.name,
+          shopName: customer.shopName,
+          areaName: customer.area?.name ?? null,
+          creditLimit: customer.creditLimit?.toFixed(2) ?? null,
+          isFlagged: customer.isFlagged,
+          flagReason: customer.flagReason,
+        }
+      : {
+          id: "",
+          name: "New customer",
+          shopName: null,
+          areaName: null,
+          creditLimit: null,
+          isFlagged: false,
+          flagReason: null,
+        },
     warehouseId,
     pending: pending.total.toFixed(2),
     // The old balance (paper bills, no company) first, under companyId "".
@@ -712,3 +849,12 @@ export async function orderEntryContext(
 }
 
 export type OrderEntryContext = Awaited<ReturnType<typeof orderEntryContext>>;
+
+/** Number and customer of an order, for the "saved" notice after "Save and enter next". */
+export function getOrderSummary(ctx: ServiceCtx, id: string) {
+  assertCan(ctx.user.role, "operations.manage");
+  return ctx.db.salesOrder.findUnique({
+    where: { id },
+    select: { id: true, number: true, customer: { select: { name: true } } },
+  });
+}

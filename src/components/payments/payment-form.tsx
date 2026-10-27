@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
 import { formatMoney } from "@/lib/format";
+import { localPhone } from "@/lib/phone";
 import { allocateOldestFirst, OLD_BALANCE } from "@/lib/payments";
 import type { PaymentContext } from "@/server/services/payments/customer-payments";
 
@@ -134,7 +135,9 @@ export function CustomerPaymentForm({
             items={customers}
             getKey={(c) => c.id}
             autoFocus
-            rank={(c, q) => rankText(q, null, c.name, c.shopName, c.phone, c.area?.name)}
+            rank={(c, q) =>
+              rankText(q, null, c.name, c.shopName, c.phone, localPhone(c.phone), c.area?.name)
+            }
             render={(c) => (
               <span>
                 <span className="font-medium">{c.name}</span>

@@ -99,6 +99,13 @@ export function GoodsReceiptForm({
           autoFocus
         />
         <TextField state={state} name="supplierRef" label="Company invoice no." maxLength={60} />
+        <TextField
+          state={state}
+          name="sacksReceived"
+          label="Sacks received"
+          inputMode="numeric"
+          hint="Empty sacks go back to the company for credit"
+        />
         {canSetDueDate ? (
           <TextField
             state={state}
@@ -113,7 +120,7 @@ export function GoodsReceiptForm({
           name="note"
           label="Note"
           maxLength={500}
-          className={canSetDueDate ? "" : "sm:col-span-2"}
+          className={canSetDueDate ? "sm:col-span-4" : ""}
         />
       </div>
       <ProductLines

@@ -43,11 +43,16 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         id: true,
         number: true,
         status: true,
+        fulfilment: true,
+        createdById: true,
         customer: { select: { name: true } },
         lines: {
           select: {
             productId: true,
             quantity: true,
+            rate: true,
+            standardRate: true,
+            rateNote: true,
             returnedQuantity: true,
             damagedQuantity: true,
           },
@@ -111,18 +116,21 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
 
   const kept = (l: { quantity: number; returnedQuantity: number; damagedQuantity: number }) =>
     l.quantity - l.returnedQuantity - l.damagedQuantity;
-  const reconciled = orders.filter((o) => o.status !== "DISPATCHED");
+  // Deliveries only: counter sales are collected at the warehouse (no trip, no day-end).
+  const deliveryOrders = orders.filter((o) => o.fulfilment === "DELIVERY");
+  const counterOrders = orders.filter((o) => o.fulfilment === "COUNTER");
+  const reconciled = deliveryOrders.filter((o) => o.status !== "DISPATCHED");
   const deliveries = {
-    orders: orders.length,
-    delivered: orders.filter((o) => o.status === "DELIVERED").length,
-    partly: orders.filter((o) => o.status === "PARTIALLY_DELIVERED").length,
-    returned: orders.filter((o) => o.status === "RETURNED").length,
-    stillOut: orders.filter((o) => o.status === "DISPATCHED").length,
-    sent: orders.flatMap((o) => o.lines).reduce((s, l) => s + l.quantity, 0),
+    orders: deliveryOrders.length,
+    delivered: deliveryOrders.filter((o) => o.status === "DELIVERED").length,
+    partly: deliveryOrders.filter((o) => o.status === "PARTIALLY_DELIVERED").length,
+    returned: deliveryOrders.filter((o) => o.status === "RETURNED").length,
+    stillOut: deliveryOrders.filter((o) => o.status === "DISPATCHED").length,
+    sent: deliveryOrders.flatMap((o) => o.lines).reduce((s, l) => s + l.quantity, 0),
     kept: reconciled.flatMap((o) => o.lines).reduce((s, l) => s + kept(l), 0),
-    returnedQty: orders.flatMap((o) => o.lines).reduce((s, l) => s + l.returnedQuantity, 0),
-    damagedQty: orders.flatMap((o) => o.lines).reduce((s, l) => s + l.damagedQuantity, 0),
-    billed: sum(orders, (o) => o.bill?.netAmount),
+    returnedQty: deliveryOrders.flatMap((o) => o.lines).reduce((s, l) => s + l.returnedQuantity, 0),
+    damagedQty: deliveryOrders.flatMap((o) => o.lines).reduce((s, l) => s + l.damagedQuantity, 0),
+    billed: sum(deliveryOrders, (o) => o.bill?.netAmount),
     list: orders
       .map((o) => ({
         id: o.id,
@@ -130,6 +138,7 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         customerName: o.customer.name,
         status: o.status,
         amount: o.bill?.netAmount ?? ZERO,
+        counter: o.fulfilment === "COUNTER",
       }))
       .sort((a, b) => a.number - b.number),
   };
@@ -208,7 +217,46 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
         }
       : null;
 
+  // Lines billed this day at a rate changed on the order (anyone may change it; the owner sees
+  // them here). Difference = (changed − normal rate) × dozens, negative when sold for less.
+  const byUser = new Map(
+    (
+      await ctx.db.user.findMany({
+        where: { id: { in: [...new Set(orders.map((o) => o.createdById!).filter(Boolean))] } },
+        select: { id: true, name: true },
+      })
+    ).map((u) => [u.id, u.name]),
+  );
+  const specialRates = orders
+    .flatMap((o) =>
+      o.lines
+        .filter((l) => l.standardRate)
+        .map((l) => {
+          const p = productById.get(l.productId)!;
+          return {
+            orderId: o.id,
+            number: o.number,
+            counter: o.fulfilment === "COUNTER",
+            customerName: o.customer.name,
+            code: p.code,
+            productName: p.name,
+            quantity: l.quantity,
+            standardRate: l.standardRate!,
+            rate: l.rate,
+            difference: l.rate
+              .sub(l.standardRate!)
+              .mul(l.quantity)
+              .div(PACKETS_PER_DOZEN)
+              .toDecimalPlaces(2),
+            note: l.rateNote,
+            by: o.createdById ? (byUser.get(o.createdById) ?? null) : null,
+          };
+        }),
+    )
+    .sort((a, b) => a.number - b.number);
+
   const issues = dayIssues({
+    specialRates,
     date,
     stillOut: deliveries.stillOut,
     orders,
@@ -225,6 +273,9 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
     showCost,
     issues,
     deliveries,
+    specialRates,
+    /** Counter sales billed on the day (collected at the warehouse). */
+    counter: { sales: counterOrders.length, billed: sum(counterOrders, (o) => o.bill?.netAmount) },
     productsSold,
     soldTotals: {
       quantity: productsSold.reduce((s, p) => s + p.quantity, 0),
@@ -396,6 +447,7 @@ const names = (list: string[], max = 3) =>
  * lost in its tables.
  */
 function dayIssues(d: {
+  specialRates: { difference: Prisma.Decimal; number: number }[];
   date: Date;
   stillOut: number;
   orders: {
@@ -423,6 +475,15 @@ function dayIssues(d: {
       `${d.stillOut} order${d.stillOut === 1 ? "" : "s"} sent out this day ${d.stillOut === 1 ? "has" : "have"} no day-end entered: returns, damage and cash are not in yet.`,
       `/delivery?tripStatus=DISPATCHED&from=${day}&to=${day}`,
     );
+  if (d.specialRates.length) {
+    const bills = new Set(d.specialRates.map((r) => r.number)).size;
+    const less = d.specialRates.reduce((s, r) => s.add(r.difference), ZERO);
+    add(
+      "warning",
+      `${bills} bill${bills === 1 ? "" : "s"} had a changed rate (${d.specialRates.length} line${d.specialRates.length === 1 ? "" : "s"}${less.lt(0) ? `, ${less.abs().toFixed(2)} less than normal rates` : ""}). See "Rates changed on bills".`,
+      "#special-rates",
+    );
+  }
   if (d.money?.bounced.count)
     add(
       "problem",

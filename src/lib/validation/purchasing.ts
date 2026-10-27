@@ -3,8 +3,10 @@ import { z } from "zod";
 import {
   blankToUndefined,
   dateSchema,
+  blankAs,
   dozensSchema,
   idSchema,
+  intSchema,
   moneySchema,
   optionalDateSchema,
   optionalMoneySchema,
@@ -56,6 +58,8 @@ export const goodsReceiptSchema = z.object({
   /** Override of receipt date + payment terms (owner/accountant only). */
   dueDate: optionalDateSchema("due date"),
   supplierRef: optionalText(60),
+  /** Sacks the goods came in (sent back empty later for a credit). */
+  sacksReceived: blankAs(intSchema("sacks received", 0, 100_000), 0),
   note: optionalText(500),
   lines: linesSchema,
 });
@@ -106,6 +110,16 @@ export const claimSchema = z.object({
   note: optionalText(500),
 });
 
+/** Empty sacks sent back to a company; credited at the company's sack price unless given. */
+export const sackReturnSchema = z.object({
+  requestId: requestIdSchema,
+  companyId: idSchema,
+  returnDate: dateSchema("return date"),
+  sacks: intSchema("number of sacks", 1, 100_000),
+  rate: optionalMoneySchema("sack price"),
+  note: optionalText(500),
+});
+
 /** Settling a day-end damage claim with the company. */
 export const settleClaimSchema = z
   .object({
@@ -132,3 +146,4 @@ export type PurchaseOrderInput = z.infer<typeof purchaseOrderSchema>;
 export type GoodsReceiptInput = z.infer<typeof goodsReceiptSchema>;
 export type CompanyPaymentInput = z.infer<typeof companyPaymentSchema>;
 export type ClaimInput = z.infer<typeof claimSchema>;
+export type SackReturnInput = z.infer<typeof sackReturnSchema>;

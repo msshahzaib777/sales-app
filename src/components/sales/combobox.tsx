@@ -23,6 +23,8 @@ export function Combobox<T>({
   emptyText = "No matches",
   limit = 8,
   hint,
+  onNoMatch,
+  noMatchLabel,
 }: {
   label: string;
   items: T[];
@@ -37,6 +39,9 @@ export function Combobox<T>({
   emptyText?: string;
   limit?: number;
   hint?: string;
+  /** Offered when nothing matches: Enter or a click calls it with what was typed. */
+  onNoMatch?: (query: string) => void;
+  noMatchLabel?: (query: string) => string;
 }) {
   const id = useId();
   const [query, setQuery] = useState("");
@@ -97,6 +102,11 @@ export function Combobox<T>({
             e.preventDefault();
             const item = results[active];
             if (showList && item) pick(item);
+            else if (showList && onNoMatch) {
+              onNoMatch(query.trim());
+              setQuery("");
+              setOpen(false);
+            }
           } else if (e.key === "Escape") {
             setOpen(false);
             setQuery("");
@@ -115,7 +125,22 @@ export function Combobox<T>({
           aria-label={label}
           className="bg-popover absolute z-20 mt-1 max-h-80 w-full overflow-auto rounded-md border py-1 shadow-md"
         >
-          {results.length === 0 ? (
+          {results.length === 0 && onNoMatch ? (
+            <li
+              id={`${id}-opt-0`}
+              role="option"
+              aria-selected
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onNoMatch(query.trim());
+                setQuery("");
+                setOpen(false);
+              }}
+              className="bg-accent text-accent-foreground cursor-pointer px-3 py-2 text-sm font-medium"
+            >
+              {noMatchLabel ? noMatchLabel(query.trim()) : emptyText}
+            </li>
+          ) : results.length === 0 ? (
             <li className="text-muted-foreground px-3 py-2 text-sm">{emptyText}</li>
           ) : null}
           {results.map((item, i) => (

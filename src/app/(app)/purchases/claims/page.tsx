@@ -27,6 +27,7 @@ const TYPE = {
   DELIVERY_DAMAGE: "Delivery damage",
   RETURN_TO_COMPANY: "Returned to company",
   OTHER: "Other",
+  SACK_RETURN: "Sacks returned",
 } as const;
 const STATUS = {
   AWAITING: "Pending: settle with company",
@@ -42,7 +43,14 @@ export default function ClaimsPage({ searchParams }: PageProps<"/purchases/claim
       <PageHeader
         title="Company claims"
         description="Credits against companies. Damage from day-end waits here until you settle it with the company: accept it (in full or for less) or reject it. Accepted claims are deducted on the company's next bill."
-        actions={<LinkButton href="/purchases/claims/new">Log claim</LinkButton>}
+        actions={
+          <>
+            <LinkButton href="/purchases/claims/sacks" variant="outline">
+              Return sacks
+            </LinkButton>
+            <LinkButton href="/purchases/claims/new">Log claim</LinkButton>
+          </>
+        }
       />
       <Claims searchParams={searchParams} />
     </MoneyPage>
@@ -118,11 +126,19 @@ async function Claims({
               <Td className="whitespace-nowrap">{formatDate(c.claimDate)}</Td>
               <Td>{c.company.name}</Td>
               <Td>
-                <span className="font-mono">{c.product.code}</span> {c.product.name}
+                {c.product ? (
+                  <>
+                    <span className="font-mono">{c.product.code}</span> {c.product.name}
+                  </>
+                ) : (
+                  "Empty sacks"
+                )}
                 {c.note ? <div className="text-muted-foreground">{c.note}</div> : null}
               </Td>
               <Td>{TYPE[c.type]}</Td>
-              <Td className="text-right tabular-nums">{formatDozens(c.quantity)}</Td>
+              <Td className="text-right tabular-nums">
+                {c.type === "SACK_RETURN" ? `${c.quantity} sacks` : formatDozens(c.quantity)}
+              </Td>
               <Td className="text-right tabular-nums">
                 {formatMoney(c.amount)}
                 {c.claimedAmount && !c.claimedAmount.eq(c.amount) ? (

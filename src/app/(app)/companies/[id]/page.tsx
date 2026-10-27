@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 
 import { RequirePermission } from "@/components/layout/no-access";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
-import { orNotFound } from "@/components/master/page-helpers";
+import { LinkButton, orNotFound } from "@/components/master/page-helpers";
 import { RecordForm } from "@/components/master/record-form";
 import { RecordStatusActions } from "@/components/master/record-status-actions";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveRecordAction } from "@/server/master-actions";
 import { getCompany } from "@/server/services/master/companies";
@@ -36,7 +37,16 @@ async function Editor({ params }: { params: Promise<{ id: string }> }) {
     : [...warehouses, { id: company.warehouseId, name: "(deactivated warehouse)" }];
   return (
     <div className="space-y-8">
-      <PageHeader title={company.name} />
+      <PageHeader
+        title={company.name}
+        actions={
+          can(ctx.user.role, "ledgers.view") ? (
+            <LinkButton href={`/companies/${id}/ledger`} variant="outline">
+              Ledger
+            </LinkButton>
+          ) : null
+        }
+      />
       <RecordForm
         action={saveRecordAction.bind(null, "Company", id)}
         fields={companyFields(company, options)}

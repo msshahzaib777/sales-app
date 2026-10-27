@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { phoneSearchDigits } from "./phone";
+
 // Query-string filters shared by master-data lists (?q=…&status=…&page=…).
 
 export const STATUS_FILTERS = ["active", "inactive", "all"] as const;
@@ -34,6 +36,12 @@ export function searchWords(q: string | undefined): string[] {
 export const icontains = (word: string) => ({ contains: word, mode: "insensitive" as const });
 
 /**
+ * "Contains" for a phone column: phones are stored as "+92 3001234567", so a number-like word
+ * ("0300-123", "+92300") is looked for by its digits; any other word as typed.
+ */
+export const phoneContains = (word: string) => ({ contains: phoneSearchDigits(word) ?? word });
+
+/**
  * Every word must match at least one of the conditions `match(word)` gives, in any order and in
  * any of the fields: "kh ali" finds "Ali Khan", "ali kiryana" finds Ali at Mughal Kiryana Store.
  */
@@ -50,5 +58,9 @@ export function searchNumber(q: string | undefined): number | undefined {
 
 /** Every word in at least one of several text columns (see matchEveryWord). */
 export function searchWhere(q: string | undefined, fields: string[]) {
-  return matchEveryWord(q, (w) => fields.map((field) => ({ [field]: icontains(w) })));
+  return matchEveryWord(q, (w) =>
+    fields.map((field) => ({
+      [field]: /phone|whatsapp/i.test(field) ? phoneContains(w) : icontains(w),
+    })),
+  );
 }

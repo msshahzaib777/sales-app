@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { normalizePkPhone } from "@/lib/phone";
 import { PACKETS_PER_DOZEN, PACKETS_PER_HALF_DOZEN, parseQuantity } from "@/lib/units";
 
 // Master data validation, shared by forms, server actions and the Excel/CSV import.
@@ -33,15 +34,16 @@ export const optionalText = (max = 200) =>
     .preprocess(blankToUndefined, z.string().max(max, `Use at most ${max} characters`).optional())
     .transform((v) => v ?? null);
 
+/** A Pakistani phone number, stored as "+92 3001234567" (see src/lib/phone.ts); blank = none. */
 export const phoneSchema = z
   .preprocess(
     blankToUndefined,
     z
       .string()
-      .regex(/^[+\d][\d\s-]{6,19}$/, "Enter a valid phone number")
+      .refine((v) => normalizePkPhone(v) !== null, "Enter a Pakistani number, e.g. 0300 1234567")
       .optional(),
   )
-  .transform((v) => v ?? null);
+  .transform((v) => (v ? normalizePkPhone(v) : null));
 
 /** Non-negative PKR amount as an exact decimal string, e.g. "1250.50". */
 export const moneySchema = (label: string) =>
@@ -122,7 +124,7 @@ export const packetsSchema = (label: string, { min = 0 } = {}) =>
     (packets) => packets >= min,
     min > 0 ? `Enter the ${label}` : `The ${label} cannot be negative`,
   );
-const intSchema = (label: string, min: number, max: number) =>
+export const intSchema = (label: string, min: number, max: number) =>
   z.preprocess(
     numberText,
     z.coerce
@@ -190,6 +192,8 @@ export const companySchema = z.object({
   paymentTermsDays: intSchema("payment terms", 0, 365),
   /** What we owe the company at the start (negative if they owe us). */
   openingBalance: signedMoneySchema("opening balance"),
+  /** Credit per empty sack sent back; blank when the company does not take sacks back. */
+  sackRate: optionalMoneySchema("sack price"),
 });
 
 export const DISCOUNT_TYPES = ["NONE", "AMOUNT_PER_UNIT", "PERCENT"] as const;

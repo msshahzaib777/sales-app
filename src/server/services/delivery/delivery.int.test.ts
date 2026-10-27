@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ForbiddenError } from "../../auth/permissions";
 import { prisma } from "../../db/client";
@@ -24,7 +24,7 @@ import { damageReport } from "../reports/damage";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { getBillView } from "../sales/bills";
 import { businessToday, toDateInput } from "@/lib/dates";
-import { createSalesOrder } from "../sales/orders";
+import { createSalesOrder, updateSalesOrder } from "../sales/orders";
 import { customerPending, stockPositions } from "../sales/positions";
 import {
   getDayEndEntry,
@@ -132,6 +132,15 @@ async function setup() {
 }
 
 let t: Awaited<ReturnType<typeof setup>>;
+// Opening balances are dated "today": keep today fixed, just after the fixture dates.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-25T07:00:00Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(async () => {
   t = await setup();
 });
@@ -267,6 +276,34 @@ describe("dispatch", () => {
     const over = await book(t.bilal.id, [[t.nimko.id, "2"]]);
     const tr2 = await trip([over.id]);
     await expect(dispatchTrip(t.staff, { id: tr2.id })).rejects.toThrow(/waits for the owner/);
+  });
+});
+
+describe("changed rate through delivery", () => {
+  it("returns re-price at the changed rate, and the daily report lists the line", async () => {
+    const a = await book(t.ali.id, [[t.chips.id, "10"]]);
+    await updateSalesOrder(t.staff, a.id, {
+      customerId: t.ali.id,
+      orderDate: "2026-10-24",
+      deliveryDate: DAY,
+      lines: [{ productId: t.chips.id, quantity: "10", rate: "150", rateNote: "clearance" }],
+    });
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+    await saveDayEnd(t.staff, {
+      orderId: a.id,
+      lines: [{ productId: t.chips.id, returned: "2", damaged: "" }],
+    });
+    // Kept 8 dz × 150.
+    const bill = await t.ctx.db.bill.findFirstOrThrow({ where: { salesOrderId: a.id } });
+    expect(bill.netAmount.toFixed(2)).toBe("1200.00");
+
+    const r = await dailyReport(t.ctx, new Date(`${DAY}T00:00:00.000Z`));
+    const chips = await t.ctx.db.product.findUniqueOrThrow({ where: { id: t.chips.id } });
+    expect(
+      r.specialRates.map((s) => [s.number, s.rate.toFixed(2), s.standardRate.toFixed(2), s.note]),
+    ).toEqual([[bill.number, "150.00", chips.saleRate.toFixed(2), "clearance"]]);
+    expect(r.issues.some((i) => i.href === "#special-rates")).toBe(true);
   });
 });
 

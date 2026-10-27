@@ -7,6 +7,7 @@ import {
   icontains,
   type ListParams,
   matchEveryWord,
+  phoneContains,
   statusWhere,
 } from "@/lib/list-params";
 import { CUSTOMER_TYPES, type CustomerInput, customerSchema } from "@/lib/validation/master";
@@ -33,9 +34,9 @@ export async function listCustomers(
   const where = {
     ...statusWhere(params.status),
     ...matchEveryWord(params.q, (w): Prisma.CustomerWhereInput[] => [
-      ...["name", "shopName", "phone", "whatsapp", "address"].map((field) => ({
-        [field]: icontains(w),
-      })),
+      ...["name", "shopName", "address"].map((field) => ({ [field]: icontains(w) })),
+      { phone: phoneContains(w) },
+      { whatsapp: phoneContains(w) },
       { area: { name: icontains(w) } },
     ]),
     ...(areaId ? { areaId } : {}),

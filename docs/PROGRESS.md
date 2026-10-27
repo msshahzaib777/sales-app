@@ -2,6 +2,125 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Dashboard trends, quick counter bills, new customers on orders, +92 phones — done
+
+**Trends on the dashboard** (`dashboard-charts.ts`, `components/dashboard/charts.tsx`): plain
+server-drawn SVG, no chart library, so the page stays light. Hovering shows values; each chart has a
+"Show as table" view. All end on the dashboard's day:
+- sales per day for 30 days (deliveries and counter sales stacked) and sales by company;
+- billed vs collected per week for 12 weeks (payments roles);
+- what customers owe us and what we owe companies at each week's end (ledger roles).
+No profit or cost. Colors are the validated categorical slots 1 and 2 (`--series-1/2` in
+`globals.css`, light and dark).
+
+**Quick counter bill:** "Paid in full" is ticked by default (untick to take part or nothing), and
+**Save and print bill** opens the bill with the print dialog. Back leads to the next counter sale.
+
+**New customer on the order** (counter sale and delivery order): type the phone or name in the
+customer box, and if nothing matches, Enter offers "+ New customer". Fill in name and phone (and
+the area, required for a delivery and optional at the counter). Anyone who enters orders can do
+this. The customer is created as a retailer, with WhatsApp set to the same number, in the same
+save (`customerForNewOrder` in `orders.ts`). If an active customer already has that phone, the
+order goes to them instead.
+
+**Phones are always +92:** every phone (customers, WhatsApp, companies, bookers, staff, business)
+is stored as `+92 3001234567` (`src/lib/phone.ts`). Numbers typed as 0300-…, 300…, +92 300 … or
+0092 … all become that, and other countries are refused. Searches match however the number is
+typed (`phoneContains`). Pickers also match the 0300… form. The import's duplicate check compares
+normalized numbers. Migration `20261103090000_phone_plus92` converts existing numbers and leaves
+anything that is not a Pakistani number as it was.
+
+## Changed rate on an order line — done
+
+Sometimes a product is sold to one customer at another rate. On the order screen (new order, edit,
+counter sale), **Rate / dz** is editable on each line:
+
+- Blank uses the product's rate and the company discount or slab, as before. A typed rate is the
+  final price per dozen, with no discount (`priceLineAt` in `src/lib/sales.ts`, used by the screen
+  and the server). The line shows **Special rate** with the normal rate struck through, and an
+  optional reason.
+- Anyone who can enter orders may change it (owner's choice). Every change is listed instead:
+  the daily report has a **Rates changed on bills** section (bill, customer, product, normal rate,
+  charged, difference, reason, who entered the order), also in the Excel export, and a line in
+  "Needs attention". The Orders list has a **Rate: Changed rate** filter.
+- `SalesOrderLine.standardRate` (the normal rate, set only when changed) and `rateNote`.
+  `rate` stays what is charged, so the bill prints the changed rate, and day-end returns and
+  damage re-price at it. Edits before dispatch keep it. Bill revisions and the audit log record it.
+- Hint: when the customer got a changed rate for a product before, the line shows "Last time 100
+  (27 Oct)". Clicking it fills that rate. Otherwise the normal rate is used.
+
+## Counter sales — done
+
+A customer (always a real customer record) collects goods at the warehouse instead of a delivery.
+**Orders → Counter sale** (`/orders/counter`, also on the dashboard's quick actions) uses the
+order screen: same customer and product search, prices, discounts and credit panel, plus **Paid
+now** (amount, cash / cheque / online). One save (`src/server/services/sales/counter.ts`):
+
+- books the order and bill (`bookOrder`, split out of `createSalesOrder`), marked
+  `SalesOrder.fulfilment = COUNTER` (new enum; every existing order is `DELIVERY`);
+- refuses if the warehouse has less stock on hand, takes it out and posts the bill to the customer
+  ledger per company: the same code as trip dispatch, now in `sales/post-bill.ts`
+  (`assertStockOnHand`, `stockOut`, `postOrderBill`);
+- records the amount paid as a customer payment (oldest debt first, like money collected on
+  delivery); the rest stays on the customer's account;
+- marks the order Delivered with no trip and no day-end.
+
+Credit: only what is left on account counts toward the limit. Past the limit, staff are refused
+(there is no later approval step), and the owner can tick "Allow". Bills share the normal
+numbering.
+
+Where counter sales appear: the Orders list (Type filter, "Counter" badge), the order page
+("Counter sale #n · collected at …"), the stock card ("Counter sale"), the dashboard (a Counter
+sales figure for the chosen day), and the daily report (counted apart from deliveries; products
+sold and totals include them). Analysis and ledgers include them automatically, because they are
+ordinary posted bills.
+
+**Open:** goods brought back after a counter sale have no return screen yet. Correct them with a
+stock adjustment and a customer payment or adjustment for now.
+
+## Sack returns, and ledgers one click away — done
+
+**Sacks.** Companies send goods in sacks and credit each empty sack sent back on the next bill.
+
+- Company form: **Sack price (PKR)**, the credit per sack. Blank means the company does not take
+  sacks back. The demo companies have 150.
+- Goods receipt: **Sacks received** (optional). It is shown on the receipt.
+- **Purchases → Claims → Return sacks** (`/purchases/claims/sacks`, also a button on the company
+  ledger): company, date and number of sacks. Roles that see costs may type another price. It is a
+  company claim of type `SACK_RETURN` with no product (`CompanyClaim.productId` is now nullable;
+  quantity = sacks). It posts the credit at once and is deducted on the company's next bill like
+  any accepted claim, so no new money path was added. Cancelling it reverses the credit.
+- The company ledger shows sacks received, returned and still to send back (`sackCounts`). Sacks
+  from before the app are not counted, so returns are never limited by the count.
+- Sack credits are left out of the analysis report's "Damage claimed".
+
+**Ledgers.** Ledgers used to open only by clicking a balance figure. Now:
+
+- **Ledgers** in the sidebar (`/ledgers`, ledger roles only) lists every company with its ledger,
+  and the customers with search, each opening their statement.
+- The edit pages have **Statement (ledger)** (customer) and **Ledger** (company) buttons.
+- The balance figures on the Customers and Companies lists are underlined, so they read as links.
+
+Tests: two integration tests for sack returns. The delivery and payments tests now pin the clock
+to 25 Oct 2026, because opening balances are dated "today" and the tests failed once the real date
+passed their fixture dates.
+
+## Advances to companies pay later bills — done
+
+Money paid to a company with no bill to match (paid ahead of a delivery, or more than the bills)
+was right in the ledger but never matched to the bills that came later, so they stayed "unpaid".
+Now (`src/server/services/purchasing/advances.ts`; matching rule `matchAdvances` in `calc.ts`):
+
+- A goods receipt's new company bill is paid from the company's advances straight away, oldest
+  payment first.
+- A company bill with something owed shows **Advance available** with a **Use advance** button
+  when the company has one (for bills from before this change): pays it as far as the advance
+  goes.
+- Cancelling a goods receipt no longer refuses when its bill has payments: they stay posted and
+  are an advance again, for the next bill.
+- Only `CompanyPaymentAllocation` rows change (audited on the bill); the ledger is untouched.
+- Tested in `calc.test.ts` and `purchasing.int.test.ts`, and in a browser run.
+
 ## Windows installer for customers — done
 
 `pnpm package:windows` (`scripts/windows/package.ps1`) builds `dist\TaqseemSetup-<version>.exe` with

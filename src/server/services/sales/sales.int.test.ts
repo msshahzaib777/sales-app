@@ -105,7 +105,10 @@ beforeEach(async () => {
   t = await setup();
 });
 
-const order = (lines: { productId: string; quantity: string }[], extra: object = {}) => ({
+const order = (
+  lines: { productId: string; quantity: string; rate?: string; rateNote?: string }[],
+  extra: object = {},
+) => ({
   customerId: t.customer.id,
   orderDate: "2026-10-24",
   deliveryDate: "2026-10-25",
@@ -195,6 +198,113 @@ describe("booking an order", () => {
     );
     expect(b.id).toBe(a.id);
     expect(await t.ctx.db.salesOrder.count()).toBe(1);
+  });
+});
+
+describe("new customer typed on the order", () => {
+  const newOrder = (extra: object) =>
+    createSalesOrder(t.staff, {
+      orderDate: "2026-10-24",
+      deliveryDate: "2026-10-25",
+      lines: [{ productId: t.chips.id, quantity: "1" }],
+      ...extra,
+    });
+
+  it("creates the customer from name and phone (+92), and reuses them by phone", async () => {
+    const area = await t.ctx.db.area.findFirstOrThrow();
+    const r = await newOrder({
+      newCustomerName: "Naveed Traders",
+      newCustomerPhone: "0300-5556667",
+      newCustomerAreaId: area.id,
+    });
+    const order = await getSalesOrder(t.ctx, r.id);
+    const created = await t.ctx.db.customer.findUniqueOrThrow({ where: { id: order.customerId } });
+    expect(created).toMatchObject({
+      name: "Naveed Traders",
+      phone: "+92 3005556667",
+      whatsapp: "+92 3005556667",
+      type: "RETAILER",
+      areaId: area.id,
+    });
+    expect(
+      await t.ctx.db.auditLog.count({ where: { entityType: "Customer", entityId: created.id } }),
+    ).toBe(1);
+
+    // The same phone typed another way is the same customer, not a second one.
+    const again = await newOrder({
+      newCustomerName: "Naveed",
+      newCustomerPhone: "+92 300 5556667",
+      newCustomerAreaId: area.id,
+    });
+    expect((await getSalesOrder(t.ctx, again.id)).customerId).toBe(created.id);
+    expect(await t.ctx.db.customer.count({ where: { phone: "+92 3005556667" } })).toBe(1);
+
+    // Found by phone the way it is usually typed.
+    const list = await listSalesOrders(t.ctx, { page: 1, q: "0300-555" });
+    expect(list.total).toBe(2);
+  });
+
+  it("needs a name and a phone, and an area for a delivery", async () => {
+    await expect(newOrder({ newCustomerName: "No Phone" })).rejects.toThrow(/phone/);
+    await expect(newOrder({ newCustomerPhone: "03001112222" })).rejects.toThrow(/name/);
+    await expect(
+      newOrder({ newCustomerName: "X", newCustomerPhone: "+44 20 7946 0958" }),
+    ).rejects.toThrow(/Pakistani number/);
+    await expect(
+      newOrder({ newCustomerName: "X", newCustomerPhone: "03001112222" }),
+    ).rejects.toThrow(/area/);
+    expect(await t.ctx.db.customer.count({ where: { phone: "+92 3001112222" } })).toBe(0);
+  });
+});
+
+describe("changed rate on an order", () => {
+  it("staff may change a line's rate; it has no discount, survives edits and is a hint next time", async () => {
+    const r = await createSalesOrder(
+      t.staff,
+      order([
+        { productId: t.chips.id, quantity: "5", rate: "200", rateNote: "old customer" },
+        { productId: t.nimko.id, quantity: "2" },
+      ]),
+    );
+    const full = await getSalesOrder(t.ctx, r.id);
+    const chips = full.lines.find((l) => l.productId === t.chips.id)!;
+    expect([
+      chips.rate.toFixed(2),
+      chips.standardRate?.toFixed(2),
+      chips.discountType,
+      chips.netAmount.toFixed(2),
+      chips.rateNote,
+    ]).toEqual(["200.00", "228.00", "NONE", "1000.00", "old customer"]);
+    const nimko = full.lines.find((l) => l.productId === t.nimko.id)!;
+    expect(nimko.standardRate).toBeNull();
+    expect(full.bill!.netAmount.toFixed(2)).toBe("1460.00"); // 1000 + 460
+
+    // Editing keeps the rate it is sent with; a blank rate goes back to normal pricing.
+    await updateSalesOrder(
+      t.staff,
+      r.id,
+      order([{ productId: t.chips.id, quantity: "6", rate: "200", rateNote: "old customer" }]),
+    );
+    const edited = await getSalesOrder(t.ctx, r.id);
+    expect(edited.bill!.netAmount.toFixed(2)).toBe("1200.00");
+    expect(edited.lines[0]!.standardRate?.toFixed(2)).toBe("228.00");
+
+    // Next order: the last changed rate is offered as a hint; the normal rate still applies.
+    const entry = await orderEntryContext(t.ctx, t.customer.id);
+    const hint = entry.products.find((p) => p.id === t.chips.id)!.lastSpecialRate;
+    expect(hint?.rate).toBe("200.00");
+    expect(entry.products.find((p) => p.id === t.nimko.id)!.lastSpecialRate).toBeNull();
+    const next = await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1" }]));
+    expect((await getSalesOrder(t.ctx, next.id)).bill!.netAmount.toFixed(2)).toBe("224.00");
+
+    const list = await listSalesOrders(t.ctx, { page: 1, specialRate: true });
+    expect(list.rows.map((o) => o.id)).toEqual([r.id]);
+  });
+
+  it("refuses a rate of zero", async () => {
+    await expect(
+      createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1", rate: "0" }])),
+    ).rejects.toThrow(/more than zero/);
   });
 });
 

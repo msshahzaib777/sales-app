@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     [{ value: "Sold (billed)" }, xMoney(r.soldTotals.amount)],
     [{ value: "Orders billed" }, { value: r.deliveries.orders }],
     [{ value: "Day-end not entered" }, { value: r.deliveries.stillOut }],
+    [{ value: "Counter sales" }, { value: r.counter.sales }, xMoney(r.counter.billed)],
   ];
   if (r.money) {
     rows.push(
@@ -61,13 +62,41 @@ export async function GET(request: Request) {
       xMoney(p.amount),
       ...(r.showCost ? [p.cost ? xMoney(p.cost) : null, p.profit ? xMoney(p.profit) : null] : []),
     ]),
+    ...(r.specialRates.length
+      ? [
+          blank,
+          [xBold("Rates changed on bills")],
+          [
+            "Bill",
+            "Customer",
+            "Product",
+            "Quantity",
+            "Normal rate",
+            "Charged",
+            "Difference",
+            "Reason",
+            "Entered by",
+          ].map(xBold),
+          ...r.specialRates.map((s) => [
+            { value: s.number },
+            { value: s.customerName },
+            { value: `${s.code} ${s.productName}` },
+            { value: formatDozens(s.quantity) },
+            xMoney(s.standardRate),
+            xMoney(s.rate),
+            xMoney(s.difference),
+            { value: s.note ?? "" },
+            { value: s.by ?? "" },
+          ]),
+        ]
+      : []),
     blank,
     [xBold("Orders")],
     ["Order", "Customer", "Status", "Bill"].map(xBold),
     ...r.deliveries.list.map((o) => [
       { value: o.number },
       { value: o.customerName },
-      { value: o.status },
+      { value: o.counter ? "COUNTER SALE" : o.status },
       xMoney(o.amount),
     ]),
   );
