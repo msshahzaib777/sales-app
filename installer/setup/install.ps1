@@ -25,6 +25,8 @@ $ProgressPreference = "SilentlyContinue"
 $AppDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Node = Join-Path $AppDir "node\node.exe"
 $PgBin = Join-Path $AppDir "pgsql\bin"
+# pg_dump / pg_restore with their own DLLs (the database server's package has none of them).
+$PgTools = Join-Path $AppDir "pgsql\tools"
 $Tools = Join-Path $AppDir "tools"
 $DbDir = Join-Path $DataDir "db"
 $LogDir = Join-Path $DataDir "logs"
@@ -278,7 +280,7 @@ if ($pending.Code -ne 0) { Fail "Checking the database failed: $($pending.Out)" 
 if (-not $newDatabase -and $pending.Out -ne "0") {
   Step "Backing up the database first"
   $file = Join-Path $BackupDir ("taqseem-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".sql")
-  $r = Capture { & (Join-Path $PgBin "pg_dump.exe") "--dbname=$($appUrl -replace '\?.*$', '')" "--file=$file" --no-owner }
+  $r = Capture { & (Join-Path $PgTools "pg_dump.exe") "--dbname=$($appUrl -replace '\?.*$', '')" "--file=$file" --no-owner }
   if ($r.Code -ne 0) { Fail "The backup failed, so nothing was changed: $($r.Out)" }
   Get-ChildItem $BackupDir -Filter "taqseem-*.sql" | Sort-Object Name -Descending | Select-Object -Skip 10 | Remove-Item -Force
   Write-Host "    Backup: $file"
@@ -357,6 +359,8 @@ $xmlEscape = { param($v) [System.Security.SecurityElement]::Escape($v) }
   <env name="DATABASE_URL" value="$(& $xmlEscape $appUrl)" />
   <env name="AUTH_SECRET" value="$($s.AUTH_SECRET)" />
   <env name="AUTH_TRUST_HOST" value="true" />
+  <env name="PG_BIN" value="$(& $xmlEscape $PgTools)" />
+  <env name="TAQSEEM_MIGRATIONS_DIR" value="$(& $xmlEscape (Join-Path $AppDir "migrations"))" />
 </service>
 "@ | Set-Content -Path (Join-Path $ServiceDir "$WebService.xml") -Encoding UTF8
 if (-not (Service-Exists $WebService)) {

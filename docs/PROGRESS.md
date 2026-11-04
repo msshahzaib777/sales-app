@@ -2,6 +2,46 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Cloud sync (semi-online): office → its own cloud database — done
+
+The office installation stays the master and works fully without internet. Its data is copied one
+way to the business's own cloud PostgreSQL (free Neon or Supabase project, PostgreSQL 17+), kept up
+to date whenever the internet is up: an off-site backup and a copy that can be read from anywhere.
+Only the office changes data (owner's answer), so there are no conflicts. It is all open source:
+PostgreSQL, `pg`, pg_dump / pg_restore, our code.
+- **Settings → Cloud sync** (owner): paste the connection string. Taqseem checks it (reachable,
+  PostgreSQL 17+, empty or already this installation's), then turns sync on. The page shows the
+  target (host and database, never the password), last sent, changes waiting, the last problem,
+  **Sync now** and **Turn off**. It is refused where several businesses share the database.
+- **Engine** (`src/server/sync/engine.ts`, plain `pg`): the first run makes a full copy (pg_dump of
+  `public` → pg_restore in one transaction; the capture triggers are left out). After that, a
+  trigger on every table records each insert, update and delete with the full row in
+  `taqseem_sync.outbox`. Each run applies missing database updates (migrations) to the cloud,
+  then sends finished transactions' changes in order, in batches of 500, and deletes them once the
+  cloud has them. Sending is idempotent (insert-if-missing, upsert on the real primary key, delete),
+  only the columns a row has are sent (so rows from before an update are fine), and an advisory
+  lock keeps one run at a time.
+- **Installations stay apart:** each one has an id written into its cloud database
+  (`taqseem_sync_target.installation`). A cloud database holding another installation's data, or
+  any other data, is refused. Turning sync off and on again remakes the copy.
+- **Agent** (`src/server/sync/agent.ts`, started by `src/instrumentation.ts`): inside the website
+  process, a run every 30 s (sooner while a lot is waiting), nothing while sync is off. The
+  installer gives it `PG_BIN` and `TAQSEEM_MIGRATIONS_DIR`.
+- **Installer fix found on the way:** the bundled PostgreSQL (npm `@embedded-postgres`) has no
+  pg_dump / pg_restore, so the backup before database updates could not run and **every update
+  with database changes failed after copying the files**. This is the failure that needed the data
+  folder deleted. `package:windows` now adds pg_dump / pg_restore 17.10 with their DLLs from the
+  official PostgreSQL Windows build (EDB zip, downloaded once into `dist/cache`) in
+  `pgsql\tools`. The backup and sync use them.
+- Test: `src/server/sync/engine.int.test.ts`, two throwaway databases: full copy, inserts,
+  updates, deletes, a two-column key, an append-only table, a database update before the changes
+  needing it, refusing another installation, and catching up after no internet.
+- **Open:**
+  - restoring the office from the cloud copy (today: pg_dump from the cloud, then restore);
+  - a read-only website on the cloud copy;
+  - the old `taqseem.bat` route still uses the npm PostgreSQL without pg_dump, so its backup
+    before updates fails with a clear message.
+
 ## Product short names and a compact bill for small paper — done
 
 - **Short name** (`Product.shortName`, optional, up to 24 letters, e.g. "Masala 10"): on the
