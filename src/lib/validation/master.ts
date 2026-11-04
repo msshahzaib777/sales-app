@@ -216,6 +216,8 @@ export const productSchema = z
         .regex(/^[A-Z0-9-]+$/, "Use letters, numbers and dashes only"),
     ),
     name: requiredText("product name", 120),
+    /** Printed on bills instead of the name (blank = the name). */
+    shortName: optionalText(24),
     purchaseRate: moneySchema("purchase rate"),
     saleRate: moneySchema("sale rate"),
     discountType: blankAs(z.enum(DISCOUNT_TYPES), "NONE"),

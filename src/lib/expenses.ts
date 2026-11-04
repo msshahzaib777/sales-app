@@ -12,6 +12,15 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
   "Other",
 ] as const;
 
+/** Category of booker salaries paid for companies (made when first used). */
+export const BOOKER_SALARY_CATEGORY = "Booker salary (company pays back)";
+
+export const CHARGE_TO_LABEL = {
+  OWN: "Our own expense",
+  BOOKER_SALARY: "Booker salary, for a company",
+  COMPANY_EXPENSE: "Expense for a company",
+} as const;
+
 export const PAYMENT_METHOD_LABEL = {
   CASH: "Cash",
   CHEQUE: "Cheque",

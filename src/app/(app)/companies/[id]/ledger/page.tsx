@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { businessToday, formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { sackCounts } from "@/server/services/purchasing/claims";
 import { getCompanyLedger } from "@/server/services/purchasing/company-ledger";
@@ -70,6 +71,22 @@ async function Ledger({
             <LinkButton href={`/purchases/payments/new?companyId=${company.id}`}>
               New payment
             </LinkButton>
+            {can(ctx.user.role, "expenses.manage") ? (
+              <>
+                <LinkButton
+                  href={`/expenses/new?chargeTo=BOOKER_SALARY&companyId=${company.id}`}
+                  variant="outline"
+                >
+                  Pay booker salary
+                </LinkButton>
+                <LinkButton
+                  href={`/expenses/new?chargeTo=COMPANY_EXPENSE&companyId=${company.id}`}
+                  variant="outline"
+                >
+                  Company expense
+                </LinkButton>
+              </>
+            ) : null}
             {company.sackRate || sacks ? (
               <LinkButton
                 href={`/purchases/claims/sacks?companyId=${company.id}`}

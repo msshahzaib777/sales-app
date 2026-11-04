@@ -9,7 +9,7 @@ import { ServiceError } from "./errors";
 import type { ServiceCtx } from "./master/common";
 import { createCompany } from "./master/companies";
 import { createCustomer } from "./master/customers";
-import { createProduct } from "./master/products";
+import { createProduct, updateProduct } from "./master/products";
 import { createWarehouse } from "./master/warehouses";
 import { createGoodsReceipt } from "./purchasing/goods-receipts";
 import { getBillViews } from "./sales/bills";
@@ -127,6 +127,14 @@ describe("business and print settings", () => {
     expect(audit?.newValue).toMatchObject({ billPaper: "A4", twoBillsPerA4: true });
   });
 
+  it("switches the compact bill layout on and off", async () => {
+    expect((await getPrintProfile(t.ctx)).print.compact).toBe(false);
+    await updateBusinessSettings(t.ctx, settings({ compactBills: "on" }));
+    expect((await getPrintProfile(t.as("STAFF"))).print.compact).toBe(true);
+    await updateBusinessSettings(t.ctx, settings());
+    expect((await getPrintProfile(t.ctx)).print.compact).toBe(false);
+  });
+
   it("needs a size for custom paper and rejects out-of-range values", async () => {
     await expect(updateBusinessSettings(t.ctx, settings({ billPaper: "CUSTOM" }))).rejects.toThrow(
       /paper width/,
@@ -224,6 +232,44 @@ describe("printing bills for selected orders", () => {
     expect(views[0]!.sections).toHaveLength(2);
     expect(skipped).toBe(1);
     expect((await getBillViews(other.ctx, [a.id])).views).toHaveLength(0);
+  });
+
+  it("gives each line its short name for the compact bill, or the name when there is none", async () => {
+    await updateProduct(t.ctx, t.chips.id, {
+      companyId: t.chips.companyId,
+      code: "CB01",
+      name: "Chips",
+      shortName: "Chips 10",
+      purchaseRate: "100",
+      saleRate: "200",
+      effectiveFrom: "2026-10-01",
+    });
+    const order = await createSalesOrder(t.ctx, {
+      customerId: t.customer.id,
+      orderDate: "2026-10-24",
+      deliveryDate: "2026-10-25",
+      warehouseId: t.wh.id,
+      lines: [
+        { productId: t.chips.id, quantity: "2" },
+        { productId: t.nimko.id, quantity: "1" },
+      ],
+    });
+    const { views } = await getBillViews(t.ctx, [order.id]);
+    expect(views[0]!.lines.map((l) => [l.name, l.shortName])).toEqual([
+      ["Chips", "Chips 10"],
+      ["Nimko", "Nimko"],
+    ]);
+    await expect(
+      updateProduct(t.ctx, t.chips.id, {
+        companyId: t.chips.companyId,
+        code: "CB01",
+        name: "Chips",
+        shortName: "A name much longer than twenty-four letters",
+        purchaseRate: "100",
+        saleRate: "200",
+        effectiveFrom: "2026-10-01",
+      }),
+    ).rejects.toThrow(/at most 24/);
   });
 
   it("limits a print run to 200 bills", async () => {

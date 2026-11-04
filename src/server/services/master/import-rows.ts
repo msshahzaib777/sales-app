@@ -141,6 +141,7 @@ function issueMessages(error: ZodError, labels: Record<string, string>): string[
 export const PRODUCT_COLUMNS: Column[] = [
   { key: "code", label: "Code", required: true, aliases: ["short code", "product code"] },
   { key: "name", label: "Name", required: true, aliases: ["product", "product name"] },
+  { key: "shortName", label: "Short name", aliases: ["short", "bill name"] },
   { key: "company", label: "Company", required: true, aliases: ["company name", "supplier"] },
   {
     key: "purchaseRate",
@@ -164,6 +165,7 @@ export const PRODUCT_COLUMNS: Column[] = [
 const PRODUCT_LABELS: Record<string, string> = {
   code: "Code",
   name: "Name",
+  shortName: "Short name",
   companyId: "Company",
   purchaseRate: "Purchase rate",
   saleRate: "Sale rate",
@@ -202,6 +204,7 @@ export function validateProductRows(
       companyId: companyId ?? "unknown",
       code: get("code"),
       name: get("name"),
+      shortName: get("shortName"),
       purchaseRate: get("purchaseRate"),
       saleRate: get("saleRate"),
       discountType: discount && Number(discount) !== 0 ? "AMOUNT_PER_UNIT" : "NONE",
@@ -538,8 +541,8 @@ export function templateExamples(
     ];
   if (kind === "products")
     return [
-      [`${EXAMPLE_MARK} CB01`, "Masala Chips Rs10", company, "95", "110", "4", "12"],
-      [`${EXAMPLE_MARK} CB02`, "Salted Chips Rs10", company, "95", "110", "", ""],
+      [`${EXAMPLE_MARK} CB01`, "Masala Chips Rs10", "Masala 10", company, "95", "110", "4", "12"],
+      [`${EXAMPLE_MARK} CB02`, "Salted Chips Rs10", "", company, "95", "110", "", ""],
     ];
   if (kind === "areas")
     return [
@@ -590,6 +593,7 @@ export const IMPORT_NOTES: Record<ImportKind, string[]> = {
     "One row per product. Rates are per dozen in PKR.",
     "A code that already exists updates that product; new rates take effect today and are kept in price history.",
     "Discount per dozen is optional. Quantity slabs can be added on the product page after importing.",
+    "Short name is optional (up to 24 letters): bills print it instead of the full name.",
     "Minimum stock is in dozens, e.g. 12, 12.5 or 12dz 4pk.",
   ],
   customers: [

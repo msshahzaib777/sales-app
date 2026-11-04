@@ -2,6 +2,50 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Product short names and a compact bill for small paper — done
+
+- **Short name** (`Product.shortName`, optional, up to 24 letters, e.g. "Masala 10"): on the
+  product form and as a "Short name" column in the products import and its sample sheet. The
+  compact bill prints it; blank means the full name.
+- **Compact bills** (Settings → Business & printing, `Tenant.compactBills`, migration
+  `20261106090000_short_names_compact_bills`): a short bill for A6 or a receipt roll (custom size,
+  e.g. 80 mm wide). It has a one-line letterhead (name, phone, bill number and date), the customer
+  on two short lines, short names, Dz / Rate / Amt with the rate after the company discount and no
+  company column, a total row, and Previous / Total due / Minimum payment. Same figures as the full
+  bill; split-by-company prints one compact bill per company. Off by default, so the A5 bill is
+  unchanged.
+
+## Booker salaries and company expenses, charged back to the company — done
+
+Order bookers are on the company's payroll, but we pay them and the company deducts it from its
+bill. The same goes for other expenses we pay for a company we distribute for. **Expenses → Add
+expense** has a new **Who pays for it** choice: our own expense, **Booker salary, for a company**,
+or **Expense for a company** (also buttons on the company ledger and Company claims pages, with the
+company filled in). For the last two:
+- It is an expense (cash or bank out, in cash in hand and the expense list, "For <company>: paid
+  back"). A booker salary gets its own category, "Booker salary (company pays back)", made on
+  first use, with the company's order booker filled in as Paid to.
+- In the same save it is charged back: a company claim (`BOOKER_SALARY` / `COMPANY_EXPENSE`,
+  linked by `CompanyClaim.expenseId`, migration `20261105090000_company_chargebacks`). This lowers
+  what we owe the company now (company ledger and statement: "Claim #n: Booker salary paid for the
+  company (…)") and is deducted on its next bill like any claim.
+- It is not our cost: the daily report's profit and the analysis leave it out (`Expense.companyId`);
+  the daily report shows how much of the day's expenses were for companies.
+- Reversing the expense cancels its claim. It is refused once a bill has deducted it. Such a claim
+  cannot be cancelled on its own.
+
+## Logo on the website, installer and shortcuts — done
+
+The logo is `Taqseem Logo.png` in the project root. `node scripts/make-brand-assets.mjs` makes
+every image from it, using the `sharp` that comes with Next.js; run it again after changing the
+logo. Small icons use only the cube, because the name is unreadable at 16-48 px.
+- **Website:** browser tab icon (`src/app/favicon.ico`, `icon.png`) and home-screen icon
+  (`apple-icon.png`); the full logo on the sign-in page and the cube before the name in the sidebar
+  (`public/brand/`, served unoptimized so the installed copy needs no image tools).
+- **Installer** (`installer/assets/`): the setup file's icon, the icon in Windows "Apps", the
+  Start menu and desktop "Taqseem" shortcuts (and `Taqseem.url`), and the Start menu
+  **Start Taqseem** / **Stop Taqseem** icons: the cube with a green play / red stop badge.
+
 ## Import from Excel: companies, products, areas, customers, with sample sheets — done
 
 One page, **Import from Excel** (`/import`, owner; also under Settings and as the Import button on

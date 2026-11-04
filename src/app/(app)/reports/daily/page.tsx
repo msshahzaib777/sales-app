@@ -214,7 +214,15 @@ function KeyNumbers({ r }: { r: DailyReport }) {
             value={formatMoney(r.money.cashInHand.net)}
             note="cash in − cash out"
           />
-          <Figure label="Expenses" value={formatMoney(r.money.expenses.total)} />
+          <Figure
+            label="Expenses"
+            value={formatMoney(r.money.expenses.total)}
+            note={
+              r.money.expenses.forCompanies.gt(0)
+                ? `${formatMoney(r.money.expenses.forCompanies)} for companies (paid back)`
+                : undefined
+            }
+          />
         </>
       ) : null}
       {r.profit ? (

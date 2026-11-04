@@ -194,7 +194,17 @@ async function Expenses({
               <tr key={e.id} className={reversed ? "text-muted-foreground" : undefined}>
                 <Td className="font-medium">#{e.number}</Td>
                 <Td className="whitespace-nowrap">{formatDate(e.expenseDate)}</Td>
-                <Td>{e.category.name}</Td>
+                <Td>
+                  {e.category.name}
+                  {e.company ? (
+                    <div className="text-xs font-medium">
+                      For {e.company.name}: paid back
+                      {e.claim
+                        ? ` (claim #${e.claim.number}${e.claim.status === "APPLIED" ? ", deducted" : ""})`
+                        : ""}
+                    </div>
+                  ) : null}
+                </Td>
                 <Td>
                   {e.paidTo ? <div>{e.paidTo}</div> : null}
                   {e.note ? <div className="text-muted-foreground">{e.note}</div> : null}

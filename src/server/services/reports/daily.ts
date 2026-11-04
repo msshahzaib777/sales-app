@@ -212,8 +212,9 @@ export async function dailyReport(ctx: ServiceCtx, date: Date) {
           sales: salesTotal,
           cost: costTotal,
           gross: salesTotal.sub(costTotal),
-          expenses: money.expenses.total,
-          net: salesTotal.sub(costTotal).sub(money.expenses.total),
+          // Paid for companies comes back on their bills: not our cost.
+          expenses: money.expenses.total.sub(money.expenses.forCompanies),
+          net: salesTotal.sub(costTotal).sub(money.expenses.total.sub(money.expenses.forCompanies)),
         }
       : null;
 
@@ -311,7 +312,7 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
       _count: { _all: true },
     }),
     ctx.db.expense.groupBy({
-      by: ["categoryId", "method"],
+      by: ["categoryId", "method", "companyId"],
       where: { expenseDate: date, status: "POSTED" },
       _sum: { amount: true },
     }),
@@ -402,6 +403,11 @@ async function moneyFor(ctx: ServiceCtx, date: Date, next: Date) {
         .map(([name, amount]) => ({ name, amount }))
         .sort((a, b) => b.amount.comparedTo(a.amount)),
       total: sum(expenses, (e) => e._sum.amount),
+      /** Of the total, paid for companies that pay it back (not our cost: left out of profit). */
+      forCompanies: sum(
+        expenses.filter((e) => e.companyId),
+        (e) => e._sum.amount,
+      ),
     },
     companyPayments: sum(companyPayments, (p) => p._sum.amount),
     goodsReceived: receipts.map((r) => ({

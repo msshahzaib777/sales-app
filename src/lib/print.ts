@@ -28,6 +28,8 @@ export type PrintSettings = {
   marginMm: number;
   fontSizePt: number;
   twoPerA4: boolean;
+  /** The short bill layout, for small paper. */
+  compact?: boolean;
 };
 
 export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
@@ -35,6 +37,7 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   marginMm: 8,
   fontSizePt: 10,
   twoPerA4: false,
+  compact: false,
 };
 
 export type BillLayout = {

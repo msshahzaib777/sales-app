@@ -379,7 +379,12 @@ if (-not $ready) { Fail "The website did not start. See the logs in $LogDir" }
 # -- 7. Other computers in the office, and the shortcut ------------------------------
 Get-NetFirewallRule -DisplayName $FirewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName $FirewallRule -Direction Inbound -Protocol TCP -LocalPort $s.PORT -Action Allow -Profile Private | Out-Null
-@("[InternetShortcut]", "URL=http://localhost:$($s.PORT)/") | Set-Content -Path (Join-Path $AppDir "Taqseem.url") -Encoding ASCII
+@(
+  "[InternetShortcut]"
+  "URL=http://localhost:$($s.PORT)/"
+  "IconFile=$(Join-Path $AppDir 'taqseem.ico')"
+  "IconIndex=0"
+) | Set-Content -Path (Join-Path $AppDir "Taqseem.url") -Encoding ASCII
 
 Write-Host "Done: http://localhost:$($s.PORT)"
 Stop-Transcript | Out-Null

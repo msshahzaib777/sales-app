@@ -31,6 +31,9 @@ export const businessSettingsSchema = z
     twoBillsPerA4: z
       .preprocess((v) => v === true || v === "on" || v === "true", z.boolean())
       .default(false),
+    compactBills: z
+      .preprocess((v) => v === true || v === "on" || v === "true", z.boolean())
+      .default(false),
   })
   .superRefine((s, ctx) => {
     if (s.billPaper === "CUSTOM") {
