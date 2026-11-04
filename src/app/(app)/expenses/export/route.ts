@@ -40,6 +40,7 @@ export async function GET(request: Request) {
         "Bike",
         "Trip",
         "Staff",
+        "Paid for company",
         "Status",
       ].map(xBold),
       ...rows.map((r) => [
@@ -54,6 +55,7 @@ export async function GET(request: Request) {
         { value: r.bike?.name ?? "" },
         r.trip ? { value: r.trip.number } : null,
         { value: r.staff?.name ?? "" },
+        { value: r.company?.name ?? "" },
         { value: r.status === "POSTED" ? "Posted" : `Reversed: ${r.reversalReason ?? ""}` },
       ]),
       [null, null, xBold("Total (posted)"), xMoney(total)],

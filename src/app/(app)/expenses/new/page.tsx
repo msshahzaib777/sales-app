@@ -5,6 +5,8 @@ import { RequirePermission } from "@/components/layout/no-access";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
 import { Notice } from "@/components/master/notice";
 import { businessToday, formatDate, toDateInput } from "@/lib/dates";
+import { filterParam } from "@/lib/list-params";
+import { CHARGE_TO, type ChargeTo } from "@/lib/validation/expenses";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveExpenseAction } from "@/server/expense-actions";
 import { expenseFormOptions } from "@/server/services/expenses";
@@ -47,6 +49,17 @@ async function Form({
           label: `#${t.number} · ${formatDate(t.tripDate)} · ${t.bike.name}`,
         }))}
         staff={options.staff.map((s) => ({ value: s.id, label: s.name }))}
+        companies={options.companies.map((c) => ({
+          value: c.id,
+          label: c.name,
+          booker: c.orderBookerName,
+        }))}
+        initial={{
+          chargeTo: (CHARGE_TO as readonly string[]).includes(filterParam(sp, "chargeTo") ?? "")
+            ? (filterParam(sp, "chargeTo") as ChargeTo)
+            : undefined,
+          companyId: filterParam(sp, "companyId"),
+        }}
       />
     </div>
   );

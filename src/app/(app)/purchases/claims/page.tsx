@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { filterParam, listParamsSchema } from "@/lib/list-params";
-import { formatDozens } from "@/lib/units";
+import { CLAIM_TYPE_LABEL, claimItem, claimQuantity } from "@/lib/claims";
 import { requireTenantContext } from "@/server/auth/session";
 import { cancelClaimAction, settleClaimAction } from "@/server/purchasing-actions";
 import { companyOptions } from "@/server/services/master/companies";
@@ -23,12 +23,6 @@ import { parseDateRange } from "@/server/services/purchasing/filters";
 
 export const metadata: Metadata = { title: "Company claims" };
 
-const TYPE = {
-  DELIVERY_DAMAGE: "Delivery damage",
-  RETURN_TO_COMPANY: "Returned to company",
-  OTHER: "Other",
-  SACK_RETURN: "Sacks returned",
-} as const;
 const STATUS = {
   AWAITING: "Pending: settle with company",
   PENDING: "Accepted: to deduct on next bill",
@@ -42,9 +36,15 @@ export default function ClaimsPage({ searchParams }: PageProps<"/purchases/claim
     <MoneyPage>
       <PageHeader
         title="Company claims"
-        description="Credits against companies. Damage from day-end waits here until you settle it with the company: accept it (in full or for less) or reject it. Accepted claims are deducted on the company's next bill."
+        description="Credits against companies, deducted on each company's next bill: damage (from day-end, settled with the company first), empty sacks returned, and booker salaries or expenses you paid for a company."
         actions={
           <>
+            <LinkButton href="/expenses/new?chargeTo=BOOKER_SALARY" variant="outline">
+              Pay booker salary
+            </LinkButton>
+            <LinkButton href="/expenses/new?chargeTo=COMPANY_EXPENSE" variant="outline">
+              Company expense
+            </LinkButton>
             <LinkButton href="/purchases/claims/sacks" variant="outline">
               Return sacks
             </LinkButton>
@@ -131,14 +131,12 @@ async function Claims({
                     <span className="font-mono">{c.product.code}</span> {c.product.name}
                   </>
                 ) : (
-                  "Empty sacks"
+                  claimItem(c)
                 )}
                 {c.note ? <div className="text-muted-foreground">{c.note}</div> : null}
               </Td>
-              <Td>{TYPE[c.type]}</Td>
-              <Td className="text-right tabular-nums">
-                {c.type === "SACK_RETURN" ? `${c.quantity} sacks` : formatDozens(c.quantity)}
-              </Td>
+              <Td>{CLAIM_TYPE_LABEL[c.type]}</Td>
+              <Td className="text-right tabular-nums">{claimQuantity(c)}</Td>
               <Td className="text-right tabular-nums">
                 {formatMoney(c.amount)}
                 {c.claimedAmount && !c.claimedAmount.eq(c.amount) ? (
@@ -179,7 +177,8 @@ async function Claims({
                     </Link>
                   </div>
                 ) : null}
-                {c.status === "PENDING" || c.status === "AWAITING" ? (
+                {/* A charged-back expense is cancelled by reversing the expense (Expenses). */}
+                {(c.status === "PENDING" || c.status === "AWAITING") && !c.expenseId ? (
                   <ReasonAction
                     action={cancelClaimAction.bind(null, c.id)}
                     label="Cancel"

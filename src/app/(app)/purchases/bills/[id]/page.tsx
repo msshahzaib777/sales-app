@@ -11,6 +11,7 @@ import { DueDateForm } from "@/components/purchasing/due-date-form";
 import { MoneyPage } from "@/components/purchasing/money-guard";
 import { BillStatusBadge, PostingBadge } from "@/components/purchasing/status-badges";
 import { formatDate, toDateInput } from "@/lib/dates";
+import { claimItem, claimQuantity } from "@/lib/claims";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
@@ -100,11 +101,12 @@ async function Bill({ params }: { params: Promise<{ id: string }> }) {
           {bill.appliedClaims.map((c) => (
             <tr key={c.id}>
               <Td>
-                Less claim #{c.number}: {c.product?.name ?? "empty sacks returned"}
+                Less claim #{c.number}: {claimItem(c)}
+                {c.note && !c.product ? (
+                  <span className="text-muted-foreground"> ({c.note})</span>
+                ) : null}
               </Td>
-              <Td className="text-right tabular-nums">
-                {c.product ? formatDozens(c.quantity) : `${c.quantity} sacks`}
-              </Td>
+              <Td className="text-right tabular-nums">{claimQuantity(c)}</Td>
               <Td />
               <Td className="text-right tabular-nums">−{formatMoney(c.amount)}</Td>
             </tr>

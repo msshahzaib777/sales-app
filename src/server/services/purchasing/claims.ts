@@ -137,6 +137,8 @@ export async function logClaim(
     amount: Prisma.Decimal;
     note: string | null;
     salesOrderId?: string;
+    /** The expense this claim charges back (booker salary, company expense). */
+    expenseId?: string;
     requestId?: string;
     /** Wait for settlement with the company before any money moves. */
     awaiting?: boolean;
@@ -156,6 +158,7 @@ export async function logClaim(
       claimedAmount: c.amount,
       status: c.awaiting ? "AWAITING" : "PENDING",
       salesOrderId: c.salesOrderId ?? null,
+      expenseId: c.expenseId ?? null,
       note: c.note,
       requestId: c.requestId,
       createdById: ctx.user.id,
@@ -171,6 +174,8 @@ export function claimSubject(
   claim: { type: ClaimType; quantity: number },
   product: { name: string } | null,
 ) {
+  if (claim.type === "BOOKER_SALARY") return "Booker salary paid for the company";
+  if (claim.type === "COMPANY_EXPENSE") return "Expense paid for the company";
   if (claim.type === "SACK_RETURN" || !product)
     return `${claim.quantity} ${claim.quantity === 1 ? "sack" : "sacks"} returned`;
   return product.name;
@@ -357,7 +362,17 @@ export async function cancelClaim(ctx: ServiceCtx, input: unknown) {
   assertCan(ctx.user.role, "payments.manage");
   const { id, reason } = reverseSchema.parse(input);
   return ctx.db.$transaction(async (tx) => {
-    const claim = found(await tx.companyClaim.findUnique({ where: { id } }), "claim");
+    const claim = found(
+      await tx.companyClaim.findUnique({
+        where: { id },
+        include: { expense: { select: { number: true } } },
+      }),
+      "claim",
+    );
+    if (claim.expense)
+      throw new ServiceError(
+        `This claim charges back expense #${claim.expense.number}. Reverse that expense instead (Expenses); its claim is cancelled with it.`,
+      );
     if (claim.status !== "PENDING" && claim.status !== "AWAITING") {
       throw new ServiceError(
         claim.status === "APPLIED"

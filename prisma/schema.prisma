@@ -105,6 +105,10 @@ enum ClaimType {
   OTHER
   /// Empty sacks sent back to the company; it credits Company.sackRate for each.
   SACK_RETURN
+  /// The company's order booker's salary, paid by us (an Expense); the company pays it back.
+  BOOKER_SALARY
+  /// Any other expense we paid for the company (an Expense); the company pays it back.
+  COMPANY_EXPENSE
 }
 
 enum ClaimStatus {
@@ -418,6 +422,7 @@ model Company {
   salesOrderLines SalesOrderLine[]
   customerAllocs  PaymentAllocation[]
   ledgerEntries   LedgerEntry[]
+  expenses        Expense[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -872,6 +877,8 @@ model CompanyClaim {
   settlementNote  String?
   /// Delivery the damage came from, when known.
   salesOrderId    String?
+  /// The expense charged back to the company (booker salary, company expense).
+  expenseId       String?
   appliedToBillId String?
   reversedAt      DateTime?
   note            String?
@@ -884,11 +891,13 @@ model CompanyClaim {
   company       Company      @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
   product       Product?     @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
   salesOrder    SalesOrder?  @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
+  expense       Expense?     @relation(fields: [tenantId, expenseId], references: [tenantId, id], onDelete: Restrict)
   appliedToBill CompanyBill? @relation(fields: [tenantId, appliedToBillId], references: [tenantId, id], onDelete: Restrict)
 
   @@unique([tenantId, id])
   @@unique([tenantId, number])
   @@unique([tenantId, requestId])
+  @@unique([tenantId, expenseId])
   @@index([tenantId, companyId, status])
 }
 
@@ -1016,6 +1025,8 @@ model Expense {
   bikeId         String?
   tripId         String?
   staffId        String?
+  /// Paid for this company, which pays it back (its CompanyClaim); not our own cost.
+  companyId      String?
   /// Who was paid (shop, landlord, …), or the cheque / transfer reference.
   paidTo         String?
   note           String?
@@ -1033,12 +1044,15 @@ model Expense {
   bike      Bike?           @relation(fields: [tenantId, bikeId], references: [tenantId, id], onDelete: Restrict)
   trip      DeliveryTrip?   @relation(fields: [tenantId, tripId], references: [tenantId, id], onDelete: Restrict)
   staff     Staff?          @relation(fields: [tenantId, staffId], references: [tenantId, id], onDelete: Restrict)
+  company   Company?        @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+  claim     CompanyClaim?
 
   @@unique([tenantId, id])
   @@unique([tenantId, number])
   @@unique([tenantId, requestId])
   @@index([tenantId, expenseDate])
   @@index([tenantId, categoryId, expenseDate])
+  @@index([tenantId, companyId])
 }
 
 // ───────────────────────────── Sales ─────────────────────────────

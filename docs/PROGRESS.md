@@ -2,6 +2,25 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Booker salaries and company expenses, charged back to the company — done
+
+Order bookers are on the company's payroll, but we pay them and the company deducts it from its
+bill. The same goes for other expenses we pay for a company we distribute for. **Expenses → Add
+expense** has a new **Who pays for it** choice: our own expense, **Booker salary, for a company**,
+or **Expense for a company** (also buttons on the company ledger and Company claims pages, with the
+company filled in). For the last two:
+- It is an expense (cash or bank out, in cash in hand and the expense list, "For <company>: paid
+  back"). A booker salary gets its own category, "Booker salary (company pays back)", made on
+  first use, with the company's order booker filled in as Paid to.
+- In the same save it is charged back: a company claim (`BOOKER_SALARY` / `COMPANY_EXPENSE`,
+  linked by `CompanyClaim.expenseId`, migration `20261105090000_company_chargebacks`). This lowers
+  what we owe the company now (company ledger and statement: "Claim #n: Booker salary paid for the
+  company (…)") and is deducted on its next bill like any claim.
+- It is not our cost: the daily report's profit and the analysis leave it out (`Expense.companyId`);
+  the daily report shows how much of the day's expenses were for companies.
+- Reversing the expense cancels its claim. It is refused once a bill has deducted it. Such a claim
+  cannot be cancelled on its own.
+
 ## Logo on the website, installer and shortcuts — done
 
 The logo is `Taqseem Logo.png` in the project root. `node scripts/make-brand-assets.mjs` makes

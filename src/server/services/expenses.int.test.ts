@@ -14,7 +14,18 @@ import {
   reverseExpense,
   setExpenseCategoryActive,
 } from "./expenses";
+import { BOOKER_SALARY_CATEGORY } from "@/lib/expenses";
+import { Prisma } from "@/generated/prisma/client";
+
 import { createBike } from "./master/bikes";
+import { createCompany } from "./master/companies";
+import { createProduct } from "./master/products";
+import { cancelClaim } from "./purchasing/claims";
+import { getCompanyLedger } from "./purchasing/company-ledger";
+import { createGoodsReceipt } from "./purchasing/goods-receipts";
+import { dailyReport } from "./reports/daily";
+
+const D = (v: Prisma.Decimal | string | null | undefined) => new Prisma.Decimal(v ?? 0).toFixed(2);
 import type { ServiceCtx } from "./master/common";
 import { createWarehouse } from "./master/warehouses";
 
@@ -118,5 +129,91 @@ describe("expenses", () => {
     await expect(createExpenseCategory(t.ctx, { name: "petrol" })).rejects.toThrow(
       /already exists/,
     );
+  });
+});
+
+describe("paid for a company", () => {
+  const company = () =>
+    createCompany(t.ctx, {
+      warehouseId: t.wh.id,
+      name: "Crunchy",
+      paymentTermsDays: "15",
+      orderBookerName: "Bilal Ahmed",
+    });
+  const payable = async (companyId: string) =>
+    D((await getCompanyLedger(t.ctx, companyId, {})).summary.payableNow);
+
+  it("a booker salary is our cash out, charged back and deducted on the company's next bill", async () => {
+    const c = await company();
+    const product = await createProduct(t.ctx, {
+      companyId: c.id,
+      code: "CB01",
+      name: "Chips",
+      purchaseRate: "1000",
+      saleRate: "1200",
+      effectiveFrom: "2026-10-01",
+    });
+    await expect(add({ chargeTo: "BOOKER_SALARY", amount: "25000" })).rejects.toThrow(
+      /company that pays it back/,
+    );
+    const salary = await add({ chargeTo: "BOOKER_SALARY", companyId: c.id, amount: "25000" });
+    // Its own category, made on first use; the booker's name filled in.
+    expect(salary.paidTo).toBe("Bilal Ahmed");
+    const category = await t.ctx.db.expenseCategory.findUniqueOrThrow({
+      where: { id: salary.categoryId },
+    });
+    expect(category.name).toBe(BOOKER_SALARY_CATEGORY);
+    const claim = await t.ctx.db.companyClaim.findFirstOrThrow({ where: { expenseId: salary.id } });
+    expect(claim).toMatchObject({ type: "BOOKER_SALARY", status: "PENDING", productId: null });
+    expect(D(claim.amount)).toBe("25000.00");
+    // The company owes us 25000 now (we owe nothing yet).
+    expect(await payable(c.id)).toBe("-25000.00");
+
+    // Goods for 30000: the bill is 30000 − 25000.
+    const receipt = await createGoodsReceipt(t.ctx, {
+      companyId: c.id,
+      receivedDate: "2026-10-25",
+      lines: [{ productId: product.id, quantity: "30" }],
+    });
+    expect(D(receipt.companyBill.claimDeduction)).toBe("25000.00");
+    expect(D(receipt.companyBill.netAmount)).toBe("5000.00");
+    expect(await payable(c.id)).toBe("5000.00");
+    // Deducted already: reversing the expense is refused.
+    await expect(reverseExpense(t.ctx, { id: salary.id, reason: "mistake" })).rejects.toThrow(
+      /already taken off company bill/,
+    );
+  });
+
+  it("a company expense keeps its category; reversing it cancels the charge-back", async () => {
+    const c = await company();
+    const e = await add({
+      chargeTo: "COMPANY_EXPENSE",
+      companyId: c.id,
+      categoryId: t.petrol.id,
+      amount: "1500",
+      paidTo: "Promo van",
+    });
+    expect(e.categoryId).toBe(t.petrol.id);
+    expect(await payable(c.id)).toBe("-1500.00");
+    const claim = await t.ctx.db.companyClaim.findFirstOrThrow({ where: { expenseId: e.id } });
+    // Cancelled through its expense only.
+    await expect(cancelClaim(t.ctx, { id: claim.id, reason: "wrong company" })).rejects.toThrow(
+      /Reverse that expense instead/,
+    );
+    await reverseExpense(t.ctx, { id: e.id, reason: "entered twice" });
+    const after = await t.ctx.db.companyClaim.findUniqueOrThrow({ where: { id: claim.id } });
+    expect(after.status).toBe("REVERSED");
+    expect(await payable(c.id)).toBe("0.00");
+  });
+
+  it("is left out of profit but counted as cash spent", async () => {
+    const c = await company();
+    await add({ categoryId: t.rent.id, amount: "1000" });
+    await add({ chargeTo: "BOOKER_SALARY", companyId: c.id, amount: "4000" });
+    const r = await dailyReport(t.ctx, new Date("2026-10-24T00:00:00.000Z"));
+    expect(D(r.money!.expenses.total)).toBe("5000.00");
+    expect(D(r.money!.expenses.forCompanies)).toBe("4000.00");
+    expect(D(r.money!.cashInHand.expenses)).toBe("5000.00");
+    expect(D(r.profit!.expenses)).toBe("1000.00");
   });
 });

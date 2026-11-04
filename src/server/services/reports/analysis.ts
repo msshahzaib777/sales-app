@@ -77,7 +77,8 @@ export async function businessAnalysis(ctx: ServiceCtx, kind: PeriodKind, date: 
     ctx.db.company.findMany({ select: { id: true, name: true } }),
     showCost
       ? ctx.db.expense.findMany({
-          where: { status: "POSTED", expenseDate: dateWhere(span) },
+          // Our own: expenses paid for a company come back on its bill.
+          where: { status: "POSTED", expenseDate: dateWhere(span), companyId: null },
           select: { expenseDate: true, amount: true },
         })
       : Promise.resolve([]),
