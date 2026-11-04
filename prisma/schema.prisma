@@ -247,6 +247,8 @@ model Tenant {
   printFontSizePt       Int       @default(10)
   /// Print two bills on one A4 sheet (each on a half), to save paper.
   twoBillsPerA4         Boolean   @default(false)
+  /// Short bill layout for small paper (A6, receipt rolls): fewer lines, no company column.
+  compactBills          Boolean   @default(false)
   timezone              String    @default("Asia/Karachi")
   currency              String    @default("PKR")
   /// Product base unit used for new products (smallest unit; quantities are stored in it).
@@ -437,6 +439,8 @@ model Product {
   tenantId      String
   companyId     String
   name          String
+  /// Printed on bills instead of the full name when set (keeps small bills short).
+  shortName     String?
   /// Short code for keyboard-first search in order entry.
   code          String
   /// Smallest unit; all quantities for this product are stored in it.

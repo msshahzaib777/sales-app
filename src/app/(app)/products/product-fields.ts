@@ -13,6 +13,7 @@ type Defaults = {
   companyId?: string;
   code?: string;
   name?: string;
+  shortName?: string | null;
   purchaseRate?: string;
   saleRate?: string;
   discountType?: string;
@@ -53,6 +54,15 @@ export function productFields(
       defaultValue: d.name,
       maxLength: 120,
       width: "full",
+    },
+    {
+      kind: "text",
+      name: "shortName",
+      label: "Short name (on bills)",
+      defaultValue: d.shortName,
+      maxLength: 24,
+      hint: "Up to 24 letters, e.g. Masala 10. Bills print this instead of the full name; blank = the full name.",
+      width: "md",
     },
     {
       kind: "section",

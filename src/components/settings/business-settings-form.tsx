@@ -18,6 +18,7 @@ type Values = {
   printMarginMm: number;
   printFontSizePt: number;
   twoBillsPerA4: boolean;
+  compactBills: boolean;
 };
 
 export function BusinessSettingsForm({
@@ -32,6 +33,7 @@ export function BusinessSettingsForm({
     submittedValue(state, "billPaper") ?? values.billPaper,
   );
   const twoPerA4 = submittedValue(state, "twoBillsPerA4");
+  const compact = submittedValue(state, "compactBills");
   return (
     <form action={formAction} className="space-y-6" noValidate>
       <fieldset className="grid gap-4 sm:grid-cols-2">
@@ -127,6 +129,22 @@ export function BusinessSettingsForm({
             <span className="font-medium">Print 2 bills per A4 sheet</span>
             <span className="text-muted-foreground block">
               Two half-A4 bills on one sheet with a cut line; overrides the paper size above.
+            </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm sm:col-span-4">
+          <input
+            type="checkbox"
+            name="compactBills"
+            defaultChecked={state.status === "error" ? compact === "on" : values.compactBills}
+            className="mt-0.5 size-4"
+          />
+          <span>
+            <span className="font-medium">Compact bills</span>
+            <span className="text-muted-foreground block">
+              A short bill for small paper (A6, or an 80 mm receipt roll as a custom size): short
+              product names, the discount in the rate, no company column, and the totals in a few
+              lines.
             </span>
           </span>
         </label>

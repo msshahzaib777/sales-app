@@ -61,7 +61,10 @@ export default async function BillPage({ params, searchParams }: PageProps<"/ord
           </span>
         ) : null}
       </PrintToolbar>
-      <BillSheets settings={profile.print} bills={billDocuments(view, profile.business, split)} />
+      <BillSheets
+        settings={profile.print}
+        bills={billDocuments(view, profile.business, split, profile.print.compact)}
+      />
       {filterParam(sp, "print") === "1" ? <AutoPrint /> : null}
     </div>
   );

@@ -148,8 +148,150 @@ export function BillDocument({
   );
 }
 
-/** The documents for one bill: the full bill, or one per company when split. */
-export function billDocuments(view: BillView, business: PrintProfile["business"], split: boolean) {
+/**
+ * The short bill for small paper (A6, receipt rolls): one-line letterhead and customer, short
+ * product names, the rate after discount, no company column, and the totals in a few lines. Same
+ * figures as the full bill.
+ */
+export function CompactBillDocument({
+  view,
+  business,
+  title,
+  lines,
+  thisBill,
+  previous,
+  totalDue,
+  minimum,
+}: {
+  view: BillView;
+  business: PrintProfile["business"];
+  title?: string;
+  lines: Line[];
+  thisBill: { toString(): string };
+  previous: { toString(): string };
+  totalDue: { toString(): string };
+  minimum?: { toString(): string };
+}) {
+  const dz = formatDozensCell;
+  // The rate after the company discount: what each dozen actually cost the customer.
+  const netRate = (l: Line) =>
+    l.quantity > 0
+      ? new Decimal(l.netAmount).mul(12).div(l.quantity).toDecimalPlaces(2).toFixed(2)
+      : new Decimal(l.rate).toFixed(2);
+  const customer = [view.customer.shopName, view.customer.areaName, view.customer.phone]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <article className="space-y-[0.35em] leading-tight">
+      <header className="flex items-baseline justify-between gap-2 border-b border-black pb-[0.2em]">
+        <div className="min-w-0">
+          <p className="truncate font-bold">{business.name}</p>
+          {business.phone ? <p className="text-[0.85em]">{business.phone}</p> : null}
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="font-bold">
+            Bill #{view.bill.number}
+            {view.bill.revision > 1 ? ` (rev ${view.bill.revision})` : ""}
+          </p>
+          <p className="text-[0.85em]">{formatDate(view.bill.billDate)}</p>
+        </div>
+      </header>
+      <div>
+        <p className="font-semibold">{view.customer.name}</p>
+        {customer ? <p className="text-[0.85em]">{customer}</p> : null}
+      </div>
+      {title ? <p className="font-semibold">{title}</p> : null}
+      <table className="w-full border-collapse [&_td:not(:first-child)]:pl-[0.5em] [&_th:not(:first-child)]:pl-[0.5em]">
+        <thead>
+          <tr className="border-b border-black text-left">
+            <th className="font-semibold">Item</th>
+            <th className="text-right font-semibold">Dz</th>
+            <th className="text-right font-semibold">Rate</th>
+            <th className="text-right font-semibold">Amt</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l) => (
+            <tr key={l.productId} className="align-top">
+              <td className="break-words">{l.shortName}</td>
+              <td className="text-right whitespace-nowrap tabular-nums">{dz(l.quantity)}</td>
+              <td className="text-right whitespace-nowrap tabular-nums">
+                {formatMoney(netRate(l))}
+              </td>
+              <td className="text-right whitespace-nowrap tabular-nums">
+                {formatMoney(l.netAmount)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-black font-semibold">
+            <td>Total</td>
+            <td className="text-right whitespace-nowrap tabular-nums">
+              {dz(lines.reduce((s, l) => s + l.quantity, 0))}
+            </td>
+            <td />
+            <td className="text-right whitespace-nowrap tabular-nums">{formatMoney(thisBill)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-2 text-right">
+        <dt>Previous</dt>
+        <dd className="tabular-nums">{formatMoney(previous)}</dd>
+        <dt className="font-bold">Total due</dt>
+        <dd className="font-bold tabular-nums">{formatMoney(totalDue)}</dd>
+        {minimum ? (
+          <>
+            <dt>Minimum payment</dt>
+            <dd className="tabular-nums">{formatMoney(minimum)}</dd>
+          </>
+        ) : null}
+      </dl>
+      <p className="pt-[0.8em]">Received by: ______________</p>
+    </article>
+  );
+}
+
+/** The documents for one bill: the full bill, or one per company when split; compact or not. */
+export function billDocuments(
+  view: BillView,
+  business: PrintProfile["business"],
+  split: boolean,
+  compact = false,
+) {
+  if (compact) {
+    if (!split)
+      return [
+        {
+          key: view.bill.id,
+          node: (
+            <CompactBillDocument
+              view={view}
+              business={business}
+              lines={view.lines}
+              thisBill={view.bill.netAmount}
+              previous={view.previous}
+              totalDue={view.totalDue}
+              minimum={view.minimumPayment}
+            />
+          ),
+        },
+      ];
+    return view.sections.map((s) => ({
+      key: `${view.bill.id}-${s.companyId}`,
+      node: (
+        <CompactBillDocument
+          view={view}
+          business={business}
+          title={s.companyName}
+          lines={s.lines}
+          thisBill={s.thisBill}
+          previous={s.previous}
+          totalDue={s.totalDue}
+        />
+      ),
+    }));
+  }
   if (!split) {
     return [
       {

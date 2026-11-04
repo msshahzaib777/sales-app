@@ -50,7 +50,7 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
   const [products, companies, tenant] = await Promise.all([
     ctx.db.product.findMany({
       where: { id: { in: snapshot.map((l) => l.productId) } },
-      select: { id: true, code: true, name: true },
+      select: { id: true, code: true, name: true, shortName: true },
     }),
     ctx.db.company.findMany({
       where: { id: { in: companyTotals.map((c) => c.companyId) } },
@@ -81,6 +81,8 @@ export async function getBillView(ctx: ServiceCtx, orderId: string) {
     ...l,
     code: productById.get(l.productId)?.code ?? "",
     name: productById.get(l.productId)?.name ?? "",
+    /** For the compact bill; the name when there is none. */
+    shortName: productById.get(l.productId)?.shortName ?? productById.get(l.productId)?.name ?? "",
     companyName: companyName.get(l.companyId) ?? "",
   }));
   const totalDue = previousTotal.add(revision.netAmount);

@@ -2,6 +2,19 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Product short names and a compact bill for small paper — done
+
+- **Short name** (`Product.shortName`, optional, up to 24 letters, e.g. "Masala 10"): on the
+  product form and as a "Short name" column in the products import and its sample sheet. The
+  compact bill prints it; blank means the full name.
+- **Compact bills** (Settings → Business & printing, `Tenant.compactBills`, migration
+  `20261106090000_short_names_compact_bills`): a short bill for A6 or a receipt roll (custom size,
+  e.g. 80 mm wide). It has a one-line letterhead (name, phone, bill number and date), the customer
+  on two short lines, short names, Dz / Rate / Amt with the rate after the company discount and no
+  company column, a total row, and Previous / Total due / Minimum payment. Same figures as the full
+  bill; split-by-company prints one compact bill per company. Off by default, so the A5 bill is
+  unchanged.
+
 ## Booker salaries and company expenses, charged back to the company — done
 
 Order bookers are on the company's payroll, but we pay them and the company deducts it from its

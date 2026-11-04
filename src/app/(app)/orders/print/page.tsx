@@ -36,7 +36,9 @@ export default async function PrintBillsPage({ searchParams }: PageProps<"/order
     getBillViews(ctx, ids),
     getPrintProfile(ctx),
   ]);
-  const bills = views.flatMap((v) => billDocuments(v, profile.business, split));
+  const bills = views.flatMap((v) =>
+    billDocuments(v, profile.business, split, profile.print.compact),
+  );
   return (
     <div>
       <PrintToolbar back={back} hint={paperHint(profile.print)}>
