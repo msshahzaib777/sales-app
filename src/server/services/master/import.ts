@@ -1,24 +1,32 @@
 import "server-only";
 
 import { businessToday, toDateInput } from "@/lib/dates";
-import type { CustomerInput, ProductInput } from "@/lib/validation/master";
+import type { AreaInput, CompanyInput, CustomerInput, ProductInput } from "@/lib/validation/master";
 
 import { assertCan } from "../../auth/permissions";
 import { ServiceError } from "../errors";
 import type { ServiceCtx } from "./common";
+import { createAreaTx } from "./areas";
+import { createCompanyTx } from "./companies";
 import { createCustomerTx } from "./customers";
 import {
   customerKey,
+  EXAMPLE_MARK,
+  IMPORT_NOTES,
   type ImportKind,
   type PreviewRow,
   readTable,
+  validateAreaRows,
+  validateCompanyRows,
   validateCustomerRows,
   validateProductRows,
+  templateExamples,
+  templateHeaders,
   type ValidatedRow,
 } from "./import-rows";
 import { createProductTx, updateProductTx } from "./products";
 
-// Excel/CSV import for products and customers: preview first (nothing saved), then import the
+// Excel/CSV import for companies, products, areas and customers: preview first (nothing saved), then import the
 // valid rows in one transaction. The commit re-reads and re-validates the file on the server; it
 // never trusts the preview sent back from the browser.
 
@@ -40,6 +48,25 @@ async function validate(ctx: ServiceCtx, kind: ImportKind, file: ImportFile) {
   assertCan(ctx.user.role, "masterData.manage");
   if (kind === "products") assertCan(ctx.user.role, "rates.manage");
   const table = await readTable(file.name, file.bytes);
+  if (kind === "companies" || kind === "areas") {
+    const warehouses = await ctx.db.warehouse.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+    });
+    const warehouseMap = new Map(warehouses.map((w) => [nameKey(w.name), w.id]));
+    if (kind === "companies") {
+      const existing = await ctx.db.company.findMany({ select: { name: true } });
+      return validateCompanyRows(table, {
+        warehouses: warehouseMap,
+        existingNames: new Set(existing.map((c) => nameKey(c.name))),
+      });
+    }
+    const existing = await ctx.db.area.findMany({ select: { warehouseId: true, name: true } });
+    return validateAreaRows(table, {
+      warehouses: warehouseMap,
+      existingKeys: new Set(existing.map((a) => `${a.warehouseId}|${nameKey(a.name)}`)),
+    });
+  }
   const companies = await ctx.db.company.findMany({
     where: { isActive: true },
     select: { id: true, name: true },
@@ -126,6 +153,15 @@ export async function commitImport(
             await createProductTx(tx, ctx, input, rowRequestId);
             created++;
           }
+        } else if (kind === "companies") {
+          await createCompanyTx(tx, ctx, {
+            ...(row.input as CompanyInput),
+            requestId: rowRequestId,
+          });
+          created++;
+        } else if (kind === "areas") {
+          await createAreaTx(tx, ctx, { ...(row.input as AreaInput), requestId: rowRequestId });
+          created++;
         } else {
           await createCustomerTx(tx, ctx, row.input as CustomerInput, rowRequestId);
           created++;
@@ -135,4 +171,52 @@ export async function commitImport(
     { timeout: 120_000 },
   );
   return { created, updated, skipped: rows.length - valid.length };
+}
+
+const TITLES: Record<ImportKind, string> = {
+  companies: "Import companies",
+  products: "Import products",
+  areas: "Import areas / routes",
+  customers: "Import customers (clients)",
+};
+
+/** Everything the sample sheet shows: columns, example rows, rules and this business's names. */
+export async function importSheetData(ctx: ServiceCtx, kind: ImportKind) {
+  assertCan(ctx.user.role, "masterData.manage");
+  const [warehouses, companies, areas] = await Promise.all([
+    ctx.db.warehouse.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    ctx.db.company.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    ctx.db.area.findMany({
+      where: { isActive: true },
+      orderBy: [{ warehouse: { name: "asc" } }, { sortOrder: "asc" }, { name: "asc" }],
+      include: { warehouse: { select: { name: true } } },
+    }),
+  ]);
+  const companyNames = companies.map((c) => c.name);
+  const choices: { label: string; values: string[] }[] = [];
+  if (kind === "companies" || kind === "areas")
+    choices.push({ label: "Warehouse: one of", values: warehouses.map((w) => w.name) });
+  if (kind === "products") choices.push({ label: "Company: one of", values: companyNames });
+  if (kind === "customers") {
+    choices.push(
+      { label: "Type: one of", values: ["Retailer", "Wholesaler", "Dealer", "Bike supplier"] },
+      { label: "Area: one of", values: areas.map((a) => `${a.name}   (${a.warehouse.name})`) },
+    );
+  }
+  return {
+    title: TITLES[kind],
+    headers: templateHeaders(kind, kind === "customers" ? companyNames : []),
+    examples: templateExamples(kind, {
+      warehouse: warehouses[0]?.name,
+      company: companies[0]?.name,
+      area: areas[0]?.name,
+      companies: companyNames,
+    }),
+    notes: [
+      `Fill in the "Import" sheet: one row per record under the header row. Rows starting with ${EXAMPLE_MARK} are examples and are never imported; delete them or leave them.`,
+      ...IMPORT_NOTES[kind],
+      "Then open Taqseem → Import from Excel, choose this file and press Check file. Nothing is saved until you press Import.",
+    ],
+    choices,
+  };
 }

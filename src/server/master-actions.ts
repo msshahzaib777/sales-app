@@ -138,7 +138,13 @@ async function uploadedFile(formData: FormData) {
   return { name: file.name, bytes: Buffer.from(await file.arrayBuffer()) };
 }
 
-const IMPORT_KINDS: ImportKind[] = ["products", "customers"];
+const IMPORT_PATHS: Record<ImportKind, string> = {
+  companies: "/companies",
+  products: "/products",
+  areas: "/settings/areas",
+  customers: "/customers",
+};
+const IMPORT_KINDS = Object.keys(IMPORT_PATHS) as ImportKind[];
 
 export async function importPreviewAction(
   kind: ImportKind,
@@ -173,6 +179,6 @@ export async function importCommitAction(
     ].filter(Boolean);
     return { message: `Import finished: ${parts.join(", ") || "nothing changed"}.`, data: counts };
   });
-  if (result.status === "success") revalidatePath(kind === "products" ? "/products" : "/customers");
+  if (result.status === "success") revalidatePath(IMPORT_PATHS[kind]);
   return result;
 }

@@ -1,4 +1,13 @@
-import { Bike, History, Map, Printer, UserRound, Users, Warehouse } from "lucide-react";
+import {
+  Bike,
+  FileSpreadsheet,
+  History,
+  Map,
+  Printer,
+  UserRound,
+  Users,
+  Warehouse,
+} from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -43,6 +52,12 @@ const SECTIONS = [
     title: "Users",
     description: "Invite staff, change roles, reset passwords.",
     icon: Users,
+  },
+  {
+    href: "/import",
+    title: "Import from Excel",
+    description: "Companies, products, areas and customers from Excel, with sample sheets.",
+    icon: FileSpreadsheet,
   },
   {
     href: "/settings/audit",

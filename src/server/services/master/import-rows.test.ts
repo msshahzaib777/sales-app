@@ -4,8 +4,13 @@ import { describe, expect, it } from "vitest";
 import { ServiceError } from "../errors";
 import {
   customerKey,
+  EXAMPLE_MARK,
+  IMPORT_KINDS,
   readTable,
+  templateExamples,
   templateHeaders,
+  validateAreaRows,
+  validateCompanyRows,
   validateCustomerRows,
   validateProductRows,
 } from "./import-rows";
@@ -34,6 +39,17 @@ describe("readTable", () => {
     expect(table.rows).toEqual([["Ali", "03001234567", "25000.5"]]);
   });
 
+  it("leaves out the sample sheet's EXAMPLE rows, and says so when nothing else is left", async () => {
+    const table = await readTable(
+      "areas.csv",
+      csv("Name,Warehouse\nEXAMPLE Shahdara,Main\nTownship,Main\nexample  Gulberg,Main\n"),
+    );
+    expect(table.rows).toEqual([["Township", "Main"]]);
+    await expect(
+      readTable("areas.csv", csv("Name,Warehouse\nEXAMPLE Shahdara,Main\n")),
+    ).rejects.toThrow("only the example rows");
+  });
+
   it("rejects other formats, empty files and header-only files", async () => {
     await expect(readTable("list.xls", csv("a"))).rejects.toThrow(ServiceError);
     await expect(readTable("list.csv", csv(""))).rejects.toThrow("empty");
@@ -47,6 +63,94 @@ const productLookups = {
   existingCodes: new Map([["CB01", "p1"]]),
   today: "2026-10-24",
 };
+
+describe("validateCompanyRows", () => {
+  const lookups = {
+    warehouses: new Map([["main", "w1"]]),
+    existingNames: new Set(["crunchy bites foods"]),
+  };
+  it("checks warehouse, phones (+92), terms and names already used", () => {
+    const rows = validateCompanyRows(
+      {
+        headers: templateHeaders("companies"),
+        rows: [
+          [
+            "Golden Crisp",
+            "Main",
+            "Imran",
+            "0300-1112233",
+            "",
+            "Bilal",
+            "0301 4455667",
+            "",
+            "150",
+            "185000",
+          ],
+          ["Crunchy Bites Foods", "Main", "", "", "", "", "", "15", "", ""],
+          ["Nowhere Foods", "Far", "", "call me", "", "", "", "400", "", ""],
+          ["golden crisp", "Main", "", "", "", "", "", "", "", ""],
+        ],
+      },
+      lookups,
+    );
+    expect(rows.map((r) => r.status)).toEqual(["new", "error", "error", "error"]);
+    expect(rows[0]!.input).toMatchObject({
+      warehouseId: "w1",
+      phone: "+92 3001112233",
+      orderBookerPhone: "+92 3014455667",
+      paymentTermsDays: 0,
+      sackRate: "150",
+      openingBalance: "185000",
+    });
+    expect(rows[1]!.errors).toEqual([
+      "A company with this name already exists (edit it on its page)",
+    ]);
+    expect(rows[2]!.errors).toEqual(
+      expect.arrayContaining([
+        'Warehouse: "Far" is not an active warehouse',
+        "Phone: Enter a Pakistani number, e.g. 0300 1234567",
+        "Payment terms (days): The payment terms must be at most 365",
+      ]),
+    );
+    expect(rows[3]!.errors).toEqual(["This company appears more than once in the file"]);
+  });
+});
+
+describe("validateAreaRows", () => {
+  it("needs a known warehouse and a name not used in that warehouse", () => {
+    const rows = validateAreaRows(
+      {
+        headers: ["Name", "Warehouse", "Visiting order"],
+        rows: [
+          ["Township", "Main", "2"],
+          ["Shahdara Town", "main", ""],
+          ["Gulberg", "Far", ""],
+          ["township", "Main", ""],
+        ],
+      },
+      { warehouses: new Map([["main", "w1"]]), existingKeys: new Set(["w1|shahdara town"]) },
+    );
+    expect(rows.map((r) => r.status)).toEqual(["new", "error", "error", "error"]);
+    expect(rows[0]!.input).toMatchObject({ warehouseId: "w1", name: "Township", sortOrder: 2 });
+    expect(rows[1]!.errors).toEqual(["This warehouse already has an area with this name"]);
+    expect(rows[2]!.errors).toEqual(['Warehouse: "Far" is not an active warehouse']);
+    expect(rows[3]!.errors).toEqual(["This area appears more than once in the file"]);
+  });
+});
+
+describe("sample sheet", () => {
+  it("has example rows for every import that match its columns and are never imported", async () => {
+    for (const kind of IMPORT_KINDS) {
+      const headers = templateHeaders(kind, ["Crunchy Bites Foods"]);
+      const examples = templateExamples(kind, { companies: ["Crunchy Bites Foods"] });
+      expect(examples.length).toBeGreaterThan(0);
+      for (const row of examples) {
+        expect(row).toHaveLength(headers.length);
+        expect(row[0]!.startsWith(EXAMPLE_MARK)).toBe(true);
+      }
+    }
+  });
+});
 
 describe("validateProductRows", () => {
   const headers = [

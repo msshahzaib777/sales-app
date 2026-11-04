@@ -21,7 +21,14 @@ export default function AreasPage({ searchParams }: PageProps<"/settings/areas">
       <PageHeader
         title="Areas / routes"
         description="Group customers for delivery. Each customer's visiting order is set on the customer."
-        actions={<LinkButton href="/settings/areas/new">New area</LinkButton>}
+        actions={
+          <>
+            <LinkButton href="/import/areas" variant="outline">
+              Import
+            </LinkButton>
+            <LinkButton href="/settings/areas/new">New area</LinkButton>
+          </>
+        }
       />
       <List searchParams={searchParams} />
     </RequirePermission>

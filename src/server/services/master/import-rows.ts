@@ -4,6 +4,10 @@ import { readSheet } from "read-excel-file/node";
 import type { ZodError } from "zod";
 
 import {
+  type AreaInput,
+  areaSchema,
+  type CompanyInput,
+  companySchema,
   CUSTOMER_TYPES,
   type CustomerInput,
   customerSchema,
@@ -19,7 +23,12 @@ import { ServiceError } from "../errors";
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 2000;
 
-export type ImportKind = "products" | "customers";
+/** In the order they depend on each other: products need companies, customers need areas. */
+export const IMPORT_KINDS = ["companies", "products", "areas", "customers"] as const;
+export type ImportKind = (typeof IMPORT_KINDS)[number];
+
+/** Rows of the sample sheet that start with this are examples, never imported. */
+export const EXAMPLE_MARK = "EXAMPLE";
 
 export type Table = { headers: string[]; rows: string[][] };
 
@@ -64,7 +73,15 @@ export async function readTable(fileName: string, bytes: Buffer): Promise<Table>
   if (nonEmpty.length < 2)
     throw new ServiceError("The file has no data rows under the header row.");
   const headers = nonEmpty[0]!.map((h) => cellText(h, ""));
-  const rows = nonEmpty.slice(1).map((row) => headers.map((h, i) => cellText(row[i], h)));
+  // The sample sheet's example rows (first cell "EXAMPLE …") are left out, even if not deleted.
+  const rows = nonEmpty
+    .slice(1)
+    .map((row) => headers.map((h, i) => cellText(row[i], h)))
+    .filter((row) => !(row[0] ?? "").toUpperCase().startsWith(EXAMPLE_MARK));
+  if (rows.length === 0)
+    throw new ServiceError(
+      "The file has only the example rows. Add your own rows under the header.",
+    );
   if (rows.length > MAX_IMPORT_ROWS)
     throw new ServiceError(
       `The file has more than ${MAX_IMPORT_ROWS} rows. Split it into smaller files.`,
@@ -336,14 +353,239 @@ export function validateCustomerRows(
   });
 }
 
+// ───────────────────────── Companies ─────────────────────────
+
+export const COMPANY_COLUMNS: Column[] = [
+  { key: "name", label: "Name", required: true, aliases: ["company", "company name"] },
+  { key: "warehouse", label: "Warehouse", required: true },
+  { key: "contactName", label: "Contact person", aliases: ["contact"] },
+  { key: "phone", label: "Phone", aliases: ["mobile", "phone number"] },
+  { key: "address", label: "Address" },
+  { key: "orderBookerName", label: "Order booker", aliases: ["booker", "booker name"] },
+  { key: "orderBookerPhone", label: "Booker phone", aliases: ["order booker phone"] },
+  {
+    key: "paymentTermsDays",
+    label: "Payment terms (days)",
+    aliases: ["payment terms", "terms", "credit days"],
+  },
+  { key: "sackRate", label: "Sack price", aliases: ["sack rate"] },
+  {
+    key: "openingBalance",
+    label: "Opening balance",
+    aliases: ["we owe", "opening", "balance"],
+  },
+];
+
+const COMPANY_LABELS: Record<string, string> = {
+  name: "Name",
+  warehouseId: "Warehouse",
+  contactName: "Contact person",
+  phone: "Phone",
+  address: "Address",
+  orderBookerName: "Order booker",
+  orderBookerPhone: "Booker phone",
+  paymentTermsDays: "Payment terms (days)",
+  sackRate: "Sack price",
+  openingBalance: "Opening balance",
+};
+
+export type CompanyLookups = {
+  /** Lower-cased warehouse name → id (active warehouses). */
+  warehouses: Map<string, string>;
+  /** Lower-cased names of existing companies. */
+  existingNames: Set<string>;
+};
+
+export function validateCompanyRows(
+  table: Table,
+  lookups: CompanyLookups,
+): ValidatedRow<CompanyInput>[] {
+  const index = columnIndex(table.headers, COMPANY_COLUMNS);
+  const seen = new Set<string>();
+  return table.rows.map((row, i) => {
+    const get = (key: string) => (index[key] === undefined ? "" : (row[index[key]!] ?? ""));
+    const values = Object.fromEntries(COMPANY_COLUMNS.map((c) => [c.label, get(c.key)]));
+    const errors: string[] = [];
+
+    const warehouseId = lookups.warehouses.get(nameKey(get("warehouse")));
+    if (get("warehouse") && !warehouseId)
+      errors.push(`Warehouse: "${get("warehouse")}" is not an active warehouse`);
+
+    const parsed = companySchema.safeParse({
+      warehouseId: warehouseId ?? "unknown",
+      name: get("name"),
+      contactName: get("contactName"),
+      phone: get("phone"),
+      address: get("address"),
+      orderBookerName: get("orderBookerName"),
+      orderBookerPhone: get("orderBookerPhone"),
+      paymentTermsDays: get("paymentTermsDays") || "0",
+      sackRate: get("sackRate"),
+      openingBalance: get("openingBalance"),
+    });
+    if (!parsed.success) errors.push(...issueMessages(parsed.error, COMPANY_LABELS));
+
+    const key = nameKey(get("name"));
+    if (key && lookups.existingNames.has(key))
+      errors.push("A company with this name already exists (edit it on its page)");
+    else if (key && seen.has(key)) errors.push("This company appears more than once in the file");
+    seen.add(key);
+
+    const line = i + 2;
+    if (errors.length > 0 || !parsed.success) return { line, values, status: "error", errors };
+    return { line, values, status: "new", errors, input: parsed.data };
+  });
+}
+
+// ───────────────────────── Areas ─────────────────────────
+
+export const AREA_COLUMNS: Column[] = [
+  { key: "name", label: "Name", required: true, aliases: ["area", "area name", "route"] },
+  { key: "warehouse", label: "Warehouse", required: true },
+  { key: "sortOrder", label: "Visiting order", aliases: ["order", "sort order", "sequence"] },
+];
+
+export type AreaLookups = {
+  warehouses: Map<string, string>;
+  /** `warehouseId|lower-cased name` of existing areas. */
+  existingKeys: Set<string>;
+};
+
+export function validateAreaRows(table: Table, lookups: AreaLookups): ValidatedRow<AreaInput>[] {
+  const index = columnIndex(table.headers, AREA_COLUMNS);
+  const seen = new Set<string>();
+  return table.rows.map((row, i) => {
+    const get = (key: string) => (index[key] === undefined ? "" : (row[index[key]!] ?? ""));
+    const values = Object.fromEntries(AREA_COLUMNS.map((c) => [c.label, get(c.key)]));
+    const errors: string[] = [];
+
+    const warehouseId = lookups.warehouses.get(nameKey(get("warehouse")));
+    if (get("warehouse") && !warehouseId)
+      errors.push(`Warehouse: "${get("warehouse")}" is not an active warehouse`);
+
+    const parsed = areaSchema.safeParse({
+      warehouseId: warehouseId ?? "unknown",
+      name: get("name"),
+      sortOrder: get("sortOrder"),
+    });
+    if (!parsed.success)
+      errors.push(
+        ...issueMessages(parsed.error, {
+          name: "Name",
+          warehouseId: "Warehouse",
+          sortOrder: "Visiting order",
+        }),
+      );
+
+    const key = `${warehouseId}|${nameKey(get("name"))}`;
+    if (warehouseId && lookups.existingKeys.has(key))
+      errors.push("This warehouse already has an area with this name");
+    else if (warehouseId && seen.has(key))
+      errors.push("This area appears more than once in the file");
+    seen.add(key);
+
+    const line = i + 2;
+    if (errors.length > 0 || !parsed.success) return { line, values, status: "error", errors };
+    return { line, values, status: "new", errors, input: parsed.data };
+  });
+}
+
 /** Template header row for each import. */
 export function templateHeaders(kind: ImportKind, companyNames: string[] = []): string[] {
-  return kind === "products"
-    ? PRODUCT_COLUMNS.map((c) => c.label)
-    : [...CUSTOMER_COLUMNS.map((c) => c.label), ...companyNames.map(openingColumnLabel)];
+  if (kind === "products") return PRODUCT_COLUMNS.map((c) => c.label);
+  if (kind === "companies") return COMPANY_COLUMNS.map((c) => c.label);
+  if (kind === "areas") return AREA_COLUMNS.map((c) => c.label);
+  return [...CUSTOMER_COLUMNS.map((c) => c.label), ...companyNames.map(openingColumnLabel)];
+}
+
+/**
+ * Example rows for the sample sheet, using this business's own warehouse, company and area names
+ * so they show real choices. Each starts with EXAMPLE, so it is never imported.
+ */
+export function templateExamples(
+  kind: ImportKind,
+  names: { warehouse?: string; company?: string; area?: string; companies?: string[] },
+): string[][] {
+  const warehouse = names.warehouse ?? "Main Warehouse";
+  const company = names.company ?? "Crunchy Bites Foods";
+  const area = names.area ?? "Shahdara Town";
+  if (kind === "companies")
+    return [
+      [
+        `${EXAMPLE_MARK} Crunchy Bites Foods`,
+        warehouse,
+        "Imran Sheikh",
+        "0300-1112233",
+        "Sundar Industrial Estate, Lahore",
+        "Bilal Ahmed",
+        "0301-4455667",
+        "15",
+        "150",
+        "185000",
+      ],
+      [
+        `${EXAMPLE_MARK} Golden Crisp Snacks`,
+        warehouse,
+        "",
+        "042-35123456",
+        "",
+        "",
+        "",
+        "30",
+        "",
+        "",
+      ],
+    ];
+  if (kind === "products")
+    return [
+      [`${EXAMPLE_MARK} CB01`, "Masala Chips Rs10", company, "95", "110", "4", "12"],
+      [`${EXAMPLE_MARK} CB02`, "Salted Chips Rs10", company, "95", "110", "", ""],
+    ];
+  if (kind === "areas")
+    return [
+      [`${EXAMPLE_MARK} Shahdara Town`, warehouse, "1"],
+      [`${EXAMPLE_MARK} Township`, warehouse, "2"],
+    ];
+  const openings = (names.companies ?? []).map((_, i) => (i === 0 ? "3500" : ""));
+  return [
+    [
+      `${EXAMPLE_MARK} Ali Khan`,
+      "Khan Kiryana Store",
+      "Retailer",
+      "0300-1234567",
+      "0300-1234567",
+      "Shop 12, Main Bazaar",
+      area,
+      "1",
+      "25000",
+      ...openings,
+    ],
+    [
+      `${EXAMPLE_MARK} Asif Malik`,
+      "Malik Traders",
+      "Wholesaler",
+      "0321-7654321",
+      "",
+      "",
+      area,
+      "2",
+      "",
+      ...openings.map(() => ""),
+    ],
+  ];
 }
 
 export const IMPORT_NOTES: Record<ImportKind, string[]> = {
+  companies: [
+    "One row per company. Warehouse must match an existing warehouse name (Settings → Warehouses).",
+    "Payment terms: days until a company bill is due (blank = 0). Sack price: credit per empty sack sent back (blank = none).",
+    "Opening balance: what you owe the company now (minus if it owes you).",
+    "A company name that already exists is skipped; edit it on its page.",
+  ],
+  areas: [
+    "One row per area / route. Warehouse must match an existing warehouse name.",
+    "Visiting order is optional: 1 is visited first.",
+  ],
   products: [
     "One row per product. Rates are per dozen in PKR.",
     "A code that already exists updates that product; new rates take effect today and are kept in price history.",

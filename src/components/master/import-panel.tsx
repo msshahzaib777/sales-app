@@ -35,15 +35,7 @@ function download(fileName: string, rows: string[][]) {
  * Two steps: "Check file" shows every row with its status and errors (nothing is saved), then
  * "Import" sends the same file again; the server re-validates it and saves the valid rows.
  */
-export function ImportPanel({
-  kind,
-  templateHeaders,
-  notes,
-}: {
-  kind: ImportKind;
-  templateHeaders: string[];
-  notes: string[];
-}) {
+export function ImportPanel({ kind, notes }: { kind: ImportKind; notes: string[] }) {
   const [preview, previewAction, previewing] = useActionState(
     importPreviewAction.bind(null, kind),
     idleState,
@@ -94,14 +86,13 @@ export function ImportPanel({
             <li key={n}>{n}</li>
           ))}
         </ul>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => download(`${kind}-template.csv`, [templateHeaders])}
-        >
-          Download template (CSV)
+        <Button asChild variant="outline" size="sm">
+          <a href={`/import/template/${kind}`}>Download sample sheet (Excel)</a>
         </Button>
+        <p className="text-muted-foreground text-xs">
+          It has the right columns, example rows (never imported) and a &ldquo;How to fill&rdquo;
+          sheet with your warehouse, company and area names.
+        </p>
       </section>
 
       <form
