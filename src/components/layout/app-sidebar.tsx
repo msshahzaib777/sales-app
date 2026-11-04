@@ -1,4 +1,5 @@
 import { KeyRound } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -27,9 +28,17 @@ export function AppSidebar() {
       <div className="border-sidebar-border flex h-14 items-center justify-between gap-2 border-b px-4 group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-2 max-md:justify-center max-md:px-2">
         <Link
           href="/dashboard"
-          className="truncate text-base font-semibold tracking-tight group-data-[collapsed=true]/sidebar:hidden max-md:hidden"
+          className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight group-data-[collapsed=true]/sidebar:hidden max-md:hidden"
         >
-          {APP_NAME}
+          <Image
+            src="/brand/taqseem-mark.png"
+            alt=""
+            width={28}
+            height={28}
+            unoptimized
+            className="size-7 shrink-0"
+          />
+          <span className="truncate">{APP_NAME}</span>
         </Link>
         {/* Phones always get the icon strip: no room for the full sidebar. */}
         <span className="max-md:hidden">

@@ -2,6 +2,18 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Logo on the website, installer and shortcuts — done
+
+The logo is `Taqseem Logo.png` in the project root. `node scripts/make-brand-assets.mjs` makes
+every image from it, using the `sharp` that comes with Next.js; run it again after changing the
+logo. Small icons use only the cube, because the name is unreadable at 16-48 px.
+- **Website:** browser tab icon (`src/app/favicon.ico`, `icon.png`) and home-screen icon
+  (`apple-icon.png`); the full logo on the sign-in page and the cube before the name in the sidebar
+  (`public/brand/`, served unoptimized so the installed copy needs no image tools).
+- **Installer** (`installer/assets/`): the setup file's icon, the icon in Windows "Apps", the
+  Start menu and desktop "Taqseem" shortcuts (and `Taqseem.url`), and the Start menu
+  **Start Taqseem** / **Stop Taqseem** icons: the cube with a green play / red stop badge.
+
 ## Import from Excel: companies, products, areas, customers, with sample sheets — done
 
 One page, **Import from Excel** (`/import`, owner; also under Settings and as the Import button on
