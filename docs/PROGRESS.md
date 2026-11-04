@@ -2,6 +2,24 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Import from Excel: companies, products, areas, customers, with sample sheets — done
+
+One page, **Import from Excel** (`/import`, owner; also under Settings and as the Import button on
+the Companies, Products, Areas and Customers lists), lists the imports in the order they depend
+on each other: companies → products → areas → customers.
+- **New: companies** (name, warehouse, contact, phone, address, order booker and phone, payment
+  terms, sack price, opening balance, which posts to the company ledger with its opening bill) and
+  **areas** (name, warehouse, visiting order). Both create only; an existing name is skipped with a
+  message. `createCompanyTx` / `createAreaTx` let the import save them in its transaction.
+- **Sample sheet** (`/import/template/<kind>`, .xlsx): an "Import" sheet with the columns and two
+  example rows using this business's own warehouse, company and area names, and a "How to fill"
+  sheet with the rules and the names to choose from. Rows starting with `EXAMPLE` are never
+  imported, so a forgotten example cannot become data. A file with only examples is refused.
+- Unchanged: check first (every row with its status and errors, nothing saved), then import the
+  valid rows in one transaction. The server re-reads the file, there is an error report, and
+  phones are saved as +92. The old `/products/import` and `/customers/import` redirect to the new
+  pages.
+
 ## Booker role and the Products sold report — done
 
 **Booker** (new `Role.BOOKER`, migration `20261104090000_booker_role`; owners give it under

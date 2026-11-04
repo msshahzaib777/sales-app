@@ -2,10 +2,11 @@ import "server-only";
 
 import { businessToday } from "@/lib/dates";
 import { filterParam, type ListParams, searchWhere, statusWhere } from "@/lib/list-params";
-import { companySchema } from "@/lib/validation/master";
+import { type CompanyInput, companySchema } from "@/lib/validation/master";
 
 import { writeAudit } from "../../audit";
 import { assertCan, can } from "../../auth/permissions";
+import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { changedFields, PAGE_SIZE, paged, type ServiceCtx, withUniqueMessage } from "./common";
 import {
@@ -84,34 +85,38 @@ export async function getCompany(ctx: ServiceCtx, id: string) {
 
 export async function createCompany(ctx: ServiceCtx, input: unknown) {
   assertCan(ctx.user.role, "masterData.manage");
-  const { requestId, openingBalance, ...data } = companySchema.parse(input);
-  return ctx.db.$transaction(async (tx) => {
-    if (requestId) {
-      const existing = await tx.company.findUnique({
-        where: { tenantId_requestId: { tenantId: ctx.user.tenantId, requestId } },
-      });
-      if (existing) return existing;
-    }
-    const created = await withUniqueMessage(DUPLICATE, () =>
-      tx.company.create({ data: { tenantId: ctx.user.tenantId, requestId, ...data } }),
-    );
-    await setOpeningBalance(
-      tx,
-      ctx,
-      { kind: "COMPANY", companyId: created.id },
-      openingBalance,
-      businessToday(),
-    );
-    await syncCompanyOpeningBill(tx, ctx, created.id, openingBalance, businessToday());
-    await writeAudit(tx, ctx.user, {
-      action: "CREATE",
-      entityType: "Company",
-      entityId: created.id,
-      newValue: { ...created, openingBalance },
-      requestId,
+  const parsed = companySchema.parse(input);
+  return ctx.db.$transaction((tx) => createCompanyTx(tx, ctx, parsed));
+}
+
+/** Creates a company and its opening balance inside the caller's transaction (also the import). */
+export async function createCompanyTx(tx: TenantTx, ctx: ServiceCtx, parsed: CompanyInput) {
+  const { requestId, openingBalance, ...data } = parsed;
+  if (requestId) {
+    const existing = await tx.company.findUnique({
+      where: { tenantId_requestId: { tenantId: ctx.user.tenantId, requestId } },
     });
-    return created;
+    if (existing) return existing;
+  }
+  const created = await withUniqueMessage(DUPLICATE, () =>
+    tx.company.create({ data: { tenantId: ctx.user.tenantId, requestId, ...data } }),
+  );
+  await setOpeningBalance(
+    tx,
+    ctx,
+    { kind: "COMPANY", companyId: created.id },
+    openingBalance,
+    businessToday(),
+  );
+  await syncCompanyOpeningBill(tx, ctx, created.id, openingBalance, businessToday());
+  await writeAudit(tx, ctx.user, {
+    action: "CREATE",
+    entityType: "Company",
+    entityId: created.id,
+    newValue: { ...created, openingBalance },
+    requestId,
   });
+  return created;
 }
 
 export async function updateCompany(ctx: ServiceCtx, id: string, input: unknown) {

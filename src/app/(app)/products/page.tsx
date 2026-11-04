@@ -32,7 +32,7 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
         actions={
           canEdit ? (
             <>
-              <LinkButton href="/products/import" variant="outline">
+              <LinkButton href="/import/products" variant="outline">
                 Import
               </LinkButton>
               <LinkButton href="/products/new">New product</LinkButton>

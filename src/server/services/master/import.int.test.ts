@@ -91,6 +91,60 @@ describe("product import", () => {
   });
 });
 
+describe("company and area import", () => {
+  it("imports companies with their opening balance, then areas, then customers in them", async () => {
+    const companies = [
+      "Name,Warehouse,Contact person,Phone,Address,Order booker,Booker phone,Payment terms (days),Sack price,Opening balance",
+      "EXAMPLE Sample Foods,Main,,,,,,15,,",
+      "Golden Crisp Snacks,Main,Imran,0300-1112233,,Bilal,0301-4455667,30,150,185000",
+      "Crunchy Bites Foods,Main,,,,,,15,,",
+    ].join("\n");
+    const preview = await previewImport(ctx, "companies", file("c.csv", companies));
+    expect(preview).toMatchObject({ totalRows: 2, newCount: 1, errorCount: 1 });
+    const result = await commitImport(ctx, "companies", file("c.csv", companies), randomUUID());
+    expect(result).toEqual({ created: 1, updated: 0, skipped: 1 });
+    const golden = await ctx.db.company.findFirstOrThrow({
+      where: { name: "Golden Crisp Snacks" },
+    });
+    expect(golden).toMatchObject({ paymentTermsDays: 30, orderBookerPhone: "+92 3014455667" });
+    expect(golden.sackRate?.toFixed(2)).toBe("150.00");
+    // What we owe is in the company ledger, with its opening-balance bill.
+    const owed = await ctx.db.ledgerEntry.aggregate({
+      where: { companyId: golden.id, partyType: "COMPANY" },
+      _sum: { credit: true },
+    });
+    expect(owed._sum.credit?.toFixed(2)).toBe("185000.00");
+    expect(await ctx.db.companyBill.count({ where: { companyId: golden.id } })).toBe(1);
+
+    const areas = ["Name,Warehouse,Visiting order", "Township,Main,2", "Shahdara Town,Main,1"].join(
+      "\n",
+    );
+    expect(await commitImport(ctx, "areas", file("a.csv", areas), randomUUID())).toEqual({
+      created: 1,
+      updated: 0,
+      skipped: 1,
+    });
+    const customers = [
+      "Name,Area,Phone,Opening: Golden Crisp Snacks",
+      "Kashif,Township,03211234567,1200",
+    ].join("\n");
+    await commitImport(ctx, "customers", file("k.csv", customers), randomUUID());
+    const kashif = await ctx.db.customer.findFirstOrThrow({
+      where: { name: "Kashif" },
+      include: { area: true },
+    });
+    expect([kashif.area?.name, kashif.phone]).toEqual(["Township", "+92 3211234567"]);
+    expect((await getCustomer(ctx, kashif.id)).openingBalances).toEqual({ [golden.id]: "1200.00" });
+  });
+
+  it("is for owners only", async () => {
+    const staff: ServiceCtx = { ...ctx, user: { ...ctx.user, role: "STAFF" } };
+    await expect(
+      previewImport(staff, "areas", file("a.csv", "Name,Warehouse\nX,Main")),
+    ).rejects.toThrow(ForbiddenError);
+  });
+});
+
 describe("customer import", () => {
   const CUSTOMERS = [
     "Name,Shop name,Type,Phone,Area,Credit limit,Opening: Crunchy Bites Foods",

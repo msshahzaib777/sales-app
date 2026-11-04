@@ -34,7 +34,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
         actions={
           canEdit ? (
             <>
-              <LinkButton href="/customers/import" variant="outline">
+              <LinkButton href="/import/customers" variant="outline">
                 Import
               </LinkButton>
               <LinkButton href="/customers/new">New customer</LinkButton>

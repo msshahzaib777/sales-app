@@ -32,7 +32,16 @@ export default async function CompaniesPage({ searchParams }: PageProps<"/compan
       <PageHeader
         title="Companies"
         description="Suppliers whose products you distribute, with their order bookers and payment terms."
-        actions={canEdit ? <LinkButton href="/companies/new">New company</LinkButton> : null}
+        actions={
+          canEdit ? (
+            <>
+              <LinkButton href="/import/companies" variant="outline">
+                Import
+              </LinkButton>
+              <LinkButton href="/companies/new">New company</LinkButton>
+            </>
+          ) : null
+        }
       />
       <Notice notice={sp.notice} />
       <ListToolbar

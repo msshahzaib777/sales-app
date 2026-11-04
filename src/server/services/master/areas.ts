@@ -1,10 +1,11 @@
 import "server-only";
 
 import { filterParam, type ListParams, searchWhere, statusWhere } from "@/lib/list-params";
-import { areaSchema } from "@/lib/validation/master";
+import { type AreaInput, areaSchema } from "@/lib/validation/master";
 
 import { writeAudit } from "../../audit";
 import { assertCan } from "../../auth/permissions";
+import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { changedFields, PAGE_SIZE, paged, type ServiceCtx, withUniqueMessage } from "./common";
 
@@ -68,26 +69,30 @@ export async function getArea(ctx: ServiceCtx, id: string) {
 
 export async function createArea(ctx: ServiceCtx, input: unknown) {
   assertCan(ctx.user.role, "masterData.manage");
-  const { requestId, ...data } = areaSchema.parse(input);
-  return ctx.db.$transaction(async (tx) => {
-    if (requestId) {
-      const existing = await tx.area.findUnique({
-        where: { tenantId_requestId: { tenantId: ctx.user.tenantId, requestId } },
-      });
-      if (existing) return existing;
-    }
-    const created = await withUniqueMessage(DUPLICATE, () =>
-      tx.area.create({ data: { tenantId: ctx.user.tenantId, requestId, ...data } }),
-    );
-    await writeAudit(tx, ctx.user, {
-      action: "CREATE",
-      entityType: "Area",
-      entityId: created.id,
-      newValue: created,
-      requestId,
+  const parsed = areaSchema.parse(input);
+  return ctx.db.$transaction((tx) => createAreaTx(tx, ctx, parsed));
+}
+
+/** Creates an area inside the caller's transaction (also used by the import). */
+export async function createAreaTx(tx: TenantTx, ctx: ServiceCtx, parsed: AreaInput) {
+  const { requestId, ...data } = parsed;
+  if (requestId) {
+    const existing = await tx.area.findUnique({
+      where: { tenantId_requestId: { tenantId: ctx.user.tenantId, requestId } },
     });
-    return created;
+    if (existing) return existing;
+  }
+  const created = await withUniqueMessage(DUPLICATE, () =>
+    tx.area.create({ data: { tenantId: ctx.user.tenantId, requestId, ...data } }),
+  );
+  await writeAudit(tx, ctx.user, {
+    action: "CREATE",
+    entityType: "Area",
+    entityId: created.id,
+    newValue: created,
+    requestId,
   });
+  return created;
 }
 
 export async function updateArea(ctx: ServiceCtx, id: string, input: unknown) {
