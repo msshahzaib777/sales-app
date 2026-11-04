@@ -2,6 +2,43 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Booker role and the Products sold report — done
+
+**Booker** (new `Role.BOOKER`, migration `20261104090000_booker_role`; owners give it under
+Settings → Users): orders, counter sales, delivery and day-end, purchases (goods receipts),
+inventory and customers, the same daily work as data entry staff, but no business reports.
+- New permission `reports.view` protects the daily, analysis and damage reports, their Excel
+  files, the dashboard's trends and the rupee totals of the day. Owner, accountant and staff have
+  it; the booker does not.
+- On the dashboard a booker sees "Sent out" in dozens and the number of counter sales, never
+  rupees. Like staff, the booker never sees money, ledgers, expenses, cost or profit.
+- Demo login: `booker@demo.test` / `Demo@12345`.
+
+**Products sold** (`/reports/products-sold`, new permission `reports.productsSold` for every
+tenant role): per product for a day, week, month or any dates, optionally for one company. It shows
+the quantity sold after returns and damage (same meaning as the daily report), how much of it was
+at the counter, bills, customers and days it sold. Most sold comes first. The sales value is shown
+only with `reports.view`, so bookers see quantities only. It has print, PDF and Excel, previous and
+next period, and is linked from the daily report's Products sold section and the dashboard.
+
+## Installer: updates no longer need the data folder deleted — done
+
+Updating could fail after the files were copied. When the data folder's ownership or permissions
+kept the setup from reading `settings.env`, it wrote new database passwords that the existing
+database did not accept, and every later run failed the same way. Deleting
+`C:\ProgramData\Taqseem` (all data) was the only way out. Now (`installer/setup/install.ps1`):
+- Administrators take ownership of the data folder first (`takeown /A`), before its permissions
+  are set.
+- When `settings.env` is lost, the database port is taken from the existing service; the old file
+  is kept as `settings.env.bak` before every write.
+- If the passwords no longer match ("password authentication failed"), the setup repairs them with
+  the data kept: one restart allowing local sign-in without a password, the superuser password set
+  from `settings.env` (`db.mjs set-super-password`), then the normal `pg_hba.conf` restored (always,
+  even on error) and the database restarted. Tested on a throwaway cluster.
+- Any unexpected error ends with one `FAILED:` line, which the setup window shows. The logs,
+  including `install-output.txt`, are readable by every user. Replacing the website service's
+  program retries while Windows still holds it.
+
 ## Dashboard trends, quick counter bills, new customers on orders, +92 phones — done
 
 **Trends on the dashboard** (`dashboard-charts.ts`, `components/dashboard/charts.tsx`): plain

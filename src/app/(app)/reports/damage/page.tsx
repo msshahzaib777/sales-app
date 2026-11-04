@@ -23,7 +23,7 @@ export const metadata: Metadata = { title: "Damage report" };
 
 export default function DamageReportPage(props: PageProps<"/reports/damage">) {
   return (
-    <RequirePermission permission="operations.manage">
+    <RequirePermission permission="reports.view">
       <Report {...props} />
     </RequirePermission>
   );
@@ -36,7 +36,7 @@ const num = "text-right tabular-nums";
 async function Report({ searchParams }: PageProps<"/reports/damage">) {
   const sp = await searchParams;
   const f = parseDamageFilters(sp);
-  const ctx = await requireTenantContext("operations.manage");
+  const ctx = await requireTenantContext("reports.view");
   const [report, options, profile] = await Promise.all([
     damageReport(ctx, f),
     damageReportOptions(ctx, f),

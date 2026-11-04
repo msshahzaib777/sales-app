@@ -29,6 +29,8 @@ enum Role {
   OWNER
   ACCOUNTANT
   STAFF
+  /// Orders, delivery, purchases, stock and customers; no business reports, only products sold.
+  BOOKER
 }
 
 enum AuditAction {

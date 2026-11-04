@@ -234,7 +234,7 @@ if ($result.Out -eq "0") {
   while ($choice -ne "1" -and $choice -ne "2") { $choice = Read-Host "    Type 1 or 2" }
   if ($choice -eq "1") {
     Run "Loading demo data" { pnpm db:seed }
-    $login = "Demo logins (password Demo@12345): owner@demo.test, accountant@demo.test, staff@demo.test"
+    $login = "Demo logins (password Demo@12345): owner@demo.test, accountant@demo.test, staff@demo.test, booker@demo.test"
   } else {
     $business = ""; while ($business.Length -lt 2) { $business = Read-Host "    Business name" }
     $owner = ""; while ($owner.Length -lt 2) { $owner = Read-Host "    Owner's full name" }

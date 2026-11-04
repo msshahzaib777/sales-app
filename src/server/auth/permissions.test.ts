@@ -33,6 +33,32 @@ describe("permissions", () => {
     expect(can("ACCOUNTANT", "expenses.manage")).toBe(true);
   });
 
+  it("gives the booker daily work but no business reports, money or cost", () => {
+    for (const p of [
+      "operations.manage",
+      "stock.requestAdjustment",
+      "reports.productsSold",
+    ] as const)
+      expect(can("BOOKER", p)).toBe(true);
+    for (const p of [
+      "reports.view",
+      "payments.manage",
+      "ledgers.view",
+      "financials.view",
+      "expenses.manage",
+      "masterData.manage",
+      "users.manage",
+    ] as const)
+      expect(can("BOOKER", p)).toBe(false);
+  });
+
+  it("keeps the business reports for owner, accountant and staff", () => {
+    for (const role of ["OWNER", "ACCOUNTANT", "STAFF"] as const) {
+      expect(can(role, "reports.view")).toBe(true);
+      expect(can(role, "reports.productsSold")).toBe(true);
+    }
+  });
+
   it("gives the platform super admin no tenant permissions", () => {
     for (const permission of PERMISSIONS) expect(can("SUPER_ADMIN", permission)).toBe(false);
   });

@@ -5,6 +5,10 @@
 //     SALES_PG_SUPER_URL     superuser connection, e.g. postgresql://postgres:pw@localhost:5432/postgres
 //     SALES_APP_DB_PASSWORD  password for the sales_app role (hex, from the setup script)
 //
+//   node scripts/windows/db.mjs set-super-password   sets the postgres superuser's password
+//     SALES_PG_SUPER_URL       superuser connection (the installer's one-minute local trust)
+//     SALES_PG_SUPER_PASSWORD  the password from settings.env (hex)
+//
 //   node scripts/windows/db.mjs reset    deletes the app database and role (fresh installation)
 //     SALES_PG_SUPER_URL     superuser connection
 //
@@ -54,6 +58,15 @@ async function ensure() {
   console.log("ok");
 }
 
+async function setSuperPassword() {
+  const password = process.env.SALES_PG_SUPER_PASSWORD ?? "";
+  if (!/^[0-9a-f]{16,}$/.test(password)) throw new Error("SALES_PG_SUPER_PASSWORD must be hex.");
+  await withClient(process.env.SALES_PG_SUPER_URL, (db) =>
+    db.query(`ALTER ROLE postgres WITH PASSWORD '${password}'`),
+  );
+  console.log("ok");
+}
+
 async function reset() {
   await withClient(process.env.SALES_PG_SUPER_URL, async (db) => {
     const database = await db.query("SELECT 1 FROM pg_database WHERE datname = 'sales_app'");
@@ -76,6 +89,7 @@ async function tenants() {
 try {
   if (command === "ensure") await ensure();
   else if (command === "reset") await reset();
+  else if (command === "set-super-password") await setSuperPassword();
   else if (command === "tenants") await tenants();
   else throw new Error(`Unknown command: ${command}`);
 } catch (error) {

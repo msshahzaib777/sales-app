@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: "Daily report" };
 
 export default function DailyReportPage(props: PageProps<"/reports/daily">) {
   return (
-    <RequirePermission permission="operations.manage">
+    <RequirePermission permission="reports.view">
       <Report {...props} />
     </RequirePermission>
   );
@@ -38,7 +38,7 @@ const STATUS = {
 async function Report({ searchParams }: PageProps<"/reports/daily">) {
   const sp = await searchParams;
   // Session first: it makes the page dynamic before today's date is read.
-  const ctx = await requireTenantContext("operations.manage");
+  const ctx = await requireTenantContext("reports.view");
   const date = parseDateRange({ from: sp.date }).from ?? businessToday();
   const [r, profile] = await Promise.all([dailyReport(ctx, date), getPrintProfile(ctx)]);
   const day = (offset: number) => toDateInput(new Date(date.getTime() + offset * DAY_MS));
@@ -329,8 +329,20 @@ function SpecialRates({ r }: { r: DailyReport }) {
 }
 
 function ProductsSold({ r }: { r: DailyReport }) {
+  const day = toDateInput(r.date);
   return (
     <Section title="Products sold">
+      <p className="print:hidden">
+        Per product for the{" "}
+        <Link href={`/reports/products-sold?period=week&date=${day}`} className="underline">
+          week
+        </Link>{" "}
+        or{" "}
+        <Link href={`/reports/products-sold?period=month&date=${day}`} className="underline">
+          month
+        </Link>
+        : Products sold report.
+      </p>
       {r.productsSold.length === 0 ? (
         <p>Nothing billed on this day.</p>
       ) : (

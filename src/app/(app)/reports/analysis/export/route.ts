@@ -7,7 +7,7 @@ import { xBold, xlsxResponse, xMoney } from "@/server/xlsx";
 
 /** The business analysis as an Excel file: the same sections as the page, one after another. */
 export async function GET(request: Request) {
-  const ctx = await requireTenantContext("operations.manage");
+  const ctx = await requireTenantContext("reports.view");
   const sp = Object.fromEntries(new URL(request.url).searchParams);
   const kind: PeriodKind = PERIOD_KINDS.includes(sp.period as PeriodKind)
     ? (sp.period as PeriodKind)

@@ -27,7 +27,7 @@ function weeksEnding(date: Date) {
 }
 
 export async function getDashboardCharts(ctx: ServiceCtx, date: Date) {
-  assertCan(ctx.user.role, "operations.manage");
+  assertCan(ctx.user.role, "reports.view");
   const salesFrom = addDays(date, -(SALES_DAYS - 1));
   const weeks = weeksEnding(date);
   const weeksFrom = weeks[0]!.from;

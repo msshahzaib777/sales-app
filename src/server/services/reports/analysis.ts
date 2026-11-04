@@ -48,7 +48,7 @@ function compare(current: Prisma.Decimal | number, previous: Prisma.Decimal | nu
 }
 
 export async function businessAnalysis(ctx: ServiceCtx, kind: PeriodKind, date: Date) {
-  assertCan(ctx.user.role, "operations.manage");
+  assertCan(ctx.user.role, "reports.view");
   const showCost = can(ctx.user.role, "financials.view");
   const showMoney = can(ctx.user.role, "payments.manage");
 

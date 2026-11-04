@@ -96,14 +96,22 @@ async function DashboardView({
       )}
       <QuickActions actions={quickActions(ctx.user.role, d)} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <TodaysWork work={d.work} date={d.today} isToday={d.isToday} />
+        <TodaysWork
+          work={d.work}
+          date={d.today}
+          isToday={d.isToday}
+          showSales={can(ctx.user.role, "reports.view")}
+        />
         {d.money ? <MoneyToday money={d.money} date={d.isToday ? null : d.today} /> : null}
         <OverLimit customers={d.overLimit} />
         <LowStock stock={d.lowStock} />
       </div>
-      <Suspense fallback={<p className="text-muted-foreground text-sm">Loading trends…</p>}>
-        <Trends date={d.today} />
-      </Suspense>
+      {/* Business figures: not for bookers (they see products sold in quantities only). */}
+      {can(ctx.user.role, "reports.view") ? (
+        <Suspense fallback={<p className="text-muted-foreground text-sm">Loading trends…</p>}>
+          <Trends date={d.today} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
@@ -250,7 +258,13 @@ function quickActions(role: Role, d: Dashboard): QuickAction[] {
       href: `/reports/daily?date=${toDateInput(d.today)}`,
       label: "Day report",
       icon: "report",
-      permission: "operations.manage",
+      permission: "reports.view",
+    },
+    {
+      href: `/reports/products-sold?date=${toDateInput(d.today)}`,
+      label: "Products sold",
+      icon: "report",
+      permission: "reports.productsSold",
     },
   ];
   return all.filter((a) => can(role, a.permission)).map(({ permission: _p, ...a }) => a);
@@ -319,10 +333,13 @@ function TodaysWork({
   work,
   date,
   isToday,
+  showSales,
 }: {
   work: Dashboard["work"];
   date: Date;
   isToday: boolean;
+  /** Rupee totals of the day's sales (business reports); otherwise quantities only. */
+  showSales: boolean;
 }) {
   const tomorrow = toDateInput(work.tomorrow);
   const on = toDateInput(date);
@@ -331,8 +348,8 @@ function TodaysWork({
   return (
     <Panel
       title={isToday ? "Today's work" : `Work on ${formatDate(date)}`}
-      href={`/reports/daily?date=${on}`}
-      linkLabel="Full day report"
+      href={showSales ? `/reports/daily?date=${on}` : `/reports/products-sold?date=${on}`}
+      linkLabel={showSales ? "Full day report" : "Products sold"}
     >
       <div className="grid gap-2 sm:grid-cols-3">
         <Stat
@@ -371,9 +388,11 @@ function TodaysWork({
           alert={d.stillOut > 0 && !isToday && date < new Date()}
         />
         <Stat
-          label="Billed"
-          value={formatMoney(d.billed)}
-          href={`/reports/daily?date=${on}`}
+          label={showSales ? "Billed" : "Sent out"}
+          value={showSales ? formatMoney(d.billed) : formatDozens(d.sent)}
+          href={
+            showSales ? `/reports/daily?date=${on}` : `/reports/products-sold?from=${on}&to=${on}`
+          }
           note={
             d.sent
               ? `sent ${formatDozens(d.sent)}${d.returnedQty ? ` · returned ${formatDozens(d.returnedQty)}` : ""}${d.damagedQty ? ` · damaged ${formatDozens(d.damagedQty)}` : ""}`
@@ -382,7 +401,7 @@ function TodaysWork({
         />
         <Stat
           label="Counter sales"
-          value={formatMoney(d.counter.billed)}
+          value={showSales ? formatMoney(d.counter.billed) : d.counter.sales}
           href={`/orders?type=COUNTER&from=${on}&to=${on}`}
           note={
             d.counter.sales
