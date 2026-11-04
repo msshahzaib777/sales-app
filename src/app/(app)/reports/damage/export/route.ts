@@ -10,7 +10,7 @@ import { xBold, xlsxResponse, xMoney } from "@/server/xlsx";
 
 /** The damage report as an Excel file: same filters and rows as the screen. */
 export async function GET(request: Request) {
-  const ctx = await requireTenantContext("operations.manage");
+  const ctx = await requireTenantContext("reports.view");
   const f = parseDamageFilters(Object.fromEntries(new URL(request.url).searchParams));
   const r = await damageReport(ctx, f);
   const d = (x?: Date) => (x ? toDateInput(x) : "");

@@ -16,6 +16,7 @@ import { createProduct } from "../master/products";
 import { createWarehouse } from "../master/warehouses";
 import { createGoodsReceipt } from "../purchasing/goods-receipts";
 import { dailyReport } from "../reports/daily";
+import { productsSold, soldRange } from "../reports/products-sold";
 import { createCounterSale } from "./counter";
 import { listSalesOrders } from "./orders";
 import { customerPending, openOrdersTotal } from "./positions";
@@ -36,7 +37,7 @@ async function setup() {
     db: createTenantDb(tenant.id),
     user: { id: owner.id, role: "OWNER", tenantId: tenant.id },
   };
-  const as = (role: "STAFF" | "ACCOUNTANT"): ServiceCtx => ({
+  const as = (role: "STAFF" | "ACCOUNTANT" | "BOOKER"): ServiceCtx => ({
     ...ctx,
     user: { ...ctx.user, role },
   });
@@ -244,6 +245,45 @@ describe("counter sale", () => {
     expect(c.owed!.at(-1)).toMatchObject({ customers: 4348, companies: 3000 });
     const staff = await getDashboardCharts(t.as("STAFF"), date);
     expect([staff.billedVsCollected, staff.owed]).toEqual([null, null]);
+  });
+
+  it("products sold: quantities per product for a day or a week; amounts and reports not for bookers", async () => {
+    const other = await createCustomer(t.ctx, { name: "Bilal", type: "RETAILER" });
+    await createCounterSale(t.ctx, sale("2"));
+    await createCounterSale(t.ctx, sale("1"));
+    await createCounterSale(t.ctx, {
+      ...sale("3"),
+      customerId: other.id,
+      warehouseId: t.main.id,
+      saleDate: "2026-10-19",
+    });
+    const day = soldRange("day", new Date(`${DAY}T00:00:00.000Z`));
+    const r = await productsSold(t.ctx, day);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]).toMatchObject({
+      code: "CB01",
+      quantity: 36, // 3 dz
+      counter: 36,
+      bills: 2,
+      customers: 1,
+    });
+    expect(r.rows[0]!.amount?.toFixed(2)).toBe("672.00");
+
+    // The week (Mon 19 – Sun 25 Oct 2026) also has the sale of the 19th, to another customer.
+    const week = soldRange("week", new Date(`${DAY}T00:00:00.000Z`));
+    expect(week.from.toISOString().slice(0, 10)).toBe("2026-10-19");
+    const w = await productsSold(t.ctx, week);
+    expect(w.rows[0]).toMatchObject({ quantity: 72, bills: 3, customers: 2, days: 2 });
+    expect(w.dayCount).toBe(7);
+
+    // A booker sees quantities, never amounts, and cannot open the business reports.
+    const booker = t.as("BOOKER");
+    const b = await productsSold(booker, day);
+    expect([b.rows[0]!.quantity, b.rows[0]!.amount, b.totals.amount]).toEqual([36, null, null]);
+    await expect(dailyReport(booker, day.from)).rejects.toThrow(ForbiddenError);
+    await expect(getDashboardCharts(booker, day.from)).rejects.toThrow(ForbiddenError);
+    // But can sell at the counter.
+    await createCounterSale(booker, sale("1"));
   });
 
   it("is not allowed without operations access", async () => {

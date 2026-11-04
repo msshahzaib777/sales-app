@@ -295,7 +295,7 @@ if ($tenants.Out -eq "0") {
     Step "Loading the demo data"
     $r = Tool "seed.mjs" @() $dbEnv
     if ($r.Code -ne 0) { Fail "Loading the demo data failed: $($r.Out)" }
-    $login = "Demo data. Sign in with owner@demo.test, accountant@demo.test or staff@demo.test, password Demo@12345."
+    $login = "Demo data. Sign in with owner@demo.test, accountant@demo.test, staff@demo.test or booker@demo.test, password Demo@12345."
   } elseif ($Mode -eq "business") {
     Step "Creating your business"
     if ($Business.Length -lt 2 -or $Owner.Length -lt 2 -or $Email -notmatch "^[^@\s]+@[^@\s]+\.[^@\s]+$") {

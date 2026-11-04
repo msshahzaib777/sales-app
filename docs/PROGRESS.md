@@ -2,6 +2,25 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Booker role and the Products sold report — done
+
+**Booker** (new `Role.BOOKER`, migration `20261104090000_booker_role`; owners give it under
+Settings → Users): orders, counter sales, delivery and day-end, purchases (goods receipts),
+inventory and customers, the same daily work as data entry staff, but no business reports.
+- New permission `reports.view` protects the daily, analysis and damage reports, their Excel
+  files, the dashboard's trends and the rupee totals of the day. Owner, accountant and staff have
+  it; the booker does not.
+- On the dashboard a booker sees "Sent out" in dozens and the number of counter sales, never
+  rupees. Like staff, the booker never sees money, ledgers, expenses, cost or profit.
+- Demo login: `booker@demo.test` / `Demo@12345`.
+
+**Products sold** (`/reports/products-sold`, new permission `reports.productsSold` for every
+tenant role): per product for a day, week, month or any dates, optionally for one company. It shows
+the quantity sold after returns and damage (same meaning as the daily report), how much of it was
+at the counter, bills, customers and days it sold. Most sold comes first. The sales value is shown
+only with `reports.view`, so bookers see quantities only. It has print, PDF and Excel, previous and
+next period, and is linked from the daily report's Products sold section and the dashboard.
+
 ## Installer: updates no longer need the data folder deleted — done
 
 Updating could fail after the files were copied. When the data folder's ownership or permissions

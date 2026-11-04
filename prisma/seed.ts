@@ -435,6 +435,17 @@ async function main() {
           mustChangePassword: false,
         },
       });
+      // Order booker: orders, delivery, purchases and stock; products sold, no business reports.
+      await tx.user.create({
+        data: {
+          tenantId,
+          email: "booker@demo.test",
+          name: "Usman Booker",
+          role: "BOOKER",
+          passwordHash,
+          mustChangePassword: false,
+        },
+      });
       const createdById = owner.id;
 
       // ── Units: packet is the base unit (12 to a dozen); rates are per dozen ──
@@ -1369,7 +1380,7 @@ async function main() {
   };
   console.log(`Seeded "${tenant.name}":`, counts);
   console.log(
-    `Logins (password ${DEMO_PASSWORD}): owner@demo.test, accountant@demo.test, staff@demo.test, admin@platform.test`,
+    `Logins (password ${DEMO_PASSWORD}): owner@demo.test, accountant@demo.test, staff@demo.test, booker@demo.test, admin@platform.test`,
   );
 }
 

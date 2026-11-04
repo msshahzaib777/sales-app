@@ -26,7 +26,7 @@ export const metadata: Metadata = { title: "Business analysis" };
 
 export default function AnalysisPage(props: PageProps<"/reports/analysis">) {
   return (
-    <RequirePermission permission="operations.manage">
+    <RequirePermission permission="reports.view">
       <Report {...props} />
     </RequirePermission>
   );
@@ -41,7 +41,7 @@ type Compared = { current: { toNumber(): number }; change: number | null };
 async function Report({ searchParams }: PageProps<"/reports/analysis">) {
   const sp = await searchParams;
   // Session first: it makes the page dynamic before today's date is read.
-  const ctx = await requireTenantContext("operations.manage");
+  const ctx = await requireTenantContext("reports.view");
   const kind: PeriodKind = PERIOD_KINDS.includes(sp.period as PeriodKind)
     ? (sp.period as PeriodKind)
     : "month";

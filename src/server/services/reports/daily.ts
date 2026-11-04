@@ -30,7 +30,7 @@ const sum = <T>(rows: T[], f: (r: T) => Prisma.Decimal | null | undefined) =>
   rows.reduce((s, r) => s.add(f(r) ?? ZERO), ZERO);
 
 export async function dailyReport(ctx: ServiceCtx, date: Date) {
-  assertCan(ctx.user.role, "operations.manage");
+  assertCan(ctx.user.role, "reports.view");
   const showMoney = can(ctx.user.role, "payments.manage");
   const showCost = can(ctx.user.role, "financials.view");
   const next = new Date(date.getTime() + DAY_MS);

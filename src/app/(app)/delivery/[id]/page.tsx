@@ -13,6 +13,7 @@ import { OrderStatusBadge } from "@/components/sales/order-badges";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
 import { formatDozens } from "@/lib/units";
+import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import {
   addOrdersToTripAction,
@@ -86,10 +87,15 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
                     ...(firstOpen
                       ? [{ href: `/delivery/${id}/day-end`, label: "Enter the rest" }]
                       : []),
-                    {
-                      href: `/reports/daily?date=${toDateInput(trip.tripDate)}`,
-                      label: "Day report",
-                    },
+                    can(ctx.user.role, "reports.view")
+                      ? {
+                          href: `/reports/daily?date=${toDateInput(trip.tripDate)}`,
+                          label: "Day report",
+                        }
+                      : {
+                          href: `/reports/products-sold?date=${toDateInput(trip.tripDate)}`,
+                          label: "Products sold",
+                        },
                   ]
                 : []
         }

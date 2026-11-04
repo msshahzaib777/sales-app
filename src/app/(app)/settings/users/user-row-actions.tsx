@@ -14,7 +14,7 @@ import { TemporaryPasswordNotice } from "./temporary-password-notice";
 type Props = {
   userId: string;
   name: string;
-  role: "OWNER" | "ACCOUNTANT" | "STAFF";
+  role: "OWNER" | "ACCOUNTANT" | "STAFF" | "BOOKER";
   isActive: boolean;
 };
 

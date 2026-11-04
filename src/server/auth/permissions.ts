@@ -34,6 +34,10 @@ export const PERMISSIONS = [
   "audit.view",
   /** Cancel posted documents that move stock (e.g. a goods receipt entered by mistake). */
   "documents.reverse",
+  /** Business reports (daily, analysis, damage) and the dashboard's sales figures and trends. */
+  "reports.view",
+  /** Products sold in a day, week or month (quantities; amounts only with reports.view). */
+  "reports.productsSold",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -49,8 +53,13 @@ const ROLE_PERMISSIONS: Record<TenantRole, readonly Permission[]> = {
     "ledgers.view",
     "expenses.manage",
     "financials.view",
+    "reports.view",
+    "reports.productsSold",
   ],
-  STAFF: ["operations.manage", "stock.requestAdjustment"],
+  STAFF: ["operations.manage", "stock.requestAdjustment", "reports.view", "reports.productsSold"],
+  // Orders, counter sales, delivery, purchases, stock and customers, like data entry staff, but no
+  // business reports: only which products sold, in quantities.
+  BOOKER: ["operations.manage", "stock.requestAdjustment", "reports.productsSold"],
 };
 
 /** SUPER_ADMIN is platform-level and has no tenant permissions (support access comes in Phase 5). */
@@ -75,6 +84,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   OWNER: "Owner",
   ACCOUNTANT: "Accountant",
   STAFF: "Data entry staff",
+  BOOKER: "Booker",
 };
 
 /** Roles an owner can give to tenant users. */
@@ -82,4 +92,5 @@ export const TENANT_ROLES = [
   "OWNER",
   "ACCOUNTANT",
   "STAFF",
+  "BOOKER",
 ] as const satisfies readonly TenantRole[];

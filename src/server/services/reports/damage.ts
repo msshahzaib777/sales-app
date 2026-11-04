@@ -56,7 +56,7 @@ export const CLAIM_STATUS_LABEL = {
 } as const;
 
 export async function damageReport(ctx: ServiceCtx, f: DamageFilters) {
-  assertCan(ctx.user.role, "operations.manage");
+  assertCan(ctx.user.role, "reports.view");
   const showValue = can(ctx.user.role, "financials.view");
   const lines = await ctx.db.salesOrderLine.findMany({
     where: {
@@ -180,7 +180,7 @@ export type DamageReport = Awaited<ReturnType<typeof damageReport>>;
 
 /** Filter choices: drivers, products, companies and the period's trips. */
 export async function damageReportOptions(ctx: ServiceCtx, range: DateRange) {
-  assertCan(ctx.user.role, "operations.manage");
+  assertCan(ctx.user.role, "reports.view");
   const [drivers, products, companies, trips] = await Promise.all([
     ctx.db.staff.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     ctx.db.product.findMany({

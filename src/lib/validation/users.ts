@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { emailSchema } from "./auth";
 
-export const tenantRoleSchema = z.enum(["OWNER", "ACCOUNTANT", "STAFF"]);
+export const tenantRoleSchema = z.enum(["OWNER", "ACCOUNTANT", "STAFF", "BOOKER"]);
 
 export const inviteUserSchema = z.object({
   name: z.string().trim().min(2, "Enter the person's name").max(100),
