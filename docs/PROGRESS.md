@@ -2,6 +2,22 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Trip sheets: loading + driver sheet front and back, A4 sideways — done
+
+- **Delivery → trip → Loading + driver sheet** (`/delivery/[id]/trip-sheets`): one print for the two sides of one sheet.
+  - Page 1 is the loading sheet. It always fits one page (its text starts at 13 pt and shrinks only for a big load, `FitText`), so the driver sheet always starts on the back.
+  - Then the driver sheet.
+  - Both are A4 sideways (`tripSheetCss`), so double-sided printing flips them alike: two-sided, flip on short edge.
+- **Loading sheet:** now A4 sideways too, one page, with products to load on the left and the stops on the right. Before, it was drawn 210 mm wide on A4 portrait, wider than the 194 mm between the margins.
+- **Driver sheet:**
+  - the amount columns have room for 12,345,678.00 (real balances overlapped the next column), and the headings are shorter, in smaller type;
+  - on a narrow screen the sheet scrolls sideways instead of squeezing.
+- **Landscape:** the page sets it, so the print dialog shows no layout choice. The hint on the page says so.
+- Shared components: `components/delivery/trip-sheets.tsx` (LoadingSheet, DriverSheet); `FitText` in `components/print/fit-copies.tsx`.
+- Tested, printed to PDF:
+  - 30 products and 15 stops → the loading sheet is 1 page;
+  - 15 stops of 5 products with 1,234,567.00 amounts → 3 pages, no overflowing cell.
+
 ## Driver sheet: one compact table on A4 sideways — done
 
 - The driver sheet is now **one continuous table on A4 turned sideways** (`driverSheetCss`: 297 × 210 mm, 7 mm margin, 9 pt).

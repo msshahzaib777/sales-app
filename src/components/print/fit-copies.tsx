@@ -5,27 +5,39 @@ import { useEffect } from "react";
 import { COPY_MIN_FONT_PT } from "@/lib/print";
 
 /**
- * Two copies per A5: a long bill shrinks its text just enough to fit its half (down to
- * COPY_MIN_FONT_PT), instead of being cut off. Runs on screen (the preview has the printed size)
- * and again just before printing. Renders nothing.
+ * Shrinks the text of fixed-size boxes just enough for their content to fit (down to `minPt`),
+ * instead of cutting it off or spilling onto another page. Runs on screen (the preview has the
+ * printed size), once the fonts are in, and again just before printing. Renders nothing.
  */
-export function FitCopies({ fontPt }: { fontPt: number }) {
+export function FitText({
+  selector,
+  fontPt,
+  minPt,
+}: {
+  selector: string;
+  fontPt: number;
+  minPt: number;
+}) {
   useEffect(() => {
     const fit = () => {
-      for (const bill of document.querySelectorAll<HTMLElement>(".print-bill[data-fit]")) {
+      for (const box of document.querySelectorAll<HTMLElement>(selector)) {
         let size = fontPt;
-        bill.style.fontSize = `${size}pt`;
-        while (bill.scrollHeight > bill.clientHeight + 1 && size > COPY_MIN_FONT_PT) {
-          size = Math.max(COPY_MIN_FONT_PT, size - 0.5);
-          bill.style.fontSize = `${size}pt`;
+        box.style.fontSize = `${size}pt`;
+        while (box.scrollHeight > box.clientHeight + 1 && size > minPt) {
+          size = Math.max(minPt, size - 0.5);
+          box.style.fontSize = `${size}pt`;
         }
       }
     };
     fit();
-    // Fonts arrive a moment after the page: measure again once they are in.
     void document.fonts?.ready.then(fit);
     window.addEventListener("beforeprint", fit);
     return () => window.removeEventListener("beforeprint", fit);
-  }, [fontPt]);
+  }, [selector, fontPt, minPt]);
   return null;
+}
+
+/** Two copies per A5: a long bill shrinks its text to fit its half (down to COPY_MIN_FONT_PT). */
+export function FitCopies({ fontPt }: { fontPt: number }) {
+  return <FitText selector=".print-bill[data-fit]" fontPt={fontPt} minPt={COPY_MIN_FONT_PT} />;
 }

@@ -6,11 +6,11 @@ import {
   COPY_LABELS,
   copyFontPt,
   DEFAULT_PRINT_SETTINGS,
-  loadingSheetCss,
   paperHint,
   paperSize,
   statementPageCss,
   toSheets,
+  tripSheetCss,
   usesCompactBill,
 } from "./print";
 
@@ -84,11 +84,11 @@ describe("print CSS", () => {
     expect(paperHint(s)).toBe("Prints 2 copies of each bill side by side on A5, sideways");
   });
 
-  it("the loading sheet prints on A4 in large text", () => {
-    const css = loadingSheetCss(DEFAULT_PRINT_SETTINGS);
-    expect(css).toContain("@page { size: 210mm 297mm; margin: 8mm; }");
-    expect(css).toContain(".print-root { font-size: 13pt; }");
-    expect(loadingSheetCss({ ...DEFAULT_PRINT_SETTINGS, fontSizePt: 14 })).toContain("14pt");
+  it("trip sheets print on A4 sideways; the loading sheet is exactly one page", () => {
+    const css = tripSheetCss();
+    expect(css).toContain("@page { size: 297mm 210mm; margin: 7mm; }");
+    expect(css).toContain(".loading-page { width: 283mm; height: 195mm;");
+    expect(css).toContain(".loading-page { break-after: page; }");
   });
 
   it("statements always print on A4", () => {
