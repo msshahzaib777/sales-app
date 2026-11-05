@@ -53,6 +53,9 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
                   <LinkButton href={`/delivery/${id}/loading-sheet`} variant="outline">
                     Loading sheet
                   </LinkButton>
+                  <LinkButton href={`/delivery/${id}/driver-sheet`} variant="outline">
+                    Driver sheet
+                  </LinkButton>
                   <LinkButton href={`/orders/print?${ids}`} variant="outline">
                     Print bills
                   </LinkButton>
@@ -71,6 +74,7 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
           sp.notice === "trip-planned"
             ? [
                 { href: `/delivery/${id}/loading-sheet`, label: "Loading sheet" },
+                { href: `/delivery/${id}/driver-sheet`, label: "Driver sheet" },
                 { href: `/orders/print?${ids}`, label: "Print bills" },
                 {
                   href: `/delivery/new?date=${toDateInput(trip.tripDate)}`,
@@ -80,6 +84,7 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
             : sp.notice === "dispatched"
               ? [
                   { href: `/orders/print?${ids}`, label: "Print bills" },
+                  { href: `/delivery/${id}/driver-sheet`, label: "Driver sheet" },
                   { href: `/delivery/${id}/loading-sheet`, label: "Loading sheet" },
                 ]
               : sp.notice === "day-end-saved"
