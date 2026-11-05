@@ -1,5 +1,7 @@
 import "server-only";
 
+import { join } from "node:path";
+
 import pg from "pg";
 import { z } from "zod";
 
@@ -14,6 +16,8 @@ import {
   pendingCount,
   readConfig,
   removeTriggers,
+  restoreFromCloud as restoreEngine,
+  type RestoreResult,
   setupLocal,
   writeConfig,
 } from "../sync/engine";
@@ -61,6 +65,8 @@ export type CloudSyncStatus = {
   lastError: string | null;
   lastErrorAt: string | null;
   pending: number;
+  /** When this computer's data was last replaced by the cloud copy. */
+  restoredAt: string | null;
 };
 
 export async function getCloudSync(ctx: ServiceCtx): Promise<CloudSyncStatus> {
@@ -75,6 +81,7 @@ export async function getCloudSync(ctx: ServiceCtx): Promise<CloudSyncStatus> {
       lastError: cfg.last_error ?? null,
       lastErrorAt: cfg.last_error_at ?? null,
       pending: await pendingCount(db),
+      restoredAt: cfg.restored_at ?? null,
     };
   });
 }
@@ -140,4 +147,41 @@ export async function disableCloudSync(ctx: ServiceCtx) {
     entityId: ctx.user.tenantId,
     newValue: { enabled: false },
   });
+}
+
+const restoreSchema = z.object({
+  url: urlSchema,
+  confirm: z
+    .string()
+    .trim()
+    .refine((v) => v.toUpperCase() === "RESTORE", { message: "Type RESTORE to confirm" }),
+});
+
+/**
+ * Replaces all of this computer's data with the cloud copy (a new or repaired office computer).
+ * This computer's data is backed up to a file first. The users, passwords and audit log come
+ * from the cloud copy too, so everyone signs in again with their old login; the audit log of this
+ * computer is in the backup. Sync then carries on into the same cloud database.
+ */
+export async function restoreFromCloud(ctx: ServiceCtx, input: unknown): Promise<RestoreResult> {
+  assertCan(ctx.user.role, "settings.manage");
+  const { url } = restoreSchema.parse(input);
+  await oneBusinessOnly();
+  const localUrl = process.env.DATABASE_URL;
+  if (!localUrl) throw new ServiceError("This computer's database is not configured.");
+  try {
+    return await restoreEngine({
+      localUrl,
+      cloudUrl: url,
+      migrationsDir:
+        process.env.TAQSEEM_MIGRATIONS_DIR ??
+        join(/* turbopackIgnore: true */ process.cwd(), "prisma", "migrations"),
+      pgBin: process.env.PG_BIN,
+      backupDir:
+        process.env.TAQSEEM_BACKUP_DIR ??
+        join(/* turbopackIgnore: true */ process.cwd(), ".backups"),
+    });
+  } catch (error) {
+    throw new ServiceError(error instanceof Error ? error.message : String(error));
+  }
 }

@@ -1,13 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+import { signOut } from "@/auth";
 
 import type { ActionState } from "@/lib/action-state";
 
 import { runAction } from "./actions";
 import { requireTenantContext } from "./auth/session";
 import { ServiceError } from "./services/errors";
-import { disableCloudSync, enableCloudSync } from "./services/cloud-sync";
+import { disableCloudSync, enableCloudSync, restoreFromCloud } from "./services/cloud-sync";
 import { setLogo, updateBusinessSettings } from "./services/settings";
 import { syncNow } from "./sync/agent";
 
@@ -93,4 +96,21 @@ export async function disableCloudSyncAction(): Promise<ActionState> {
     revalidatePath("/settings/cloud-sync");
     return { message: "Cloud sync is off. The cloud copy stays as it is." };
   });
+}
+
+/**
+ * Replaces this computer's data with the cloud copy. The signed-in user is replaced too, so it
+ * ends with the login page: everyone signs in with their login from the restored data.
+ */
+export async function restoreFromCloudAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const result = await runAction(async () => {
+    const ctx = await requireTenantContext("settings.manage");
+    await restoreFromCloud(ctx, { url: formData.get("url"), confirm: formData.get("confirm") });
+  });
+  if (result.status !== "success") return result;
+  await signOut({ redirect: false });
+  redirect("/login?restored=1");
 }

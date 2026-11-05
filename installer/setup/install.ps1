@@ -361,6 +361,7 @@ $xmlEscape = { param($v) [System.Security.SecurityElement]::Escape($v) }
   <env name="AUTH_TRUST_HOST" value="true" />
   <env name="PG_BIN" value="$(& $xmlEscape $PgTools)" />
   <env name="TAQSEEM_MIGRATIONS_DIR" value="$(& $xmlEscape (Join-Path $AppDir "migrations"))" />
+  <env name="TAQSEEM_BACKUP_DIR" value="$(& $xmlEscape $BackupDir)" />
 </service>
 "@ | Set-Content -Path (Join-Path $ServiceDir "$WebService.xml") -Encoding UTF8
 if (-not (Service-Exists $WebService)) {

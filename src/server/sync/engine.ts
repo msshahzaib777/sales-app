@@ -17,8 +17,8 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -460,3 +460,223 @@ export async function syncOnce(o: SyncOptions): Promise<SyncResult> {
 
 /** A new installation id, made once when sync is first turned on. */
 export const newInstallId = () => randomUUID();
+
+// ───────────────────────── Restore ─────────────────────────
+
+export type RestoreOptions = SyncOptions & {
+  cloudUrl: string;
+  /** Where the safety backup of this computer's data is written before it is replaced. */
+  backupDir: string;
+};
+
+export type RestoreResult = {
+  /** The safety backup of the data that was replaced. */
+  backupFile: string;
+  /** Database updates this program has that the cloud copy did not (applied after the restore). */
+  updated: number;
+  customers: number;
+  orders: number;
+};
+
+/** Where the current tables wait while the cloud copy is loaded. */
+const OLD = "taqseem_restore_old";
+
+/**
+ * Replaces this computer's data with the cloud copy (a new or repaired office computer), then
+ * links this installation to that cloud database so sync carries on where it left off.
+ *
+ *   1. Checks the cloud database holds a Taqseem copy this program can read (not a newer version).
+ *   2. Backs up this computer's database to a file, and downloads the cloud copy.
+ *   3. Moves the current tables aside, loads the cloud copy in one transaction, and only then drops
+ *      the old tables; if loading fails, the old tables are put back.
+ *   4. Applies the database updates this program has and the cloud copy did not yet.
+ */
+export async function restoreFromCloud(o: RestoreOptions): Promise<RestoreResult> {
+  const local = new pg.Client({ connectionString: libpqUrl(o.localUrl) });
+  await local.connect();
+  try {
+    await setupLocal(local);
+    const lock = await local.query<{ ok: boolean }>(
+      `SELECT pg_try_advisory_lock(hashtext('taqseem_sync')) AS ok`,
+    );
+    if (!lock.rows[0]?.ok) throw new Error("A sync is running. Wait a minute and try again.");
+    try {
+      return await restoreLocked(local, o);
+    } finally {
+      await local.query(`SELECT pg_advisory_unlock(hashtext('taqseem_sync'))`).catch(() => {});
+    }
+  } finally {
+    await local.end().catch(() => {});
+  }
+}
+
+/** The installation id of a cloud database holding a Taqseem copy this program can restore. */
+async function checkRestorable(cloudUrl: string, migrationsDir: string): Promise<string> {
+  const cloud = new pg.Client({
+    connectionString: libpqUrl(cloudUrl),
+    connectionTimeoutMillis: 15_000,
+  });
+  try {
+    await cloud.connect();
+  } catch (error) {
+    throw new Error(
+      `Could not reach the cloud database: ${error instanceof Error ? error.message : error}. Check the connection string and the internet.`,
+    );
+  }
+  try {
+    const owner = await cloudOwner(cloud);
+    const tables = await cloud.query<{ ok: boolean }>(
+      `SELECT to_regclass('public."_prisma_migrations"') IS NOT NULL
+          AND to_regclass('public."Tenant"') IS NOT NULL AS ok`,
+    );
+    if (!owner || !tables.rows[0]?.ok)
+      throw new Error("This cloud database has no Taqseem copy to restore.");
+    const { rows } = await cloud.query<{ name: string }>(
+      `SELECT migration_name AS name FROM "_prisma_migrations"
+       WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
+    );
+    if (rows.some((r) => !existsSync(migrationFile(migrationsDir, r.name))))
+      throw new Error(
+        "The cloud copy was made by a newer version of Taqseem. Update this computer to the latest version first, then restore.",
+      );
+    return owner;
+  } finally {
+    await cloud.end().catch(() => {});
+  }
+}
+
+const migrationFile = (dir: string, name: string) =>
+  join(/* turbopackIgnore: true */ dir, name, "migration.sql");
+
+async function restoreLocked(local: Db, o: RestoreOptions): Promise<RestoreResult> {
+  const installId = await checkRestorable(o.cloudUrl, o.migrationsDir);
+
+  const dir = await mkdtemp(join(tmpdir(), "taqseem-restore-"));
+  try {
+    // 2. Safety backup of what is here now (every schema; pg_restore can bring it back).
+    await mkdir(/* turbopackIgnore: true */ o.backupDir, { recursive: true });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+    const backupFile = join(
+      /* turbopackIgnore: true */ o.backupDir,
+      `taqseem-before-restore-${stamp}.dump`,
+    );
+    await run(tool(o.pgBin, "pg_dump"), [
+      "--format=custom",
+      "--no-owner",
+      `--file=${backupFile}`,
+      libpqUrl(o.localUrl),
+    ]);
+
+    // The cloud copy, downloaded before anything here changes.
+    const dump = join(dir, "cloud.dump");
+    const list = join(dir, "cloud.list");
+    await run(tool(o.pgBin, "pg_dump"), [
+      "--format=custom",
+      "--schema=public",
+      "--no-owner",
+      "--no-privileges",
+      `--file=${dump}`,
+      libpqUrl(o.cloudUrl),
+    ]);
+    const entries = (await run(tool(o.pgBin, "pg_restore"), ["--list", dump])).split(/\r?\n/);
+    await writeFile(
+      list,
+      entries
+        .filter(
+          (l) =>
+            !/ SCHEMA - public /.test(l) &&
+            !/COMMENT - SCHEMA public/.test(l) &&
+            !l.includes(TRIGGER),
+        )
+        .join("\n"),
+    );
+
+    // 3. The swap.
+    await local.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`);
+    await local.query(`BEGIN`);
+    await local.query(`ALTER SCHEMA public RENAME TO ${OLD}`);
+    await local.query(`CREATE SCHEMA public`);
+    await local.query(`COMMIT`);
+    try {
+      await run(tool(o.pgBin, "pg_restore"), [
+        "--no-owner",
+        "--no-privileges",
+        "--single-transaction",
+        "--exit-on-error",
+        `--use-list=${list}`,
+        `--dbname=${libpqUrl(o.localUrl)}`,
+        dump,
+      ]);
+    } catch (error) {
+      await local.query(`BEGIN`);
+      await local.query(`DROP SCHEMA public CASCADE`);
+      await local.query(`ALTER SCHEMA ${OLD} RENAME TO public`);
+      await local.query(`COMMIT`);
+      throw error;
+    }
+    await local.query(`DROP SCHEMA ${OLD} CASCADE`);
+
+    // 4. Database updates of this program the cloud copy did not have yet.
+    const updated = await migrateLocal(local, o.migrationsDir);
+
+    // Sync carries on into the same cloud database, as the same installation; the next run sends
+    // these database updates to the cloud copy too.
+    await local.query(`TRUNCATE ${SYNC_SCHEMA}.outbox`);
+    await installTriggers(local);
+    await writeConfig(local, {
+      enabled: "true",
+      cloud_url: o.cloudUrl,
+      install_id: installId,
+      copied_to: fingerprint(o.cloudUrl),
+      restored_at: new Date().toISOString(),
+      last_error: null,
+    });
+
+    const counts = await local.query<{ c: number; o: number }>(
+      `SELECT (SELECT count(*) FROM "Customer")::int AS c,
+              (SELECT count(*) FROM "SalesOrder")::int AS o`,
+    );
+    return { backupFile, updated, customers: counts.rows[0]!.c, orders: counts.rows[0]!.o };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Applies the migration files missing from this database's _prisma_migrations, in order. */
+async function migrateLocal(local: Db, migrationsDir: string): Promise<number> {
+  const { rows } = await local.query<{ name: string }>(
+    `SELECT migration_name AS name FROM "_prisma_migrations"
+     WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
+  );
+  const done = new Set(rows.map((r) => r.name));
+  const names = readdirSync(/* turbopackIgnore: true */ migrationsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !done.has(d.name))
+    .map((d) => d.name)
+    .filter((name) => existsSync(migrationFile(migrationsDir, name)))
+    .sort();
+  for (const name of names) {
+    const sql = readFileSync(
+      /* turbopackIgnore: true */ migrationFile(migrationsDir, name),
+      "utf8",
+    );
+    const started = new Date();
+    await local.query(`BEGIN`);
+    try {
+      await local.query(sql);
+      // As Prisma records it (checksum: SHA-256 of migration.sql), so later updates carry on.
+      await local.query(
+        `INSERT INTO "_prisma_migrations"
+           (id, checksum, finished_at, migration_name, started_at, applied_steps_count)
+         VALUES ($1, $2, now(), $3, $4, 1)`,
+        [randomUUID(), createHash("sha256").update(sql).digest("hex"), name, started],
+      );
+      await local.query(`COMMIT`);
+    } catch (error) {
+      await local.query(`ROLLBACK`).catch(() => {});
+      throw new Error(
+        `The database update ${name} failed after the restore: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+  return names.length;
+}

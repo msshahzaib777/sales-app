@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ConfirmAction } from "@/components/form/confirm-action";
 import { RequirePermission } from "@/components/layout/no-access";
 import { BackLink, PageHeader } from "@/components/layout/page-header";
+import { CloudRestoreForm } from "@/components/settings/cloud-restore-form";
 import { CloudSyncForm } from "@/components/settings/cloud-sync-form";
 import { Badge } from "@/components/ui/badge";
 import { formatDateTime } from "@/lib/format";
@@ -11,6 +12,7 @@ import { getCloudSync } from "@/server/services/cloud-sync";
 import {
   disableCloudSyncAction,
   enableCloudSyncAction,
+  restoreFromCloudAction,
   syncNowAction,
 } from "@/server/settings-actions";
 
@@ -59,6 +61,12 @@ async function Status() {
             {s.pending}
             {s.pending > 0 && s.enabled ? " (sent when the internet is up)" : ""}
           </dd>
+          {s.restoredAt ? (
+            <>
+              <dt className="text-muted-foreground">Restored from the cloud</dt>
+              <dd>{formatDateTime(new Date(s.restoredAt))}</dd>
+            </>
+          ) : null}
         </dl>
         {s.lastError ? (
           <p role="alert" className="text-destructive text-sm">
@@ -102,6 +110,23 @@ async function Status() {
           </li>
         </ol>
         <CloudSyncForm action={enableCloudSyncAction} enabled={s.enabled} />
+      </section>
+
+      <section aria-labelledby="sync-restore" className="space-y-3 rounded-lg border p-4">
+        <h2 id="sync-restore" className="font-medium">
+          Restore from the cloud copy
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          For a new or repaired office computer: install Taqseem, sign in, and bring the data back
+          from the cloud copy. <strong>All data on this computer is replaced</strong> (it is saved
+          to a backup file first). Users and passwords come back too, so everyone signs in with
+          their usual login afterwards, and sync carries on into the same cloud database.
+        </p>
+        <p className="text-muted-foreground text-sm">
+          Use it on one computer only: if the old office computer still works, turn its cloud sync
+          off first, so two computers never send to the same cloud copy.
+        </p>
+        <CloudRestoreForm action={restoreFromCloudAction} />
       </section>
     </div>
   );

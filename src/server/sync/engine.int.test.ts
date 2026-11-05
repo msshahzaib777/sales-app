@@ -15,7 +15,15 @@ import { join } from "node:path";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { checkCloud, libpqUrl, setupLocal, syncOnce, writeConfig } from "./engine";
+import {
+  checkCloud,
+  libpqUrl,
+  readConfig,
+  restoreFromCloud,
+  setupLocal,
+  syncOnce,
+  writeConfig,
+} from "./engine";
 
 // The real sync between two throwaway databases on the test server: a full copy with pg_dump /
 // pg_restore, then changes. Needs pg_dump / pg_restore: PG_BIN, or the installer's copy.
@@ -34,6 +42,8 @@ const urlFor = (db: string) => admin.replace(/\/[^/?]+(\?|$)/, `/${db}$1`);
 const suffix = randomUUID().slice(0, 8);
 const LOCAL = `sync_local_${suffix}`;
 const CLOUD = `sync_cloud_${suffix}`;
+/** A new office computer, restored from the cloud copy. */
+const NEW = `sync_new_${suffix}`;
 let local: pg.Client;
 let cloud: pg.Client;
 
@@ -100,6 +110,7 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
     await Promise.all([local?.end(), cloud?.end()]);
     await onServer(`DROP DATABASE IF EXISTS ${LOCAL} WITH (FORCE)`);
     await onServer(`DROP DATABASE IF EXISTS ${CLOUD} WITH (FORCE)`);
+    await onServer(`DROP DATABASE IF EXISTS ${NEW} WITH (FORCE)`);
   });
 
   const sync = (migrationsDir = MIGRATIONS) =>
@@ -196,4 +207,84 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
       { name: "Second Store" },
     ]);
   }, 120_000);
+
+  it("restores a new office computer from the cloud copy, then carries on syncing", async () => {
+    await onServer(`CREATE DATABASE ${NEW}`);
+    const fresh = new pg.Client({ connectionString: urlFor(NEW) });
+    await fresh.connect();
+    const dir = mkdtempSync(join(tmpdir(), "taqseem-migrations-"));
+    const backups = mkdtempSync(join(tmpdir(), "taqseem-backups-"));
+    try {
+      // A fresh installation with its own first owner's business.
+      await migrate(fresh, MIGRATIONS);
+      await fresh.query(
+        `INSERT INTO "Tenant" (id, name, slug, "updatedAt") VALUES ('fresh', 'New', 'new', now())`,
+      );
+      const restore = (migrationsDir: string, cloudUrl = urlFor(CLOUD)) =>
+        restoreFromCloud({
+          localUrl: urlFor(NEW),
+          cloudUrl,
+          migrationsDir,
+          pgBin: PG_BIN,
+          backupDir: backups,
+        });
+
+      // Not a Taqseem copy, or one from a newer version (the cloud has the test update above).
+      await expect(restore(MIGRATIONS, urlFor(NEW))).rejects.toThrow(/no Taqseem copy/);
+      await expect(restore(MIGRATIONS)).rejects.toThrow(/newer version of Taqseem/);
+      expect(await rows(fresh, `SELECT id FROM "Tenant"`)).toEqual([{ id: "fresh" }]);
+
+      // This program knows the cloud's updates and has one more, applied after the restore.
+      cpSync(MIGRATIONS, dir, { recursive: true });
+      mkdirSync(join(dir, "29991231000000_test_warehouse_note"));
+      writeFileSync(
+        join(dir, "29991231000000_test_warehouse_note", "migration.sql"),
+        `ALTER TABLE "Warehouse" ADD COLUMN "note" TEXT;`,
+      );
+      mkdirSync(join(dir, "29991231000001_test_warehouse_code"));
+      writeFileSync(
+        join(dir, "29991231000001_test_warehouse_code", "migration.sql"),
+        `ALTER TABLE "Warehouse" ADD COLUMN "code" TEXT;`,
+      );
+      const result = await restore(dir);
+      expect(result).toMatchObject({ updated: 1 });
+      expect(existsSync(result.backupFile)).toBe(true);
+
+      // The cloud's data replaced this computer's, and the extra update is applied and recorded.
+      expect(await rows(fresh, `SELECT id FROM "Tenant"`)).toEqual([{ id: "t1" }]);
+      expect(await rows(fresh, `SELECT id, name, note, code FROM "Warehouse" ORDER BY id`)).toEqual(
+        [
+          { id: "w1", name: "Main Warehouse", note: null, code: null },
+          { id: "w2", name: "Second Store", note: "cold store", code: null },
+        ],
+      );
+      expect(
+        await rows(
+          fresh,
+          `SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE migration_name LIKE '2999%'`,
+        ),
+      ).toEqual([{ n: 2 }]);
+      expect(
+        await rows(
+          fresh,
+          `SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = 'taqseem_restore_old'`,
+        ),
+      ).toEqual([{ n: 0 }]);
+      // It is the same installation now, so the old computer's id stays with the cloud copy.
+      expect(await readConfig(fresh)).toMatchObject({ enabled: "true", install_id: "install-a" });
+
+      // Changes on the new computer reach the cloud copy, with the new update.
+      await fresh.query(`UPDATE "Warehouse" SET code = 'W1' WHERE id = 'w1'`);
+      expect(
+        await syncOnce({ localUrl: urlFor(NEW), migrationsDir: dir, pgBin: PG_BIN }),
+      ).toMatchObject({ status: "done", copied: false, sent: 1 });
+      expect(await rows(cloud, `SELECT code FROM "Warehouse" WHERE id = 'w1'`)).toEqual([
+        { code: "W1" },
+      ]);
+    } finally {
+      await fresh.end();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(backups, { recursive: true, force: true });
+    }
+  }, 180_000);
 });

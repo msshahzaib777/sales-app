@@ -36,8 +36,21 @@ PostgreSQL, `pg`, pg_dump / pg_restore, our code.
 - Test: `src/server/sync/engine.int.test.ts`, two throwaway databases: full copy, inserts,
   updates, deletes, a two-column key, an append-only table, a database update before the changes
   needing it, refusing another installation, and catching up after no internet.
+- **Restore from the cloud copy** (Settings → Cloud sync, owner, type RESTORE): for a new or
+  repaired office computer. `restoreFromCloud` in the engine:
+  - refuses a database without a Taqseem copy, and a copy made by a newer Taqseem (migrations this
+    program does not have: update first);
+  - backs up this computer's database (`pg_dump`, custom format) to `TAQSEEM_BACKUP_DIR` (the
+    installer's `backups` folder; `.backups` in development) as `taqseem-before-restore-*.dump`;
+  - downloads the cloud copy, renames `public` aside, loads the copy in one transaction, and drops
+    the old tables only after that worked (put back if loading fails);
+  - applies this program's newer migrations (recorded in `_prisma_migrations` with Prisma's
+    checksum), then links this installation to the cloud database (its installation id, capture
+    triggers, sync on), so sync carries on into the same copy without a new full copy.
+  - Users and passwords come from the copy, so it ends on the login page with a notice. The
+    advisory lock keeps it from running during a sync. Tested in the sync integration test and in
+    the browser (cloud value back, local-only change gone, sign-in, sync on).
 - **Open:**
-  - restoring the office from the cloud copy (today: pg_dump from the cloud, then restore);
   - a read-only website on the cloud copy;
   - the old `taqseem.bat` route still uses the npm PostgreSQL without pg_dump, so its backup
     before updates fails with a clear message.
