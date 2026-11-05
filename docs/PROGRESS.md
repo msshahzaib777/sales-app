@@ -26,6 +26,17 @@ Running log of what has been built, decisions taken, and open items. Newest firs
   - `Alt+N`, then three products by `Tab Tab`, `Alt+R`, `Ctrl+Delete`, `Esc Esc` (asks), `?`, and find on a trip page.
   - Production build passes.
 
+## Two copies per A5: sideways, side by side (ORIGINAL / DUPLICATE) — done
+
+- "Print 2 copies of each bill per A5 sheet" now prints **A5 turned sideways** (210 × 148 mm) with the two copies **side by side**: ORIGINAL on the left, DUPLICATE on the right, and a dashed cut line between them. This replaces the stacked layout, where each copy was a short A6 half.
+- Each copy is a tall 105 × 148 mm half: about 40% more height for products than before.
+- **Always the compact bill** (`usesCompactBill`), with a thin 4 mm edge (`COPY_MARGIN_MM`), whatever the margin setting.
+- **Text:** at least 11 pt (`COPY_FONT_PT`; a larger font setting is kept). A long bill shrinks its text just enough to fit its half, down to 7 pt (`components/print/fit-copies.tsx`, on screen and before printing), instead of being cut off.
+- Tested:
+  - a 5-line bill prints at 11 pt;
+  - 30 lines fit at 7.5 pt, with the totals and signature line;
+  - PDF printed in the browser, A5 sideways.
+
 ## Driver sheet (printed, per trip) — done
 
 - **Delivery → trip → Driver sheet** (also offered after planning and after dispatch): the sheet the driver takes on the trip and fills in by hand. It is in the same order as day-end entry, so the office types it in from top to bottom. A4, black and white.

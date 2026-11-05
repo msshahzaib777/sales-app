@@ -145,9 +145,10 @@ export function BusinessSettingsForm({
           <span>
             <span className="font-medium">Print 2 copies of each bill per A5 sheet</span>
             <span className="text-muted-foreground block">
-              The same bill twice on one A5 sheet (top and bottom half, cut line between), e.g. a
-              customer copy and an office copy; overrides the paper size above. Each copy is A6
-              size, so a long bill may be cut off; compact bills fit more lines.
+              A5 turned sideways with the same bill twice side by side: ORIGINAL on the left,
+              DUPLICATE on the right, a cut line between. Always the compact bill, in larger text
+              with thin margins; a long bill shrinks its text to fit. Overrides the paper size
+              above.
             </span>
             <FieldError id="twoCopiesPerA5-error" message={fieldError(state, "twoCopiesPerA5")} />
           </span>

@@ -1,7 +1,8 @@
 // Print layout rules (SPEC §11), shared by every printable page. Pure, so they are unit-tested.
 //
 // Bills print on the tenant's paper (A5 by default; A4, half-A4, A6 or a custom size), two to an
-// A4 sheet, or two copies of the same bill on one A5 sheet. Statements and reports print on A4. Margins and font size are tenant settings.
+// A4 sheet, or two copies of the same bill side by side on one A5 sheet turned sideways (ORIGINAL
+// and DUPLICATE). Statements and reports print on A4. Margins and font size are tenant settings.
 
 export const PAPER_SIZES = ["A5", "A4", "HALF_A4", "A6", "CUSTOM"] as const;
 export type PaperSize = (typeof PAPER_SIZES)[number];
@@ -28,7 +29,10 @@ export type PrintSettings = {
   marginMm: number;
   fontSizePt: number;
   twoPerA4: boolean;
-  /** Each bill printed twice on one A5 sheet (two A6 halves with a cut line). */
+  /**
+   * Each bill printed twice on one A5 sheet turned sideways (210 × 148 mm): two tall halves side
+   * by side, ORIGINAL and DUPLICATE, with a cut line; always the compact bill.
+   */
   twoCopiesPerA5?: boolean;
   /** The short bill layout, for small paper. */
   compact?: boolean;
@@ -51,7 +55,25 @@ export type BillLayout = {
   perSheet: 1 | 2;
   /** 2 when both halves of a sheet hold the same bill (two copies per A5). */
   copies: 1 | 2;
+  /** The halves side by side (two copies per A5, sideways) rather than one above the other. */
+  sideBySide: boolean;
 };
+
+/** Two copies per A5: the copies, left to right. */
+export const COPY_LABELS = ["ORIGINAL", "DUPLICATE"] as const;
+/** Two copies per A5: the space around each copy (a thin edge, as on small-printer bills). */
+export const COPY_MARGIN_MM = 4;
+/**
+ * Two copies per A5: the text starts bigger than the setting for readability, and shrinks (to
+ * no less than COPY_MIN_FONT_PT) only when a long bill would not fit its half otherwise.
+ */
+export const COPY_FONT_PT = 11;
+export const COPY_MIN_FONT_PT = 7;
+export const copyFontPt = (s: Pick<PrintSettings, "fontSizePt">) =>
+  Math.max(s.fontSizePt, COPY_FONT_PT);
+
+/** The short bill layout: chosen in Settings, and always for two copies per A5. */
+export const usesCompactBill = (s: PrintSettings) => Boolean(s.compact || s.twoCopiesPerA5);
 
 export function paperSize(s: Pick<PrintSettings, "paper" | "widthMm" | "heightMm">): {
   widthMm: number;
@@ -68,10 +90,11 @@ export function paperSize(s: Pick<PrintSettings, "paper" | "widthMm" | "heightMm
 export function billLayout(s: PrintSettings): BillLayout {
   if (s.twoCopiesPerA5) {
     return {
-      sheet: { widthMm: 148, heightMm: 210 },
-      bill: { widthMm: 148, heightMm: 105 },
+      sheet: { widthMm: 210, heightMm: 148 },
+      bill: { widthMm: 105, heightMm: 148 },
       perSheet: 2,
       copies: 2,
+      sideBySide: true,
     };
   }
   if (s.twoPerA4) {
@@ -80,10 +103,11 @@ export function billLayout(s: PrintSettings): BillLayout {
       bill: { widthMm: 210, heightMm: 148.5 },
       perSheet: 2,
       copies: 1,
+      sideBySide: false,
     };
   }
   const size = paperSize(s);
-  return { sheet: size, bill: size, perSheet: 1, copies: 1 };
+  return { sheet: size, bill: size, perSheet: 1, copies: 1, sideBySide: false };
 }
 
 /**
@@ -107,6 +131,19 @@ const mm = (n: number) => `${Number(n.toFixed(2))}mm`;
 export function billPageCss(s: PrintSettings): string {
   const layout = billLayout(s);
   const common = `.print-root { font-size: ${s.fontSizePt}pt; }`;
+  if (layout.sideBySide) {
+    const { sheet, bill } = layout;
+    return [
+      `@page { size: ${mm(sheet.widthMm)} ${mm(sheet.heightMm)}; margin: 0; }`,
+      `.print-root { font-size: ${copyFontPt(s)}pt; }`,
+      `@media print {`,
+      `  .print-sheet { width: ${mm(sheet.widthMm)}; height: ${mm(sheet.heightMm)}; break-after: page; display: flex; flex-direction: row; }`,
+      `  .print-sheet:last-child { break-after: auto; }`,
+      `  .print-bill { width: ${mm(bill.widthMm)}; height: ${mm(bill.heightMm)}; padding: ${mm(COPY_MARGIN_MM)}; overflow: hidden; box-sizing: border-box; position: relative; }`,
+      `  .print-bill + .print-bill { border-left: 1px dashed #000; }`,
+      `}`,
+    ].join("\n");
+  }
   if (layout.perSheet === 2) {
     const { sheet, bill } = layout;
     return [
@@ -140,7 +177,7 @@ export function statementPageCss(s: PrintSettings): string {
 
 /** "Prints on A5 (148 × 210 mm)" and similar, shown next to the print button. */
 export function paperHint(s: PrintSettings): string {
-  if (s.twoCopiesPerA5) return "Prints 2 copies of each bill per A5 sheet";
+  if (s.twoCopiesPerA5) return "Prints 2 copies of each bill side by side on A5, sideways";
   if (s.twoPerA4) return "Prints 2 bills per A4 sheet";
   if (s.paper === "CUSTOM") {
     const { widthMm, heightMm } = paperSize(s);
