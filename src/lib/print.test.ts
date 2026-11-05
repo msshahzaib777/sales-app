@@ -26,6 +26,7 @@ describe("paper and layout", () => {
       sheet: { widthMm: 210, heightMm: 297 },
       bill: { widthMm: 210, heightMm: 148.5 },
       perSheet: 2,
+      copies: 1,
     });
     expect(billLayout({ ...DEFAULT_PRINT_SETTINGS, paper: "A6" }).perSheet).toBe(1);
   });
@@ -48,6 +49,24 @@ describe("print CSS", () => {
     expect(css).toContain("@page { size: 210mm 297mm; margin: 0; }");
     expect(css).toContain(".print-bill { height: 148.5mm; padding: 8mm;");
     expect(css).toContain("border-top: 1px dashed #000");
+  });
+
+  it("two copies per A5: A5 page with no margin, the same bill in both halves", () => {
+    const s = { ...DEFAULT_PRINT_SETTINGS, twoPerA4: true, twoCopiesPerA5: true };
+    expect(billLayout(s)).toEqual({
+      sheet: { widthMm: 148, heightMm: 210 },
+      bill: { widthMm: 148, heightMm: 105 },
+      perSheet: 2,
+      copies: 2,
+    });
+    const css = billPageCss(s);
+    expect(css).toContain("@page { size: 148mm 210mm; margin: 0; }");
+    expect(css).toContain(".print-bill { height: 105mm; padding: 8mm;");
+    expect(toSheets(["a", "b"], 2, 2)).toEqual([
+      ["a", "a"],
+      ["b", "b"],
+    ]);
+    expect(paperHint(s)).toBe("Prints 2 copies of each bill per A5 sheet");
   });
 
   it("statements always print on A4", () => {

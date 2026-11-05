@@ -34,6 +34,20 @@ describe("businessSettingsSchema", () => {
   });
 });
 
+describe("two-per-sheet options", () => {
+  it("allows one of 2 per A4 and 2 copies per A5, not both", () => {
+    expect(businessSettingsSchema.parse({ ...base, twoCopiesPerA5: "on" })).toMatchObject({
+      twoBillsPerA4: false,
+      twoCopiesPerA5: true,
+    });
+    expect(
+      businessSettingsSchema
+        .safeParse({ ...base, twoBillsPerA4: "on", twoCopiesPerA5: "on" })
+        .error?.issues.map((i) => i.path[0]),
+    ).toEqual(["twoCopiesPerA5"]);
+  });
+});
+
 describe("sniffLogoType", () => {
   it("recognises PNG, JPEG and WebP by content, and rejects the rest", () => {
     expect(sniffLogoType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]))).toBe(

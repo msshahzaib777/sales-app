@@ -27,6 +27,7 @@ export async function getPrintProfile(ctx: ServiceCtx): Promise<PrintProfile> {
       marginMm: t.printMarginMm,
       fontSizePt: t.printFontSizePt,
       twoPerA4: t.twoBillsPerA4,
+      twoCopiesPerA5: t.twoCopiesPerA5,
       compact: t.compactBills,
     },
   };
@@ -42,6 +43,7 @@ const settingsFields = {
   printMarginMm: true,
   printFontSizePt: true,
   twoBillsPerA4: true,
+  twoCopiesPerA5: true,
   compactBills: true,
 } as const;
 

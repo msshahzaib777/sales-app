@@ -3,9 +3,9 @@
 import { useActionState, useState } from "react";
 
 import { SelectField, TextField } from "@/components/form/field";
-import { FormMessage } from "@/components/form/form-message";
+import { FieldError, FormMessage } from "@/components/form/form-message";
 import { Button } from "@/components/ui/button";
-import { type ActionState, idleState, submittedValue } from "@/lib/action-state";
+import { type ActionState, fieldError, idleState, submittedValue } from "@/lib/action-state";
 import { PAPER_LABEL, PAPER_SIZES, type PaperSize } from "@/lib/print";
 
 type Values = {
@@ -18,6 +18,7 @@ type Values = {
   printMarginMm: number;
   printFontSizePt: number;
   twoBillsPerA4: boolean;
+  twoCopiesPerA5: boolean;
   compactBills: boolean;
 };
 
@@ -33,6 +34,7 @@ export function BusinessSettingsForm({
     submittedValue(state, "billPaper") ?? values.billPaper,
   );
   const twoPerA4 = submittedValue(state, "twoBillsPerA4");
+  const twoCopies = submittedValue(state, "twoCopiesPerA5");
   const compact = submittedValue(state, "compactBills");
   return (
     <form action={formAction} className="space-y-6" noValidate>
@@ -130,6 +132,24 @@ export function BusinessSettingsForm({
             <span className="text-muted-foreground block">
               Two half-A4 bills on one sheet with a cut line; overrides the paper size above.
             </span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm sm:col-span-4">
+          <input
+            type="checkbox"
+            name="twoCopiesPerA5"
+            defaultChecked={state.status === "error" ? twoCopies === "on" : values.twoCopiesPerA5}
+            aria-describedby="twoCopiesPerA5-error"
+            className="mt-0.5 size-4"
+          />
+          <span>
+            <span className="font-medium">Print 2 copies of each bill per A5 sheet</span>
+            <span className="text-muted-foreground block">
+              The same bill twice on one A5 sheet (top and bottom half, cut line between), e.g. a
+              customer copy and an office copy; overrides the paper size above. Each copy is A6
+              size, so a long bill may be cut off; compact bills fit more lines.
+            </span>
+            <FieldError id="twoCopiesPerA5-error" message={fieldError(state, "twoCopiesPerA5")} />
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm sm:col-span-4">

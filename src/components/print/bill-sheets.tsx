@@ -5,7 +5,8 @@ import { PrintStyles } from "./print-frame";
 const mm = (n: number) => `${n}mm`;
 
 /**
- * Lays bills out on printed sheets: one per sheet, or two per A4 with a cut line. On screen the
+ * Lays bills out on printed sheets: one per sheet, two per A4, or two copies of each bill per A5
+ * (the halves separated by a cut line). On screen the
  * sheets are shown at their real paper size so the preview matches the print.
  */
 export function BillSheets({
@@ -28,14 +29,14 @@ export function BillSheets({
           ${billPageCss(settings)}\n${screenCss}
         `}
       />
-      {toSheets(bills, layout.perSheet).map((sheet, i) => (
+      {toSheets(bills, layout.perSheet, layout.copies).map((sheet, i) => (
         <section
           key={i}
           className="print-sheet mx-auto border bg-white text-black shadow-sm print:mx-0 print:border-0 print:shadow-none"
           aria-label={`Sheet ${i + 1}`}
         >
-          {sheet.map((b) => (
-            <div key={b.key} className="print-bill">
+          {sheet.map((b, j) => (
+            <div key={`${b.key}-${j}`} className="print-bill">
               {b.node}
             </div>
           ))}
