@@ -240,17 +240,21 @@ begin
           if (I >= 0) and (Trim(Lines[I]) <> '') then Tail := Tail + Lines[I] + #13#10;
     end;
     if Tail = '' then Tail := '(The setup printed nothing.)' + #13#10;
-    MsgBox('Taqseem was copied but could not be set up (code ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
+    SuppressibleMsgBox('Taqseem was copied but could not be set up (code ' + IntToStr(Code) + ').' + #13#10 + #13#10 +
       Tail + #13#10 +
       'The details are in ' + DataDir() + '\logs\install-output.txt. Your data is not deleted: ' +
-      'send this message to support, or run TaqseemSetup again.', mbError, MB_OK);
+      'send this message to support, or run TaqseemSetup again.', mbError, MB_OK, IDOK);
     Exit;
   end;
-  if LoadStringsFromFile(DataDir() + '\first-login.txt', Lines) then
+  { The first sign-in only after a new installation (or a fresh start): the file stays in the data
+    folder, so after an update it would otherwise be shown every time. SuppressibleMsgBox: a silent
+    setup (/SUPPRESSMSGBOXES) does not stop and wait for OK. }
+  if NeedsContents() and LoadStringsFromFile(DataDir() + '\first-login.txt', Lines) then
   begin
     Login := '';
     for I := 0 to GetArrayLength(Lines) - 1 do Login := Login + Lines[I] + #13#10;
-    MsgBox(Login + #13#10 + '(Saved in ' + DataDir() + '\first-login.txt)', mbInformation, MB_OK);
+    SuppressibleMsgBox(Login + #13#10 + '(Saved in ' + DataDir() + '\first-login.txt)',
+      mbInformation, MB_OK, IDOK);
   end;
 end;
 
