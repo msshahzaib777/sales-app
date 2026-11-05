@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   checkCloud,
   libpqUrl,
+  missingInCloud,
   readConfig,
   restoreFromCloud,
   setupLocal,
@@ -207,6 +208,29 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
       { name: "Second Store" },
     ]);
   }, 120_000);
+
+  it("checks the cloud structure every run: an emptied or incomplete copy is copied again", async () => {
+    // Emptied by hand (or recreated under the same name): no tables at all.
+    await cloud.query(`DROP SCHEMA public CASCADE`);
+    await cloud.query(`CREATE SCHEMA public`);
+    expect(await sync()).toMatchObject({ status: "done", copied: true });
+    expect(await rows(cloud, `SELECT id, name FROM "Warehouse" ORDER BY id`)).toEqual([
+      { id: "w1", name: "Main Warehouse" },
+      { id: "w2", name: "Second Store" },
+    ]);
+    expect(await missingInCloud(local, cloud)).toEqual([]);
+
+    // A column missing: found, and the copy is made again rather than failing on inserts.
+    await cloud.query(`ALTER TABLE "Warehouse" DROP COLUMN address`);
+    expect(await missingInCloud(local, cloud)).toEqual(["Warehouse.address"]);
+    await local.query(`UPDATE "Warehouse" SET address = 'Ring Road' WHERE id = 'w2'`);
+    expect(await sync()).toMatchObject({ status: "done", copied: true });
+    expect(await rows(cloud, `SELECT address FROM "Warehouse" WHERE id = 'w2'`)).toEqual([
+      { address: "Ring Road" },
+    ]);
+    // Complete again: the next run only sends changes.
+    expect(await sync()).toMatchObject({ status: "done", copied: false, sent: 0 });
+  }, 180_000);
 
   it("restores a new office computer from the cloud copy, then carries on syncing", async () => {
     await onServer(`CREATE DATABASE ${NEW}`);
