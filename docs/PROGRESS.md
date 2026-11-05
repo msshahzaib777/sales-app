@@ -2,6 +2,22 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Previous / next on record pages; driver sheet without the result column — done
+
+- **Previous / next** on a record's page (order, trip, product, customer, company, payment …), in the order of the list it was opened from, with that list's search and filters (`components/layout/record-pager.tsx`).
+  - Opening a row from any list (click, or `↓` and `Enter`) remembers the list's rows for this browser tab (sessionStorage).
+  - The record's page shows "‹ Previous · 3 of 50 · Next ›" next to its back link.
+  - Keys: `Alt+↑` and `Alt+↓`. `Alt+←` and `Alt+→` are the browser's back and forward.
+  - A form with unsaved changes asks first, and `Alt+↓` inside a drop-down still opens it.
+  - The back link and `Esc` return to that same filtered list.
+  - Covers the rows on the list's current page; a record not opened from a list shows no pager.
+- **Driver sheet:** the Done / Part / Refused column is removed; its width went to the customer and product columns.
+- Tested in the browser:
+  - Orders filtered to "Chaudhry" (4): `↓ Enter` gives 1 of 4, `Alt+↓` 2 of 4, `Alt+↑` 1 of 4, and `Esc` returns to the filtered list;
+  - Customers: the Next button;
+  - an unsaved edit plus `Alt+↓` asks first;
+  - a record opened directly shows no pager.
+
 ## Trip sheets: loading + driver sheet front and back, A4 sideways — done
 
 - **Delivery → trip → Loading + driver sheet** (`/delivery/[id]/trip-sheets`): one print for the two sides of one sheet.

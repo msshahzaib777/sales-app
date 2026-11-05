@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Kbd } from "@/components/ui/kbd";
 
+import { rememberedList } from "./record-pager";
+
 /**
  * Using Taqseem without a mouse. One listener for the whole website:
  *
@@ -96,7 +98,8 @@ export function KeyboardShortcuts() {
       )
         return;
       const back = first<HTMLAnchorElement>("main [data-back-link]");
-      if (back) router.push(back.getAttribute("href")!);
+      // A record opened from a list goes back to that list with its search and filters.
+      if (back) router.push(rememberedList(back.href) ?? back.getAttribute("href")!);
       else if (window.history.length > 1) router.back();
     };
 
@@ -292,6 +295,7 @@ const SHORTCUTS: [string, string][] = [
   ["/  or  Ctrl+K", "Search everything"],
   ["Just type", "On a list: search it. On day-end or a trip: find a customer"],
   ["↓  ↑  Enter", "Move through a list and open a row"],
+  ["Alt+↑  Alt+↓", "On a record opened from a list: previous / next record"],
   ["Tab", "Next box. In an order: after the dozens and the rate, the next product"],
   ["Enter", "In an order: after the dozens, the next product"],
   ["Ctrl+Delete", "In an order: remove the line you are in"],

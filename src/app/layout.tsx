@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import "./globals.css";
 
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
+import { ListMemory } from "@/components/layout/record-pager";
 import { APP_NAME, TAGLINE } from "@/lib/brand";
 
 const geistSans = Geist({
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             which is only known when the page is requested. */}
         <Suspense fallback={null}>
           <KeyboardShortcuts />
+          <ListMemory />
         </Suspense>
       </body>
     </html>
