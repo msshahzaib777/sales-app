@@ -9,6 +9,7 @@ import { DataTable, EmptyRow, Td, Th } from "@/components/list/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { type ActionState, fieldError, idleState } from "@/lib/action-state";
@@ -53,8 +54,9 @@ function halfDozens(qty: string): number | null {
 /**
  * Keyboard-first order entry:
  *  1. type the customer (name, shop, phone or area) → Enter;
- *  2. type a product code or name → Enter → type dozens → Enter (back to product search);
- *  3. Ctrl+Enter books the order.
+ *  2. type a product code or name → Enter → type dozens → Enter, or Tab Tab (past the rate), back
+ *     to the product box, which sits under the last product;
+ *  3. Ctrl+Enter books the order. In a dozens box: Alt+R the rate, Ctrl+Delete removes the line.
  * Prices, discounts, available stock and the credit limit update as you type; the server
  * recalculates everything when saving.
  */
@@ -232,6 +234,16 @@ export function OrderEntry({
           // Plain Enter never submits by accident; in a quantity box it goes back to product search.
           e.preventDefault();
           if (target.name === "quantity") productSearch.current?.focus();
+        } else if (target instanceof HTMLInputElement && target.name === "quantity") {
+          const productId = target.id.replace(/^qty-/, "");
+          if (e.key === "Delete" && e.ctrlKey) {
+            e.preventDefault();
+            setLines((ls) => ls.filter((l) => l.productId !== productId));
+            productSearch.current?.focus();
+          } else if (e.altKey && e.code === "KeyR") {
+            e.preventDefault();
+            document.getElementById(`rate-${productId}`)?.focus();
+          }
         }
       }}
       className="space-y-6"
@@ -387,41 +399,6 @@ export function OrderEntry({
 
       {context && context.warehouseId ? (
         <section aria-labelledby="lines-heading" className="space-y-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-72 flex-1">
-              <Combobox
-                label="Add product"
-                items={products}
-                getKey={(p) => p.id}
-                rank={(p, q) => rankText(q, p.code, p.name, p.companyName)}
-                render={(p) => (
-                  <span className="flex justify-between gap-3">
-                    <span>
-                      <span className="font-mono">{p.code}</span> {p.name}
-                      <span className="text-muted-foreground"> · {p.companyName}</span>
-                    </span>
-                    <span
-                      className={
-                        p.available <= 0 ? "text-destructive font-medium" : "text-muted-foreground"
-                      }
-                    >
-                      {formatDozens(p.available)} free
-                    </span>
-                  </span>
-                )}
-                onSelect={addProduct}
-                inputRef={productSearch}
-                placeholder="Code or name, then Enter"
-                hint="Enter adds the product; type dozens (e.g. 3.5) and Enter again for the next product. Ctrl+Enter books the order."
-              />
-            </div>
-            {context.lastOrder ? (
-              <Button type="button" variant="outline" onClick={repeatLastOrder}>
-                Repeat last order (#{context.lastOrder.number})
-              </Button>
-            ) : null}
-          </div>
-
           <h2 id="lines-heading" className="sr-only">
             Order lines
           </h2>
@@ -444,7 +421,7 @@ export function OrderEntry({
             <tbody>
               {lines.length === 0 ? (
                 <EmptyRow colSpan={9}>
-                  No products yet. Search above, or repeat the last order.
+                  No products yet. Search below, or repeat the last order.
                 </EmptyRow>
               ) : null}
               {lines.map((line, i) => {
@@ -525,6 +502,9 @@ export function OrderEntry({
                         variant="ghost"
                         size="sm"
                         aria-label={`Remove ${product.name}`}
+                        aria-keyshortcuts="Control+Delete"
+                        title="Remove (Ctrl+Delete in the dozens box)"
+                        tabIndex={-1}
                         onClick={() =>
                           setLines((ls) => ls.filter((l) => l.productId !== line.productId))
                         }
@@ -554,6 +534,61 @@ export function OrderEntry({
               </tr>
             </tfoot>
           </DataTable>
+          {/* Under the last product, so the next product is always two Tabs (dozens, rate) away. */}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-72 flex-1">
+              <Combobox
+                label="Add product"
+                items={products}
+                getKey={(p) => p.id}
+                rank={(p, q) => rankText(q, p.code, p.name, p.companyName)}
+                render={(p) => (
+                  <span className="flex justify-between gap-3">
+                    <span>
+                      <span className="font-mono">{p.code}</span> {p.name}
+                      <span className="text-muted-foreground"> · {p.companyName}</span>
+                    </span>
+                    <span
+                      className={
+                        p.available <= 0 ? "text-destructive font-medium" : "text-muted-foreground"
+                      }
+                    >
+                      {formatDozens(p.available)} free
+                    </span>
+                  </span>
+                )}
+                onSelect={addProduct}
+                inputRef={productSearch}
+                placeholder="Code or name, then Enter"
+              />
+            </div>
+            {context.lastOrder ? (
+              <Button type="button" variant="outline" onClick={repeatLastOrder}>
+                Repeat last order (#{context.lastOrder.number})
+              </Button>
+            ) : null}
+          </div>
+
+          <p className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 text-xs pointer-coarse:hidden">
+            <span>
+              <Kbd>Enter</Kbd> adds the product, then type dozens (3.5)
+            </span>
+            <span>
+              <Kbd>Enter</Kbd> or <Kbd>Tab</Kbd> <Kbd>Tab</Kbd> next product
+            </span>
+            <span>
+              <Kbd>Alt+R</Kbd> change rate
+            </span>
+            <span>
+              <Kbd>Ctrl+Delete</Kbd> remove line
+            </span>
+            <span>
+              <Kbd>Ctrl+Enter</Kbd> book
+            </span>
+            <span>
+              <Kbd>Esc</Kbd> leave the box
+            </span>
+          </p>
         </section>
       ) : null}
 
@@ -666,6 +701,7 @@ function RateCell({
         autoComplete="off"
         className="h-8 text-right tabular-nums"
         placeholder={product.saleRate}
+        aria-keyshortcuts="Alt+R"
         value={line.rate ?? ""}
         onChange={(e) => onChange({ rate: e.target.value })}
         aria-invalid={error ? true : undefined}
@@ -699,6 +735,7 @@ function RateCell({
           className="text-muted-foreground text-xs underline underline-offset-2"
           onClick={() => onChange({ rate: last.rate })}
           title="Use this rate on this order"
+          tabIndex={-1}
         >
           Last time {formatMoney(last.rate)} ({last.date})
         </button>

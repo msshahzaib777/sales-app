@@ -2,6 +2,7 @@ import Form from "next/form";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { ListParams } from "@/lib/list-params";
 
@@ -56,13 +57,22 @@ export function ListToolbar({
       <AutoSubmit />
       {showSearch ? (
         <div className="min-w-48 flex-1 space-y-1">
-          <label htmlFor="q" className="text-muted-foreground text-xs font-medium">
+          <label
+            htmlFor="q"
+            className="text-muted-foreground flex items-center gap-2 text-xs font-medium"
+          >
             Search
+            <span className="font-normal pointer-coarse:hidden" aria-hidden>
+              just type · <Kbd>↓</Kbd> to the list · <Kbd>Esc</Kbd> clears
+            </span>
           </label>
+          {/* Typing anywhere on the page lands here (components/layout/keyboard-shortcuts). */}
           <Input
             id="q"
             name="q"
             type="search"
+            data-list-search
+            autoComplete="off"
             defaultValue={params.q ?? ""}
             placeholder={searchPlaceholder}
           />

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 
+import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { APP_NAME, TAGLINE } from "@/lib/brand";
 
 const geistSans = Geist({
@@ -25,7 +27,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        {children}
+        {/* Esc, Alt+N, Ctrl+Enter, type to find … on every page. In Suspense: it reads the URL,
+            which is only known when the page is requested. */}
+        <Suspense fallback={null}>
+          <KeyboardShortcuts />
+        </Suspense>
+      </body>
     </html>
   );
 }

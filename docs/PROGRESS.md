@@ -2,6 +2,30 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Keyboard: shortcuts everywhere, type to find, faster order entry — done
+
+- **One listener for the whole website** (`src/components/layout/keyboard-shortcuts.tsx`, mounted in the root layout):
+  - `Esc`: leave the box you are in; on a list, reset its search first; with nothing to leave or reset, back to the page above (the page's back link), asking first when a form has unsaved changes.
+  - `Alt+1` … `Alt+0`: the side menu's sections in order. Not `G` + letter: that would clash with typing a name.
+  - `Alt+N`: the page's main "New …" button.
+  - `Ctrl+Enter`: save the form you are in.
+  - `?`: the list of shortcuts.
+- **Type to find:**
+  - On a list, letters go into its search box, which filters as you type. `↓` moves into the rows, `↑ ↓` between them, `Enter` opens one, and `Esc` resets the list.
+  - Letters typed while a list is still appearing (just after `Alt+2`) are held and put into its box once it is there.
+  - On the trip and day-end pages, typing finds a customer (`data-find`): `Enter` for the next match, `Tab` into its boxes, `Esc` to close.
+- **Only what is on screen counts:** Next.js keeps the previous pages in the document, hidden (instant back), so every lookup skips hidden elements.
+- **Order entry:**
+  - the product box sits under the last product, so the next product is always `Tab Tab` (dozens, rate) or `Enter` away;
+  - `Alt+R` goes to the line's rate, and `Ctrl+Delete` removes the line;
+  - the ✕ and "last time" rate buttons are out of the Tab order;
+  - a one-line key guide sits under the product box.
+- **Keys written next to the actions** (`components/ui/kbd.tsx`, hidden on touch screens and in print): main submit buttons `Ctrl+Enter`, the back link `Esc`, main "New" buttons `Alt+N`, the side menu `Alt+1…`, and the list search ("just type · ↓ · Esc").
+- **Tested** in the browser with the keyboard only:
+  - sign in, `Alt+2`, type a name (filters), `↓ Enter` opens the order, `Esc` back, `Esc` resets the list;
+  - `Alt+N`, then three products by `Tab Tab`, `Alt+R`, `Ctrl+Delete`, `Esc Esc` (asks), `?`, and find on a trip page.
+  - Production build passes.
+
 ## Driver sheet (printed, per trip) — done
 
 - **Delivery → trip → Driver sheet** (also offered after planning and after dispatch): the sheet the driver takes on the trip and fills in by hand. It is in the same order as day-end entry, so the office types it in from top to bottom. A4, black and white.

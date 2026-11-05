@@ -115,3 +115,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Find on page (components/layout/keyboard-shortcuts): the customer found. */
+[data-found] {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+  scroll-margin: 6rem;
+}
+/* Table rows draw no outline: their cells are tinted instead. */
+tr[data-found] > td {
+  background-color: color-mix(in oklab, var(--ring) 22%, transparent);
+}

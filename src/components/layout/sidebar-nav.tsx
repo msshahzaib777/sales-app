@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 
 import { navItems } from "./nav-items";
@@ -27,7 +28,9 @@ export function NavList({
     <nav aria-label="Main" className="flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2">
       {navItems
         .filter((item) => visibleHrefs.includes(item.href))
-        .map((item) => {
+        .map((item, index) => {
+          // Alt+1 … Alt+9, Alt+0 open the first ten sections (components/layout/keyboard-shortcuts).
+          const key = index < 9 ? String(index + 1) : index === 9 ? "0" : null;
           const active =
             pathname !== undefined &&
             (pathname === item.href || pathname.startsWith(`${item.href}/`));
@@ -37,7 +40,9 @@ export function NavList({
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              title={item.title}
+              aria-keyshortcuts={key ? `Alt+${key}` : undefined}
+              data-nav-key={key ?? undefined}
+              title={key ? `${item.title} (Alt+${key})` : item.title}
               className={cn(
                 "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium outline-none group-data-[collapsed=true]/sidebar:justify-center group-data-[collapsed=true]/sidebar:px-0 focus-visible:ring-2 max-md:justify-center max-md:px-0",
                 active && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -47,6 +52,11 @@ export function NavList({
               <span className="truncate group-data-[collapsed=true]/sidebar:sr-only max-md:sr-only">
                 {item.title}
               </span>
+              {key ? (
+                <Kbd className="ml-auto group-data-[collapsed=true]/sidebar:hidden max-md:hidden">
+                  Alt+{key}
+                </Kbd>
+              ) : null}
             </Link>
           );
         })}

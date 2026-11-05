@@ -171,7 +171,11 @@ export default async function TripPage({ params, searchParams }: PageProps<"/del
               <EmptyRow colSpan={9}>No orders on this trip.</EmptyRow>
             ) : null}
             {trip.orders.map((o, i) => (
-              <tr key={o.id}>
+              // Typing a name on this page finds the stop (components/layout/keyboard-shortcuts).
+              <tr
+                key={o.id}
+                data-find={`${o.customer.name} ${o.customer.shopName ?? ""} ${o.customer.area?.name ?? ""} #${o.number}`}
+              >
                 <Td className="tabular-nums">{i + 1}</Td>
                 <Td>
                   <Link

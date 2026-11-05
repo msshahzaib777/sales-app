@@ -108,6 +108,9 @@ export function Combobox<T>({
               setOpen(false);
             }
           } else if (e.key === "Escape") {
+            // Something to close or clear: this Esc is used up. Otherwise the website's Esc
+            // applies (leave the box, then back).
+            if (query || showList) e.preventDefault();
             setOpen(false);
             setQuery("");
           }
