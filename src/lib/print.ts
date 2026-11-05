@@ -175,25 +175,30 @@ export function statementPageCss(s: PrintSettings): string {
   ].join("\n");
 }
 
-/** The driver sheet: one continuous table on A4 turned sideways, in compact text. */
+/**
+ * Trip sheets (loading sheet, driver sheet, or both front and back). No page size or orientation
+ * is set, so the print dialog keeps all its controls (paper, portrait / landscape, two-sided):
+ * the sheets fit whatever is chosen. Landscape A4 is the intended layout: the loading sheet's text
+ * starts large and shrinks only as much as a big load needs to stay on one landscape page (the
+ * front), and the driver sheet's columns are shares of the page width, in smaller text when the
+ * page is upright.
+ */
+export const TRIP_SHEET_PAGE_MM = { width: 297, height: 210, margin: 7 } as const;
 export const DRIVER_SHEET_FONT_PT = 9;
-
-/** Print CSS for the driver sheet: A4 landscape, a 7 mm margin, compact text. */
-export function driverSheetCss(): string {
-  return [
-    `@page { size: ${mm(297)} ${mm(210)}; margin: ${mm(7)}; }`,
-    `.print-root { font-size: ${DRIVER_SHEET_FONT_PT}pt; }`,
-  ].join("\n");
-}
-
-/** The loading sheet's text: at least this size, read at arm's length while loading the bike. */
+/** The driver sheet's text when printed upright (portrait), so its 14 columns still fit. */
+export const DRIVER_SHEET_PORTRAIT_FONT_PT = 6.5;
 export const LOADING_SHEET_FONT_PT = 13;
+export const LOADING_SHEET_MIN_FONT_PT = 7;
 
-/** Print CSS for the loading sheet: A4 with an 8 mm margin and large text (the setting if larger). */
-export function loadingSheetCss(s: PrintSettings): string {
+export function tripSheetCss(): string {
+  const { width, height, margin } = TRIP_SHEET_PAGE_MM;
   return [
-    `@page { size: ${mm(210)} ${mm(297)}; margin: ${mm(8)}; }`,
-    `.print-root { font-size: ${Math.max(s.fontSizePt, LOADING_SHEET_FONT_PT)}pt; }`,
+    `@page { margin: ${mm(margin)}; }`,
+    `.print-root { font-size: ${DRIVER_SHEET_FONT_PT}pt; }`,
+    // On screen the loading sheet is one landscape page, so the fitting measures that page.
+    `@media screen { .loading-page { width: ${mm(width - 2 * margin)}; height: ${mm(height - 2 * margin - 1)}; overflow: hidden; box-sizing: border-box; } }`,
+    `@media print { .loading-page { break-after: page; } .loading-page:last-child { break-after: auto; } }`,
+    `@media print and (orientation: portrait) { .print-root { font-size: ${DRIVER_SHEET_PORTRAIT_FONT_PT}pt; } }`,
   ].join("\n");
 }
 
