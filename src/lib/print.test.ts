@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   billLayout,
   billPageCss,
+  COPY_LABELS,
+  copyFontPt,
   DEFAULT_PRINT_SETTINGS,
   paperHint,
   paperSize,
   statementPageCss,
   toSheets,
+  usesCompactBill,
 } from "./print";
 
 describe("paper and layout", () => {
@@ -27,6 +30,7 @@ describe("paper and layout", () => {
       bill: { widthMm: 210, heightMm: 148.5 },
       perSheet: 2,
       copies: 1,
+      sideBySide: false,
     });
     expect(billLayout({ ...DEFAULT_PRINT_SETTINGS, paper: "A6" }).perSheet).toBe(1);
   });
@@ -51,22 +55,32 @@ describe("print CSS", () => {
     expect(css).toContain("border-top: 1px dashed #000");
   });
 
-  it("two copies per A5: A5 page with no margin, the same bill in both halves", () => {
+  it("two copies per A5: A5 sideways, the same bill side by side, compact, bigger text", () => {
     const s = { ...DEFAULT_PRINT_SETTINGS, twoPerA4: true, twoCopiesPerA5: true };
     expect(billLayout(s)).toEqual({
-      sheet: { widthMm: 148, heightMm: 210 },
-      bill: { widthMm: 148, heightMm: 105 },
+      sheet: { widthMm: 210, heightMm: 148 },
+      bill: { widthMm: 105, heightMm: 148 },
       perSheet: 2,
       copies: 2,
+      sideBySide: true,
     });
     const css = billPageCss(s);
-    expect(css).toContain("@page { size: 148mm 210mm; margin: 0; }");
-    expect(css).toContain(".print-bill { height: 105mm; padding: 8mm;");
+    expect(css).toContain("@page { size: 210mm 148mm; margin: 0; }");
+    expect(css).toContain("flex-direction: row;");
+    // Thin margins, whatever the margin setting (8 mm here).
+    expect(css).toContain(".print-bill { width: 105mm; height: 148mm; padding: 4mm;");
+    expect(css).toContain(".print-bill + .print-bill { border-left: 1px dashed #000; }");
+    // Larger text than the 10 pt setting; a larger setting is kept.
+    expect(css).toContain(".print-root { font-size: 11pt; }");
+    expect(copyFontPt({ fontSizePt: 12 })).toBe(12);
+    expect(COPY_LABELS).toEqual(["ORIGINAL", "DUPLICATE"]);
+    expect(usesCompactBill(s)).toBe(true);
+    expect(usesCompactBill(DEFAULT_PRINT_SETTINGS)).toBe(false);
     expect(toSheets(["a", "b"], 2, 2)).toEqual([
       ["a", "a"],
       ["b", "b"],
     ]);
-    expect(paperHint(s)).toBe("Prints 2 copies of each bill per A5 sheet");
+    expect(paperHint(s)).toBe("Prints 2 copies of each bill side by side on A5, sideways");
   });
 
   it("statements always print on A4", () => {
