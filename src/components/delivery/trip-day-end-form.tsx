@@ -238,6 +238,8 @@ function OrderCard({
     <fieldset
       className={cn("space-y-3 rounded-lg border p-3 sm:p-4", err("form") && "border-destructive")}
       aria-labelledby={`${o.id}-title`}
+      // Typing a name finds this stop; Tab from the find box goes into its boxes.
+      data-find={`${o.customer} ${o.detail} #${o.number}`}
     >
       <input type="hidden" name="orderId" value={o.id} />
 

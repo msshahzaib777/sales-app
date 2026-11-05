@@ -4,6 +4,8 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+import { Kbd } from "./kbd";
+
 const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
@@ -42,6 +44,29 @@ function Button({
     asChild?: boolean;
   }) {
   const Comp = asChild ? Slot.Root : "button";
+  // The main button of a form saves it with Ctrl+Enter (components/layout/keyboard-shortcuts):
+  // written on the button. Not on small buttons in table rows or on secondary buttons.
+  const saves =
+    !asChild &&
+    props.type === "submit" &&
+    (variant ?? "default") === "default" &&
+    (size ?? "default") !== "sm" &&
+    size !== "icon";
+
+  if (saves) {
+    const { children, ...rest } = props;
+    return (
+      <button
+        data-slot="button"
+        aria-keyshortcuts="Control+Enter"
+        className={cn(buttonVariants({ variant, size, className }))}
+        {...rest}
+      >
+        {children}
+        <Kbd>Ctrl+Enter</Kbd>
+      </button>
+    );
+  }
 
   return (
     <Comp

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { ServiceError } from "@/server/services/errors";
 
 /** Loads a record for a page; "not found" (including another tenant's id) becomes a 404. */
@@ -32,9 +33,18 @@ export function LinkButton({
   children: React.ReactNode;
   variant?: "default" | "outline";
 }) {
+  // The page's main "New …" button: Alt+N (components/layout/keyboard-shortcuts), written on it.
+  const isNew = variant === "default" && /\/new(\?|$)/.test(href);
   return (
     <Button asChild variant={variant}>
-      <Link href={href}>{children}</Link>
+      {isNew ? (
+        <Link href={href} data-shortcut="new" aria-keyshortcuts="Alt+N">
+          {children}
+          <Kbd>Alt+N</Kbd>
+        </Link>
+      ) : (
+        <Link href={href}>{children}</Link>
+      )}
     </Button>
   );
 }

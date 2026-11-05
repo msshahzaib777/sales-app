@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Kbd } from "@/components/ui/kbd";
+
 export function PageHeader({
   title,
   description,
@@ -21,11 +23,18 @@ export function PageHeader({
   );
 }
 
+/** Back to the page above; Esc goes there too (components/layout/keyboard-shortcuts). */
 export function BackLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <p className="mb-2 text-sm">
-      <Link href={href} className="text-muted-foreground hover:text-foreground">
+      <Link
+        href={href}
+        data-back-link
+        aria-keyshortcuts="Escape"
+        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
+      >
         ← {children}
+        <Kbd>Esc</Kbd>
       </Link>
     </p>
   );
