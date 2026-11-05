@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   ...(process.env.TAQSEEM_STANDALONE
     ? { output: "standalone" as const, distDir: ".next-package" }
     : {}),
+  // The cloud sync looks up files at run time (migrations, pg_dump); never let the file tracing
+  // pull the build output, downloads or old installers into the package.
+  outputFileTracingExcludes: {
+    "*": ["dist/**", ".next/**", ".next-package/**", ".backups/**", "test/**", "docs/**"],
+  },
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {

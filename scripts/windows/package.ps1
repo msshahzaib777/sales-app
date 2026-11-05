@@ -118,6 +118,41 @@ if (-not (Test-Path (Join-Path $pgCache "bin\pg_ctl.exe"))) {
 robocopy $pgCache (Join-Path $Stage "pgsql") /E /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Copying PostgreSQL failed." }
 
+# pg_dump / pg_restore (the backup before database updates, and the cloud sync's first copy): the
+# npm package above leaves them out, so they come from the official PostgreSQL Windows build of
+# the same version (EDB, linked from postgresql.org), with their own DLLs in pgsql\tools.
+Step "Adding the PostgreSQL backup tools"
+$toolsVersion = ($PgVersion -split "-")[0] -replace "\.0$", ""
+$toolsCache = Join-Path $Cache "pgtools-$toolsVersion"
+if (-not (Test-Path (Join-Path $toolsCache "pg_dump.exe"))) {
+  $zip = Join-Path $Cache "postgresql-$toolsVersion-windows-x64-binaries.zip"
+  if (-not (Test-Path $zip)) {
+    Run "Downloading the PostgreSQL tools (about 330 MB, once)" {
+      curl.exe -fL --retry 3 -o $zip "https://get.enterprisedb.com/postgresql/postgresql-$toolsVersion-1-windows-x64-binaries.zip"
+    }
+  }
+  $tmp = Join-Path $Cache "pgtools-unpack"
+  if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+  Run "Unpacking the PostgreSQL tools" {
+    & (Join-Path $env:WINDIR "System32\tar.exe") -xf $zip -C $tmp "pgsql/bin/pg_dump.exe" "pgsql/bin/pg_restore.exe" "pgsql/bin/*.dll"
+  }
+  if (Test-Path $toolsCache) { Remove-Item $toolsCache -Recurse -Force }
+  Move-Item (Join-Path (Join-Path $tmp "pgsql") "bin") $toolsCache
+  Remove-Item $tmp -Recurse -Force
+}
+# Only what the two tools load (the build's other DLLs are for its GUI and other programs).
+$toolFiles = @(
+  "pg_dump.exe", "pg_restore.exe", "libpq.dll", "libssl-3-x64.dll", "libcrypto-3-x64.dll",
+  "libintl-9.dll", "libiconv-2.dll", "libwinpthread-1.dll", "zlib1.dll", "liblz4.dll", "libzstd.dll"
+)
+$toolsDir = Join-Path $Stage "pgsql\tools"
+New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+foreach ($f in $toolFiles) { Copy-Item (Join-Path $toolsCache $f) $toolsDir }
+$check = & (Join-Path $toolsDir "pg_dump.exe") --version
+if ($LASTEXITCODE -ne 0) { throw "The packaged pg_dump does not run." }
+Write-Host "    $check"
+
 Step "Adding the service helper (WinSW)"
 $winsw = Join-Path $Cache "WinSW-x64.exe"
 if (-not (Test-Path $winsw)) { Invoke-WebRequest -Uri $WinSwUrl -OutFile $winsw -UseBasicParsing }

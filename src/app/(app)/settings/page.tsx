@@ -1,5 +1,6 @@
 import {
   Bike,
+  Cloud,
   FileSpreadsheet,
   History,
   Map,
@@ -58,6 +59,12 @@ const SECTIONS = [
     title: "Import from Excel",
     description: "Companies, products, areas and customers from Excel, with sample sheets.",
     icon: FileSpreadsheet,
+  },
+  {
+    href: "/settings/cloud-sync",
+    title: "Cloud sync",
+    description: "Keep an up-to-date copy of this computer's data in your own free cloud database.",
+    icon: Cloud,
   },
   {
     href: "/settings/audit",
