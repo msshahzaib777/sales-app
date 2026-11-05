@@ -17,6 +17,7 @@ import { assertCan } from "../../auth/permissions";
 import type { TenantTx } from "../../db/tenant";
 import { ServiceError } from "../errors";
 import { PAGE_SIZE, paged, type ServiceCtx } from "../master/common";
+import { customerBalances } from "../master/opening-balances";
 import { found, nextDocumentNumber } from "../posting";
 import type { DateRange } from "../purchasing/filters";
 import { assertStockOnHand, postOrderBill, stockOut } from "../sales/post-bill";
@@ -354,10 +355,18 @@ export async function getTrip(ctx: ServiceCtx, id: string) {
                 area: { select: { name: true, sortOrder: true } },
               },
             },
-            bill: { select: { id: true, number: true, netAmount: true, previousBalance: true } },
+            bill: {
+              select: {
+                id: true,
+                number: true,
+                netAmount: true,
+                previousBalance: true,
+                postedAt: true,
+              },
+            },
             lines: {
               include: {
-                product: { select: { code: true, name: true } },
+                product: { select: { code: true, name: true, shortName: true } },
                 company: { select: { name: true } },
               },
             },
@@ -419,6 +428,36 @@ export async function getTrip(ctx: ServiceCtx, id: string) {
 }
 
 export type TripView = Awaited<ReturnType<typeof getTrip>>;
+
+/**
+ * The driver's sheet: every stop in visiting order with its products and what the customer owes,
+ * for the driver to fill in by hand (returned, damaged, payment) and the office to enter at day-end.
+ * Previous balance as on the bill: frozen on the bill from dispatch, the live balance before it
+ * (this bill is not in the ledger yet then). Amounts owed only, never costs or margins.
+ */
+export async function getDriverSheet(ctx: ServiceCtx, id: string) {
+  const trip = await getTrip(ctx, id);
+  const live = await customerBalances(ctx.db, [
+    ...new Set(trip.orders.filter((o) => !o.bill?.postedAt).map((o) => o.customerId)),
+  ]);
+  const stops = trip.orders.map((o) => {
+    const bill = D(o.bill?.netAmount ?? 0);
+    const previous = o.bill?.postedAt
+      ? D(o.bill.previousBalance)
+      : (live.get(o.customerId) ?? D(0));
+    const lines = [...o.lines].sort(
+      (a, b) =>
+        a.company.name.localeCompare(b.company.name) ||
+        a.product.code.localeCompare(b.product.code),
+    );
+    return { ...o, lines, amounts: { bill, previous, due: previous.add(bill) } };
+  });
+  const totals = {
+    bills: stops.reduce((s, o) => s.add(o.amounts.bill), D(0)),
+    due: stops.reduce((s, o) => s.add(o.amounts.due), D(0)),
+  };
+  return { ...trip, stops, sheetTotals: totals };
+}
 
 /** Booked orders for a delivery date (optionally one warehouse), for planning a trip. */
 export async function bookedOrdersFor(ctx: ServiceCtx, date: Date, warehouseId?: string) {

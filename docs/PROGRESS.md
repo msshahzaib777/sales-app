@@ -2,6 +2,19 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Driver sheet (printed, per trip) — done
+
+- **Delivery → trip → Driver sheet** (also offered after planning and after dispatch): the sheet the driver takes on the trip and fills in by hand. It is in the same order as day-end entry, so the office types it in from top to bottom. A4, black and white.
+- Per stop, in visiting order:
+  - customer, shop, area, phone and address; order and bill number;
+  - every product with the quantity sent (dozens), and empty Returned / Damaged boxes (packets);
+  - this bill, previous balance (old balance included) and total due;
+  - Delivered / Partly / Refused; Cash, Online (ref.), Cheque (no., bank, date); note and customer signature.
+- Previous balance as on the bill: the live balance before dispatch, the figure frozen on the bill from dispatch, so the sheet always matches the printed bill (`getDriverSheet` in `services/delivery/trips.ts`).
+- Trip total: stops, bills and total due, with boxes for cash, cheques and online collected, road expenses (fuel, toll / other), cash handed over, and driver / receiver signatures.
+- Test: `delivery.int.test.ts` "driver sheet" (products in order, amounts before and after dispatch, equal to the bill).
+- **Open (decided: not now):** entering cash handed over at day-end, with short / excess against the driver. Today it is written on the sheet and checked by hand. Road expenses can already be entered as expenses linked to the trip.
+
 ## Cloud sync (semi-online): office → its own cloud database — done
 
 The office installation stays the master and works fully without internet. Its data is copied one

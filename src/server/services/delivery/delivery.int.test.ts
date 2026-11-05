@@ -39,6 +39,7 @@ import {
   cancelTrip,
   createTrip,
   dispatchTrip,
+  getDriverSheet,
   getTrip,
   removeOrderFromTrip,
   setTripDriver,
@@ -216,6 +217,36 @@ describe("planning a trip", () => {
     const first = await trip([a.id], { requestId });
     const again = await trip([a.id], { requestId });
     expect(again.id).toBe(first.id);
+  });
+});
+
+describe("driver sheet", () => {
+  it("lists each stop's products and what the customer owes, as on the bill", async () => {
+    const a = await book(t.ali.id, [
+      [t.nimko.id, "2"],
+      [t.chips.id, "10"],
+    ]);
+    const tr = await trip([a.id]);
+    const amounts = async () =>
+      (await getDriverSheet(t.staff, tr.id)).stops.map((o) => [
+        o.amounts.bill.toFixed(2),
+        o.amounts.previous.toFixed(2),
+        o.amounts.due.toFixed(2),
+      ]);
+
+    // Before dispatch: the live balance is the previous balance (this bill is not posted yet).
+    const sheet = await getDriverSheet(t.staff, tr.id);
+    expect(sheet.stops[0]!.lines.map((l) => [l.product.code, l.quantity])).toEqual([
+      ["CB01", 120],
+      ["GC01", 24],
+    ]);
+    expect(await amounts()).toEqual([["2260.00", "4000.00", "6260.00"]]);
+    expect(sheet.sheetTotals.due.toFixed(2)).toBe("6260.00");
+
+    // From dispatch: frozen on the bill, so the sheet always matches the printed bill.
+    await dispatchTrip(t.staff, { id: tr.id });
+    expect(await amounts()).toEqual([["2260.00", "4000.00", "6260.00"]]);
+    expect((await getBillView(t.staff, a.id)).totalDue.toFixed(2)).toBe("6260.00");
   });
 });
 
