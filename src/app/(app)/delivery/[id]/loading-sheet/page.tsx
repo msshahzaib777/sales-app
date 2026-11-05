@@ -4,7 +4,7 @@ import { orNotFound } from "@/components/master/page-helpers";
 import { Letterhead, PrintStyles, PrintToolbar } from "@/components/print/print-frame";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/format";
-import { statementPageCss } from "@/lib/print";
+import { loadingSheetCss } from "@/lib/print";
 import { formatDozens, formatDozensCell } from "@/lib/units";
 import { requireTenantContext } from "@/server/auth/session";
 import { getTrip } from "@/server/services/delivery/trips";
@@ -25,10 +25,10 @@ export default async function LoadingSheetPage({
 
   return (
     <div className="print-root">
-      <PrintStyles css={statementPageCss(profile.print)} />
+      <PrintStyles css={loadingSheetCss(profile.print)} />
       <PrintToolbar
         back={{ href: `/delivery/${id}`, label: `Trip #${trip.number}` }}
-        hint="Prints on A4"
+        hint="Prints on A4, large text"
       />
       <article className="mx-auto max-w-[210mm] space-y-[1em] bg-white leading-snug text-black">
         <Letterhead

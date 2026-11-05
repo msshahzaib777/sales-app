@@ -175,6 +175,17 @@ export function statementPageCss(s: PrintSettings): string {
   ].join("\n");
 }
 
+/** The loading sheet's text: at least this size, read at arm's length while loading the bike. */
+export const LOADING_SHEET_FONT_PT = 13;
+
+/** Print CSS for the loading sheet: A4 with an 8 mm margin and large text (the setting if larger). */
+export function loadingSheetCss(s: PrintSettings): string {
+  return [
+    `@page { size: ${mm(210)} ${mm(297)}; margin: ${mm(8)}; }`,
+    `.print-root { font-size: ${Math.max(s.fontSizePt, LOADING_SHEET_FONT_PT)}pt; }`,
+  ].join("\n");
+}
+
 /** "Prints on A5 (148 × 210 mm)" and similar, shown next to the print button. */
 export function paperHint(s: PrintSettings): string {
   if (s.twoCopiesPerA5) return "Prints 2 copies of each bill side by side on A5, sideways";

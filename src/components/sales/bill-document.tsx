@@ -150,8 +150,8 @@ export function BillDocument({
 
 /**
  * The short bill for small paper (A6, receipt rolls): one-line letterhead and customer, short
- * product names, the rate after discount, no company column, and the totals in a few lines. Same
- * figures as the full bill.
+ * product names, each line at its full rate, no company column; under the total the discount
+ * is taken off ("This bill"), then previous and total due. Same figures as the full bill.
  */
 export function CompactBillDocument({
   view,
@@ -173,11 +173,11 @@ export function CompactBillDocument({
   minimum?: { toString(): string };
 }) {
   const dz = formatDozensCell;
-  // The rate after the company discount: what each dozen actually cost the customer.
-  const netRate = (l: Line) =>
-    l.quantity > 0
-      ? new Decimal(l.netAmount).mul(12).div(l.quantity).toDecimalPlaces(2).toFixed(2)
-      : new Decimal(l.rate).toFixed(2);
+  // Each line at its full rate; the company discount is taken off once, under the total (as on
+  // the office's old bills: total, "T/O less", net).
+  const gross = (l: Line) => new Decimal(l.netAmount).add(l.discountAmount);
+  const grossTotal = lines.reduce((s, l) => s.add(gross(l)), new Decimal(0));
+  const discount = lines.reduce((s, l) => s.add(l.discountAmount), new Decimal(0));
   const customer = [view.customer.shopName, view.customer.areaName, view.customer.phone]
     .filter(Boolean)
     .join(" · ");
@@ -215,11 +215,9 @@ export function CompactBillDocument({
             <tr key={l.productId} className="align-top">
               <td className="break-words">{l.shortName}</td>
               <td className="text-right whitespace-nowrap tabular-nums">{dz(l.quantity)}</td>
+              <td className="text-right whitespace-nowrap tabular-nums">{formatMoney(l.rate)}</td>
               <td className="text-right whitespace-nowrap tabular-nums">
-                {formatMoney(netRate(l))}
-              </td>
-              <td className="text-right whitespace-nowrap tabular-nums">
-                {formatMoney(l.netAmount)}
+                {formatMoney(gross(l).toFixed(2))}
               </td>
             </tr>
           ))}
@@ -231,11 +229,21 @@ export function CompactBillDocument({
               {dz(lines.reduce((s, l) => s + l.quantity, 0))}
             </td>
             <td />
-            <td className="text-right whitespace-nowrap tabular-nums">{formatMoney(thisBill)}</td>
+            <td className="text-right whitespace-nowrap tabular-nums">
+              {formatMoney(grossTotal.toFixed(2))}
+            </td>
           </tr>
         </tfoot>
       </table>
       <dl className="grid grid-cols-[1fr_auto] gap-x-2 text-right">
+        {!discount.isZero() ? (
+          <>
+            <dt>Discount</dt>
+            <dd className="tabular-nums">−{formatMoney(discount.toFixed(2))}</dd>
+          </>
+        ) : null}
+        <dt className="font-bold">This bill</dt>
+        <dd className="font-bold tabular-nums">{formatMoney(thisBill)}</dd>
         <dt>Previous</dt>
         <dd className="tabular-nums">{formatMoney(previous)}</dd>
         <dt className="font-bold">Total due</dt>
