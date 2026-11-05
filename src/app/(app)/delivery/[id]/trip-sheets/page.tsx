@@ -33,10 +33,10 @@ export default async function TripSheetsPage({ params }: PageProps<"/delivery/[i
       />
       <PrintToolbar
         back={{ href: `/delivery/${id}`, label: `Trip #${trip.number}` }}
-        hint="Page 1 loading sheet, then the driver sheet: in the print dialog turn on Print on both sides (two-sided), flip on short edge. A4 sideways."
+        hint="Page 1 loading sheet, then the driver sheet. Choose A4, Layout: Landscape, and Two-sided (flip on short edge). No two-sided option? Use Print using system dialog (Ctrl+Shift+P), or print page 1, turn the sheet over, then print the rest."
       />
       <div className="overflow-x-auto print:overflow-visible">
-        <div className="min-w-[283mm] space-y-8 print:space-y-0">
+        <div className="min-w-[283mm] space-y-8 print:min-w-0 print:space-y-0">
           <LoadingSheet trip={trip} business={profile.business} />
           <DriverSheet trip={trip} business={profile.business} />
         </div>

@@ -176,24 +176,29 @@ export function statementPageCss(s: PrintSettings): string {
 }
 
 /**
- * Trip sheets (loading sheet, driver sheet, or both front and back): A4 turned sideways with a
- * 7 mm margin, so the two can be printed on the two sides of one sheet. The driver sheet's table
- * is in compact text; the loading sheet is one page box whose text starts large and shrinks only
- * as much as a big load needs to stay on that one page (the front).
+ * Trip sheets (loading sheet, driver sheet, or both front and back). No page size or orientation
+ * is set, so the print dialog keeps all its controls (paper, portrait / landscape, two-sided):
+ * the sheets fit whatever is chosen. Landscape A4 is the intended layout: the loading sheet's text
+ * starts large and shrinks only as much as a big load needs to stay on one landscape page (the
+ * front), and the driver sheet's columns are shares of the page width, in smaller text when the
+ * page is upright.
  */
 export const TRIP_SHEET_PAGE_MM = { width: 297, height: 210, margin: 7 } as const;
 export const DRIVER_SHEET_FONT_PT = 9;
+/** The driver sheet's text when printed upright (portrait), so its 14 columns still fit. */
+export const DRIVER_SHEET_PORTRAIT_FONT_PT = 6.5;
 export const LOADING_SHEET_FONT_PT = 13;
 export const LOADING_SHEET_MIN_FONT_PT = 7;
 
 export function tripSheetCss(): string {
   const { width, height, margin } = TRIP_SHEET_PAGE_MM;
   return [
-    `@page { size: ${mm(width)} ${mm(height)}; margin: ${mm(margin)}; }`,
+    `@page { margin: ${mm(margin)}; }`,
     `.print-root { font-size: ${DRIVER_SHEET_FONT_PT}pt; }`,
-    // The loading sheet: exactly one page, on screen too (so the fitting measures the print).
-    `.loading-page { width: ${mm(width - 2 * margin)}; height: ${mm(height - 2 * margin - 1)}; overflow: hidden; box-sizing: border-box; }`,
+    // On screen the loading sheet is one landscape page, so the fitting measures that page.
+    `@media screen { .loading-page { width: ${mm(width - 2 * margin)}; height: ${mm(height - 2 * margin - 1)}; overflow: hidden; box-sizing: border-box; } }`,
     `@media print { .loading-page { break-after: page; } .loading-page:last-child { break-after: auto; } }`,
+    `@media print and (orientation: portrait) { .print-root { font-size: ${DRIVER_SHEET_PORTRAIT_FONT_PT}pt; } }`,
   ].join("\n");
 }
 

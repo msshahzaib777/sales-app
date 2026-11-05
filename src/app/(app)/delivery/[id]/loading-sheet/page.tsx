@@ -28,7 +28,7 @@ export default async function LoadingSheetPage({
       />
       <PrintToolbar
         back={{ href: `/delivery/${id}`, label: `Trip #${trip.number}` }}
-        hint="Prints on A4 sideways (landscape): the page sets it, so the dialog shows no layout choice."
+        hint="Best on A4, Layout: Landscape (the browser remembers it). For two-sided and all printer options: Print using system dialog (Ctrl+Shift+P)."
       />
       <div className="overflow-x-auto print:overflow-visible">
         <LoadingSheet trip={trip} business={profile.business} />

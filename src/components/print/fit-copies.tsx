@@ -20,6 +20,9 @@ export function FitText({
 }) {
   useEffect(() => {
     const fit = () => {
+      // Measured in the screen layout only, where the boxes have their printed size; in the print
+      // layout a box may have no fixed height (any page size), and the size found is kept.
+      if (window.matchMedia("print").matches) return;
       for (const box of document.querySelectorAll<HTMLElement>(selector)) {
         let size = fontPt;
         box.style.fontSize = `${size}pt`;

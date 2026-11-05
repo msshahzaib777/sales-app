@@ -12,7 +12,10 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 - **Driver sheet:**
   - the amount columns have room for 12,345,678.00 (real balances overlapped the next column), and the headings are shorter, in smaller type;
   - on a narrow screen the sheet scrolls sideways instead of squeezing.
-- **Landscape:** the page sets it, so the print dialog shows no layout choice. The hint on the page says so.
+- **All print dialog controls:** the trip sheets set no page size or orientation, so the dialog keeps paper, portrait / landscape and (when the printer supports it) two-sided. Landscape A4 is the intended layout; the browser remembers the choice.
+  - Upright, the driver sheet's columns (now shares of the page width) shrink with smaller text (6.5 pt), and the loading sheet flows naturally.
+  - The loading sheet's fitting is measured on screen only (`FitText` skips the print layout), so it still fits one landscape page.
+  - The hint on each sheet: for two-sided and all printer options, use **Print using system dialog** (Ctrl+Shift+P).
 - Shared components: `components/delivery/trip-sheets.tsx` (LoadingSheet, DriverSheet); `FitText` in `components/print/fit-copies.tsx`.
 - Tested, printed to PDF:
   - 30 products and 15 stops → the loading sheet is 1 page;

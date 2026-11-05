@@ -5,9 +5,10 @@ import { formatDozens, formatDozensCell } from "@/lib/units";
 import type { getDriverSheet, TripView } from "@/server/services/delivery/trips";
 import type { getPrintProfile } from "@/server/services/settings";
 
-// The two printed trip sheets, on A4 turned sideways (lib/print.ts tripSheetCss): the loading
-// sheet (one page: what to load, and the stops) and the driver sheet (one continuous table the
-// driver fills in). Printed alone, or together on the two sides of one sheet.
+// The two printed trip sheets (lib/print.ts tripSheetCss), meant for A4 sideways but fitting
+// whatever the print dialog chooses: the loading sheet (one landscape page: what to load, and the
+// stops) and the driver sheet (one continuous table the driver fills in). Printed alone, or
+// together on the two sides of one sheet.
 
 type Business = Awaited<ReturnType<typeof getPrintProfile>>["business"];
 type DriverSheetView = Awaited<ReturnType<typeof getDriverSheet>>;
@@ -129,10 +130,12 @@ export function LoadingSheet({ trip, business }: { trip: TripView; business: Bus
 }
 
 /**
- * Column widths in mm (A4 sideways leaves 283 mm): #, customer, product, sent, returned, damaged,
- * bill, previous, due, result, cash, online, cheque, sign. Amounts have room for 12,345,678.00.
+ * Column widths as shares of the page width (in mm of a landscape A4, 283 mm across): #,
+ * customer, product, sent, returned, damaged, bill, previous, due, result, cash, online, cheque,
+ * sign. Amounts have room for 12,345,678.00 in landscape; upright, the text is smaller to match.
  */
 const COLUMNS_MM = [6, 42, 46, 10, 13, 13, 23, 23, 23, 16, 16, 16, 20, 8];
+const COLUMNS_TOTAL = COLUMNS_MM.reduce((a, b) => a + b, 0);
 
 /**
  * The driver sheet: one continuous table, a row per product, the stop's customer, amounts and
@@ -165,7 +168,7 @@ export function DriverSheet({ trip, business }: { trip: DriverSheetView; busines
       <table className="w-full table-fixed border-collapse">
         <colgroup>
           {COLUMNS_MM.map((w, i) => (
-            <col key={i} style={{ width: `${w}mm` }} />
+            <col key={i} style={{ width: `${((w / COLUMNS_TOTAL) * 100).toFixed(2)}%` }} />
           ))}
         </colgroup>
         <thead>

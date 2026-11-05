@@ -25,11 +25,11 @@ export default async function DriverSheetPage({
       <PrintStyles css={tripSheetCss()} />
       <PrintToolbar
         back={{ href: `/delivery/${id}`, label: `Trip #${trip.number}` }}
-        hint="Prints on A4 sideways (landscape): the page sets it, so the dialog shows no layout choice. Enter it at day-end in the same order."
+        hint="Best on A4, Layout: Landscape (the browser remembers it). For two-sided and all printer options: Print using system dialog (Ctrl+Shift+P). Enter it at day-end in the same order."
       />
       {/* On a narrow screen the sheet scrolls sideways instead of squeezing its columns. */}
       <div className="overflow-x-auto print:overflow-visible">
-        <div className="min-w-[283mm]">
+        <div className="min-w-[283mm] print:min-w-0">
           <DriverSheet trip={trip} business={profile.business} />
         </div>
       </div>

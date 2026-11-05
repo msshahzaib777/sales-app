@@ -84,11 +84,16 @@ describe("print CSS", () => {
     expect(paperHint(s)).toBe("Prints 2 copies of each bill side by side on A5, sideways");
   });
 
-  it("trip sheets print on A4 sideways; the loading sheet is exactly one page", () => {
+  it("trip sheets leave paper and layout to the print dialog; the loading sheet fits a landscape page", () => {
     const css = tripSheetCss();
-    expect(css).toContain("@page { size: 297mm 210mm; margin: 7mm; }");
+    // No size: the dialog keeps its paper and portrait / landscape choices.
+    expect(css).toContain("@page { margin: 7mm; }");
+    expect(css).not.toMatch(/@page {[^}]*size/);
     expect(css).toContain(".loading-page { width: 283mm; height: 195mm;");
     expect(css).toContain(".loading-page { break-after: page; }");
+    expect(css).toContain(
+      "@media print and (orientation: portrait) { .print-root { font-size: 6.5pt; } }",
+    );
   });
 
   it("statements always print on A4", () => {
