@@ -4,7 +4,7 @@ import { BillSheets } from "@/components/print/bill-sheets";
 import { PrintToolbar } from "@/components/print/print-frame";
 import { billDocuments } from "@/components/sales/bill-document";
 import { filterParam } from "@/lib/list-params";
-import { paperHint } from "@/lib/print";
+import { paperHint, usesCompactBill } from "@/lib/print";
 import { requireTenantContext } from "@/server/auth/session";
 import { getBillViews, MAX_BULK_BILLS } from "@/server/services/sales/bills";
 import { getPrintProfile } from "@/server/services/settings";
@@ -37,7 +37,7 @@ export default async function PrintBillsPage({ searchParams }: PageProps<"/order
     getPrintProfile(ctx),
   ]);
   const bills = views.flatMap((v) =>
-    billDocuments(v, profile.business, split, profile.print.compact),
+    billDocuments(v, profile.business, split, usesCompactBill(profile.print)),
   );
   return (
     <div>

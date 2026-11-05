@@ -8,7 +8,7 @@ import { PrintToolbar } from "@/components/print/print-frame";
 import { billDocuments } from "@/components/sales/bill-document";
 import { Badge } from "@/components/ui/badge";
 import { filterParam } from "@/lib/list-params";
-import { paperHint } from "@/lib/print";
+import { paperHint, usesCompactBill } from "@/lib/print";
 import { cn } from "@/lib/utils";
 import { requireTenantContext } from "@/server/auth/session";
 import { getBillView } from "@/server/services/sales/bills";
@@ -63,7 +63,7 @@ export default async function BillPage({ params, searchParams }: PageProps<"/ord
       </PrintToolbar>
       <BillSheets
         settings={profile.print}
-        bills={billDocuments(view, profile.business, split, profile.print.compact)}
+        bills={billDocuments(view, profile.business, split, usesCompactBill(profile.print))}
       />
       {filterParam(sp, "print") === "1" ? <AutoPrint /> : null}
     </div>
