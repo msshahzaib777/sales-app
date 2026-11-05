@@ -39,8 +39,11 @@ export function BillDocument({
   minimum?: { toString(): string };
   showCompany: boolean;
 }) {
-  // Money is summed as decimals, never floats (CLAUDE.md rule 5).
+  // Money is summed as decimals, never floats (CLAUDE.md rule 5). Each line at its full price;
+  // the discount is taken off under the total ("This bill").
   const discount = lines.reduce((s, l) => s.add(l.discountAmount), new Decimal(0));
+  const gross = (l: Line) => new Decimal(l.netAmount).add(l.discountAmount);
+  const grossTotal = lines.reduce((s, l) => s.add(gross(l)), new Decimal(0));
   const dz = formatDozensCell;
   return (
     <article className="space-y-[0.6em] leading-snug">
@@ -99,7 +102,7 @@ export function BillDocument({
                 {new Decimal(l.discountAmount).isZero() ? "" : formatMoney(l.discountAmount)}
               </td>
               <td className="py-[0.1em] text-right whitespace-nowrap tabular-nums">
-                {formatMoney(l.netAmount)}
+                {formatMoney(gross(l).toFixed(2))}
               </td>
             </tr>
           ))}
@@ -110,8 +113,10 @@ export function BillDocument({
         <dd className="tabular-nums">{dz(lines.reduce((s, l) => s + l.quantity, 0))}</dd>
         {!discount.isZero() ? (
           <>
+            <dt>Total</dt>
+            <dd className="tabular-nums">{formatMoney(grossTotal.toFixed(2))}</dd>
             <dt>Company discount</dt>
-            <dd className="tabular-nums">{formatMoney(discount.toFixed(2))}</dd>
+            <dd className="tabular-nums">−{formatMoney(discount.toFixed(2))}</dd>
           </>
         ) : null}
         <dt className="font-semibold">This bill</dt>

@@ -2,9 +2,10 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
-## Compact bill shows the discount; loading sheet in large text — done
+## Bills show the discount and deduct it; loading sheet in large text — done
 
 - **Compact bill** (also the bill used for two copies per A5): each line at its full rate and amount; under the total, **Discount −…**, then **This bill** (net, bold), then previous and total due. This is as on the office's old bills (total, "T/O less", net). Before, each line showed the rate after the discount, so the discount was hidden.
+- **Full bill** the same way: the Amount column is the full price (rate × dozens), the Disc. column stays, and under the lines come **Total**, **Company discount −…** and **This bill**. Before, the amounts were already after the discount, and "Company discount" was listed without being taken off anything.
 - **Loading sheet:** A4 with an 8 mm margin and at least 13 pt text (`loadingSheetCss`, `LOADING_SHEET_FONT_PT`), for reading while loading the bike.
 - Tested: unit test for the loading sheet CSS; printed to PDF (bill: 3,403.50 − 48.00 = 3,355.50).
 
