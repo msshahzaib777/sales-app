@@ -131,10 +131,10 @@ export function LoadingSheet({ trip, business }: { trip: TripView; business: Bus
 
 /**
  * Column widths as shares of the page width (in mm of a landscape A4, 283 mm across): #,
- * customer, product, sent, returned, damaged, bill, previous, due, result, cash, online, cheque,
- * sign. Amounts have room for 12,345,678.00 in landscape; upright, the text is smaller to match.
+ * customer, product, sent, returned, damaged, bill, previous, due, cash, online, cheque, sign.
+ * Amounts have room for 12,345,678.00 in landscape; upright, the text is smaller to match.
  */
-const COLUMNS_MM = [6, 42, 46, 10, 13, 13, 23, 23, 23, 16, 16, 16, 20, 8];
+const COLUMNS_MM = [6, 50, 54, 10, 13, 13, 23, 23, 23, 16, 16, 20, 8];
 const COLUMNS_TOTAL = COLUMNS_MM.reduce((a, b) => a + b, 0);
 
 /**
@@ -182,7 +182,6 @@ export function DriverSheet({ trip, business }: { trip: DriverSheetView; busines
             <th className={`${head} text-right`}>This bill</th>
             <th className={`${head} text-right`}>Previous</th>
             <th className={`${head} text-right`}>Total due</th>
-            <th className={head}>Done Part Refused</th>
             <th className={head}>Cash</th>
             <th className={head}>Online (ref.)</th>
             <th className={head}>Cheque no. bank date</th>
@@ -219,9 +218,6 @@ export function DriverSheet({ trip, business }: { trip: DriverSheetView; busines
                 </td>
                 <td rowSpan={rows} className={`${num} font-bold`}>
                   {formatMoney(o.amounts.due)}
-                </td>
-                <td rowSpan={rows} className={`${cell} whitespace-nowrap`}>
-                  ☐ ☐ ☐
                 </td>
                 <td rowSpan={rows} className={cell} />
                 <td rowSpan={rows} className={cell} />

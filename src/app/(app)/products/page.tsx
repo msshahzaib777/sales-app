@@ -32,6 +32,11 @@ export default async function ProductsPage({ searchParams }: PageProps<"/product
         actions={
           canEdit ? (
             <>
+              {can(ctx.user.role, "rates.manage") ? (
+                <LinkButton href="/products/rates" variant="outline">
+                  Edit rates
+                </LinkButton>
+              ) : null}
               <LinkButton href="/import/products" variant="outline">
                 Import
               </LinkButton>

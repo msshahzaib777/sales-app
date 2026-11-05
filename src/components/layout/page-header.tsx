@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { Kbd } from "@/components/ui/kbd";
 
+import { RecordPager } from "./record-pager";
+
 export function PageHeader({
   title,
   description,
@@ -23,7 +25,10 @@ export function PageHeader({
   );
 }
 
-/** Back to the page above; Esc goes there too (components/layout/keyboard-shortcuts). */
+/**
+ * Back to the page above; Esc goes there too (components/layout/keyboard-shortcuts). For a record
+ * opened from a list, back goes to that list with its filters, and previous / next are offered.
+ */
 export function BackLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <p className="mb-2 text-sm">
@@ -36,6 +41,8 @@ export function BackLink({ href, children }: { href: string; children: React.Rea
         ← {children}
         <Kbd>Esc</Kbd>
       </Link>
+      {/* On a record opened from a list: previous / next in that list (Alt+↑ / Alt+↓). */}
+      <RecordPager />
     </p>
   );
 }
