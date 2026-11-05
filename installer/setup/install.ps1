@@ -160,6 +160,55 @@ function Wait-Database {
   for ($i = 0; $i -lt 60 -and -not (Test-Port ([int]$s.PG_PORT)); $i++) { Start-Sleep -Seconds 1 }
 }
 
+# Starts the database service and waits for it. When it does not start, the setup says why:
+# PostgreSQL running as a service writes its reason to the Windows event log.
+function Start-Database {
+  $since = (Get-Date).AddSeconds(-5)
+  $startError = $null
+  if ((Get-Service $DbService).Status -ne "Running") {
+    # A computer switched off without shutting down leaves postmaster.pid behind. When Windows has
+    # since given that process number to another program, PostgreSQL refuses to start. The file
+    # is removed only when no PostgreSQL has that number (the service is stopped here).
+    $pidFile = Join-Path $DbDir "postmaster.pid"
+    if (Test-Path $pidFile) {
+      $old = (Get-Content $pidFile -TotalCount 1 -ErrorAction SilentlyContinue) -as [int]
+      $proc = if ($old) { Get-Process -Id $old -ErrorAction SilentlyContinue } else { $null }
+      if (-not $proc -or $proc.ProcessName -ne "postgres") {
+        Write-Host "    Removing a lock file left by an earlier shutdown (postmaster.pid)."
+        Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+      }
+    }
+    try { Start-Service $DbService -ErrorAction Stop } catch { $startError = $_.Exception.Message }
+  }
+  Wait-Database
+  if (Test-Port ([int]$s.PG_PORT)) { return }
+
+  $why = @()
+  try {
+    # Without PostgreSQL's message file registered, the text is in the event's properties.
+    $lines = Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = $since } -ErrorAction Stop |
+      Where-Object { $_.ProviderName -like "PostgreSQL*" } |
+      ForEach-Object { $t = if ($_.Message) { $_.Message } else { ($_.Properties | ForEach-Object { $_.Value }) -join " " }; ($t -replace "\s+", " ").Trim() } |
+      Where-Object { $_ }
+    $bad = @($lines | Where-Object { $_ -match "FATAL|PANIC|ERROR|could not|failed|denied" })
+    $why += @(if ($bad.Count) { $bad } else { $lines }) | Select-Object -First 3
+  } catch {}
+  try {
+    $why += Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Service Control Manager"; StartTime = $since } -ErrorAction Stop |
+      Where-Object { $_.Message -match $DbService } | Select-Object -First 2 |
+      ForEach-Object { ($_.Message -replace "\s+", " ").Trim() }
+  } catch {}
+  $port = [int]$s.PG_PORT
+  $busy = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($busy) {
+    $owner = (Get-Process -Id $busy.OwningProcess -ErrorAction SilentlyContinue).ProcessName
+    $why += "Port $port is already used by another program ($owner)."
+  }
+  if ($why.Count -eq 0 -and $startError) { $why += $startError }
+  Write-Host "    Database folder: $DbDir"
+  Fail "The database service did not start. Reason: $(if ($why.Count) { $why -join ' | ' } else { 'not reported; see Event Viewer > Windows Logs > Application, source PostgreSQL' })"
+}
+
 # The passwords in settings.env no longer match the database (the file was lost or rewritten):
 # with the data kept, the database is started once allowing local sign-in without a password,
 # the superuser gets the password from settings.env, and the normal sign-in rules are put back.
@@ -187,8 +236,7 @@ function Repair-Passwords {
     Remove-Item $saved -Force -ErrorAction SilentlyContinue
     Capture { sc.exe stop $DbService } | Out-Null
     for ($i = 0; $i -lt 30 -and (Get-Service $DbService).Status -ne "Stopped"; $i++) { Start-Sleep -Seconds 1 }
-    Start-Service $DbService
-    Wait-Database
+    Start-Database
   }
   if (-not $result -or $result.Code -ne 0) { Fail "Resetting the database passwords failed: $($result.Out)" }
 }
@@ -257,12 +305,7 @@ if (-not (Service-Exists $DbService)) {
 }
 # Back to starting with Windows ("Stop Taqseem" may have turned that off).
 Set-Service $DbService -StartupType Automatic
-if ((Get-Service $DbService).Status -ne "Running") { Start-Service $DbService }
-for ($i = 0; $i -lt 60 -and -not (Test-Port ([int]$s.PG_PORT)); $i++) { Start-Sleep -Seconds 1 }
-if (-not (Test-Port ([int]$s.PG_PORT))) {
-  $log = Get-ChildItem $DbDir -Filter "*.log" -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
-  Fail "The database did not start. $(if ($log) { "See $($log.FullName)" })"
-}
+Start-Database
 
 $ensureEnv = @{ SALES_PG_SUPER_URL = $superUrl; SALES_APP_DB_PASSWORD = $s.APP_DB_PASSWORD }
 $r = Tool "db.mjs" @("ensure") $ensureEnv
