@@ -175,6 +175,17 @@ export function statementPageCss(s: PrintSettings): string {
   ].join("\n");
 }
 
+/** The driver sheet: one continuous table on A4 turned sideways, in compact text. */
+export const DRIVER_SHEET_FONT_PT = 9;
+
+/** Print CSS for the driver sheet: A4 landscape, a 7 mm margin, compact text. */
+export function driverSheetCss(): string {
+  return [
+    `@page { size: ${mm(297)} ${mm(210)}; margin: ${mm(7)}; }`,
+    `.print-root { font-size: ${DRIVER_SHEET_FONT_PT}pt; }`,
+  ].join("\n");
+}
+
 /** "Prints on A5 (148 × 210 mm)" and similar, shown next to the print button. */
 export function paperHint(s: PrintSettings): string {
   if (s.twoCopiesPerA5) return "Prints 2 copies of each bill side by side on A5, sideways";

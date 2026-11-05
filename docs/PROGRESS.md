@@ -2,6 +2,16 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Driver sheet: one compact table on A4 sideways — done
+
+- The driver sheet is now **one continuous table on A4 turned sideways** (`driverSheetCss`: 297 × 210 mm, 7 mm margin, 9 pt).
+  - A row per product (code and short name, dozens sent, empty Returned / Damaged boxes in packets).
+  - The stop's cells beside its products: customer, shop, area, phone, order and bill; this bill, previous, total due; Done / Part / Refused; Cash, Online (ref.), Cheque, Sign.
+  - Fixed column widths fill exactly the page width. Before, the sheet was 210 mm wide on A4 with margins (194 mm), so it could be split or scaled across several sheets.
+  - The headings repeat on every page, and a stop's rows never split across pages.
+  - Trip total (stops, bills, total due, collection boxes, road expenses, cash handed over) and signatures at the end.
+- Checked: one stop of 5 products is 1 page with the totals; 15 stops of 5 products are under 2½ pages. Before, each stop was a separate block of about half a page.
+
 ## Keyboard: shortcuts everywhere, type to find, faster order entry — done
 
 - **One listener for the whole website** (`src/components/layout/keyboard-shortcuts.tsx`, mounted in the root layout):
