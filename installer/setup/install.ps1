@@ -42,7 +42,7 @@ $FirewallRule = "Taqseem website"
 # anything can go wrong (else the only message is "The term 'Fail' is not recognized").
 # Anyone on this computer may read the logs, so a failed setup can be looked into without taking
 # over the folder (/C: carry on past a file that is in use).
-function Open-Logs { cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1" }
+function Open-Logs { cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /C /Q >nul 2>&1" }
 
 function Step($text) { Write-Host "==> $text" }
 function Fail($text) {
@@ -72,12 +72,16 @@ $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 # older setup or by hand can otherwise refuse the changes below (and hide settings.env, so the
 # database passwords could not be read). /A: the Administrators group, not this user.
 cmd /c "takeown /F `"$DataDir`" /R /A /D Y >nul 2>&1"
-cmd /c "icacls `"$DataDir`" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1"
-# The database folder: this user and Network Service (the database service) may change it, and
-# every file inside takes its permissions from the folder again (the line above made each file keep
-# its own). A file left without them stops PostgreSQL: "could not access the server configuration
-# file ... Permission denied". /C everywhere: carry on past a file in use instead of stopping there.
+# Only the data folder itself is locked down (Windows and administrators, inheritable); everything
+# inside is reset to take its permissions from the folders above it. Never /inheritance:r with /T:
+# that strips each file's inherited permissions, and the (OI)(CI) grants that should replace them
+# apply to folders only, so every file is left with an empty list that nobody can read (settings.env,
+# postgresql.conf, the setup's own log). The reset also repairs files an older setup left that way.
+# /C everywhere: carry on past a file in use instead of stopping there.
+cmd /c "icacls `"$DataDir`" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /C /Q >nul 2>&1"
+cmd /c "icacls `"$DataDir\*`" /reset /T /C /Q >nul 2>&1"
+cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /C /Q >nul 2>&1"
+# The database folder: this user and Network Service (the database service) may change it.
 function Grant-DbAccess {
   cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /C /Q >nul 2>&1"
   cmd /c "icacls `"$DbDir\*`" /reset /T /C /Q >nul 2>&1"
