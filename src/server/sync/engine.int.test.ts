@@ -92,6 +92,9 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
     local = new pg.Client({ connectionString: urlFor(LOCAL) });
     cloud = new pg.Client({ connectionString: urlFor(CLOUD) });
     await Promise.all([local.connect(), cloud.connect()]);
+    // As a pooled connection (Supabase's pooler, Neon pooling) can be left by pg_restore: no search
+    // path. Every connection the sync opens from now on starts like that.
+    await onServer(`ALTER DATABASE ${CLOUD} SET search_path = ''`);
     await migrate(local, MIGRATIONS);
     await local.query(
       `INSERT INTO "Tenant" (id, name, slug, "updatedAt") VALUES ('t1', 'Demo', 'demo', now())`,

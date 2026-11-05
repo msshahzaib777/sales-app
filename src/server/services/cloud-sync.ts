@@ -10,6 +10,7 @@ import { assertCan } from "../auth/permissions";
 import { prisma } from "../db/client";
 import {
   checkCloud,
+  connectCloud,
   describeUrl,
   libpqUrl,
   newInstallId,
@@ -97,12 +98,9 @@ export async function enableCloudSync(ctx: ServiceCtx, input: unknown) {
   await withLocal(async (db) => {
     const cfg = await readConfig(db);
     const installId = cfg.install_id ?? newInstallId();
-    const cloud = new pg.Client({
-      connectionString: libpqUrl(url),
-      connectionTimeoutMillis: 15_000,
-    });
+    let cloud: pg.Client;
     try {
-      await cloud.connect();
+      cloud = await connectCloud(url);
     } catch (error) {
       throw new ServiceError(
         `Could not reach the cloud database: ${error instanceof Error ? error.message : error}. Check the connection string and the internet.`,

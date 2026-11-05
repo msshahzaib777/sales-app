@@ -54,6 +54,27 @@ export function describeUrl(url: string): string {
   }
 }
 
+/**
+ * Pooled cloud connections (Supabase's pooler, Neon with pooling on) hand a server connection to
+ * the next client as the last one left it, and pg_dump / pg_restore set search_path to empty. A
+ * later query naming a table without its schema then fails ("relation _prisma_migrations does not
+ * exist"), so every cloud session sets it, and every cloud query also names public itself.
+ */
+const PUBLIC_PATH = "SET search_path TO public";
+
+/** A connected client for a cloud database, with the search path set. */
+export async function connectCloud(url: string): Promise<pg.Client> {
+  const cloud = new pg.Client({ connectionString: libpqUrl(url), connectionTimeoutMillis: 15_000 });
+  await cloud.connect();
+  try {
+    await cloud.query(PUBLIC_PATH);
+  } catch (error) {
+    await cloud.end().catch(() => {});
+    throw error;
+  }
+  return cloud;
+}
+
 const fingerprint = (url: string) =>
   createHash("sha256").update(describeUrl(url)).digest("hex").slice(0, 16);
 
@@ -266,7 +287,7 @@ async function initialCopy(
 
 /** Database updates (migrations) the office has and the cloud copy does not, in order. */
 async function migrateCloud(local: Db, cloud: Db, migrationsDir: string) {
-  const applied = `SELECT * FROM "_prisma_migrations"
+  const applied = `SELECT * FROM public."_prisma_migrations"
     WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`;
   const [mine, theirs] = await Promise.all([local.query(applied), cloud.query(applied)]);
   const done = new Set(theirs.rows.map((r) => r.migration_name as string));
@@ -279,9 +300,11 @@ async function migrateCloud(local: Db, cloud: Db, migrationsDir: string) {
     );
     if (!existsSync(/* turbopackIgnore: true */ file))
       throw new Error(`The database update ${row.migration_name} is missing.`);
-    await cloud.query(readFileSync(/* turbopackIgnore: true */ file, "utf8"));
+    // In the same request as the update itself: a pooled connection may have lost the path.
+    await cloud.query(`${PUBLIC_PATH};
+${readFileSync(/* turbopackIgnore: true */ file, "utf8")}`);
     await cloud.query(
-      `INSERT INTO "_prisma_migrations" (id, checksum, finished_at, migration_name, logs,
+      `INSERT INTO public."_prisma_migrations" (id, checksum, finished_at, migration_name, logs,
          rolled_back_at, started_at, applied_steps_count)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
@@ -446,12 +469,8 @@ export async function syncOnce(o: SyncOptions): Promise<SyncResult> {
     try {
       const cfg = await readConfig(local);
       if (cfg.enabled !== "true" || !cfg.cloud_url || !cfg.install_id) return { status: "off" };
-      const cloud = new pg.Client({
-        connectionString: libpqUrl(cfg.cloud_url),
-        connectionTimeoutMillis: 15_000,
-      });
+      const cloud = await connectCloud(cfg.cloud_url);
       try {
-        await cloud.connect();
         let copied = false;
         const copy = async () => {
           await initialCopy(local, cloud, {
@@ -554,12 +573,9 @@ export async function restoreFromCloud(o: RestoreOptions): Promise<RestoreResult
 
 /** The installation id of a cloud database holding a Taqseem copy this program can restore. */
 async function checkRestorable(cloudUrl: string, migrationsDir: string): Promise<string> {
-  const cloud = new pg.Client({
-    connectionString: libpqUrl(cloudUrl),
-    connectionTimeoutMillis: 15_000,
-  });
+  let cloud: pg.Client;
   try {
-    await cloud.connect();
+    cloud = await connectCloud(cloudUrl);
   } catch (error) {
     throw new Error(
       `Could not reach the cloud database: ${error instanceof Error ? error.message : error}. Check the connection string and the internet.`,
@@ -574,7 +590,7 @@ async function checkRestorable(cloudUrl: string, migrationsDir: string): Promise
     if (!owner || !tables.rows[0]?.ok)
       throw new Error("This cloud database has no Taqseem copy to restore.");
     const { rows } = await cloud.query<{ name: string }>(
-      `SELECT migration_name AS name FROM "_prisma_migrations"
+      `SELECT migration_name AS name FROM public."_prisma_migrations"
        WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
     );
     if (rows.some((r) => !existsSync(migrationFile(migrationsDir, r.name))))
@@ -687,7 +703,7 @@ async function restoreLocked(local: Db, o: RestoreOptions): Promise<RestoreResul
 /** Applies the migration files missing from this database's _prisma_migrations, in order. */
 async function migrateLocal(local: Db, migrationsDir: string): Promise<number> {
   const { rows } = await local.query<{ name: string }>(
-    `SELECT migration_name AS name FROM "_prisma_migrations"
+    `SELECT migration_name AS name FROM public."_prisma_migrations"
      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`,
   );
   const done = new Set(rows.map((r) => r.name));
@@ -707,7 +723,7 @@ async function migrateLocal(local: Db, migrationsDir: string): Promise<number> {
       await local.query(sql);
       // As Prisma records it (checksum: SHA-256 of migration.sql), so later updates carry on.
       await local.query(
-        `INSERT INTO "_prisma_migrations"
+        `INSERT INTO public."_prisma_migrations"
            (id, checksum, finished_at, migration_name, started_at, applied_steps_count)
          VALUES ($1, $2, now(), $3, $4, 1)`,
         [randomUUID(), createHash("sha256").update(sql).digest("hex"), name, started],
