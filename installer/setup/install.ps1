@@ -52,9 +52,17 @@ $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 # older setup or by hand can otherwise refuse the changes below (and hide settings.env, so the
 # database passwords could not be read). /A: the Administrators group, not this user.
 cmd /c "takeown /F `"$DataDir`" /R /A /D Y >nul 2>&1"
-cmd /c "icacls `"$DataDir`" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /Q >nul 2>&1"
-cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /Q >nul 2>&1"
-cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /T /Q >nul 2>&1"
+cmd /c "icacls `"$DataDir`" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
+cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1"
+# The database folder: this user and Network Service (the database service) may change it, and
+# every file inside takes its permissions from the folder again (the line above made each file keep
+# its own). A file left without them stops PostgreSQL: "could not access the server configuration
+# file ... Permission denied". /C everywhere: carry on past a file in use instead of stopping there.
+function Grant-DbAccess {
+  cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /C /Q >nul 2>&1"
+  cmd /c "icacls `"$DbDir\*`" /reset /T /C /Q >nul 2>&1"
+}
+Grant-DbAccess
 Start-Transcript -Path (Join-Path $LogDir "install-log.txt") -Append | Out-Null
 
 # Anyone on this computer may read the logs, so a failed setup can be looked into without taking
@@ -284,7 +292,7 @@ if ($newDatabase) {
   if ($Mode -eq "update") { Fail "There is no existing data to update. Run the setup again and choose demo data or your business." }
   # Again here: "start fresh" may have just deleted the folder.
   New-Item -ItemType Directory -Force -Path $DbDir | Out-Null
-  cmd /c "icacls `"$DbDir`" /grant *${me}:(OI)(CI)M *S-1-5-20:(OI)(CI)M /T /Q >nul 2>&1"
+  Grant-DbAccess
   # In this user's own temp folder: initdb runs without administrator rights (see the folder
   # permissions at the top) and could not read a file in the administrators-only data folder.
   # Deleted straight after.
@@ -296,7 +304,7 @@ if ($newDatabase) {
   if ($r.Code -ne 0) { Fail "Creating the database failed: $($r.Out)" }
 }
 # The database service runs as Network Service, which needs to write only its own folder.
-Capture { icacls $DbDir /grant "*S-1-5-20:(OI)(CI)M" /T /Q } | Out-Null
+Grant-DbAccess
 
 if (-not (Service-Exists $DbService)) {
   $r = Capture { & (Join-Path $PgBin "pg_ctl.exe") register -N $DbService -U "NT AUTHORITY\NetworkService" -D $DbDir -S auto -w -o "-p $($s.PG_PORT) -c listen_addresses=localhost" }
