@@ -300,6 +300,35 @@ async function migrateCloud(local: Db, cloud: Db, migrationsDir: string) {
 
 type TableInfo = { columns: Set<string>; key: string[] };
 
+/** True when the cloud database holds this installation's copy: its mark and Taqseem's tables. */
+async function hasOurCopy(cloud: Db, installId: string): Promise<boolean> {
+  if ((await cloudOwner(cloud)) !== installId) return false;
+  const { rows } = await cloud.query<{ ok: boolean }>(
+    `SELECT to_regclass('public."_prisma_migrations"') IS NOT NULL AS ok`,
+  );
+  return Boolean(rows[0]?.ok);
+}
+
+/**
+ * What the cloud copy lacks compared with the office database: tables, columns and primary keys
+ * ("Customer", "Customer.shopName", "Customer (primary key)"). Empty when the structure is complete.
+ */
+export async function missingInCloud(local: Db, cloud: Db): Promise<string[]> {
+  const [mine, theirs] = await Promise.all([cloudTables(local), cloudTables(cloud)]);
+  const missing: string[] = [];
+  for (const [name, t] of mine) {
+    const c = theirs.get(name);
+    if (!c) {
+      missing.push(name);
+      continue;
+    }
+    for (const col of t.columns) if (!c.columns.has(col)) missing.push(`${name}.${col}`);
+    if ([...t.key].sort().join() !== [...c.key].sort().join())
+      missing.push(`${name} (primary key)`);
+  }
+  return missing;
+}
+
 async function cloudTables(cloud: Db): Promise<Map<string, TableInfo>> {
   const { rows } = await cloud.query<{ tbl: string; col: string; key: boolean }>(
     `SELECT c.relname AS tbl, a.attname AS col, coalesce(a.attnum = ANY (i.indkey), false) AS key
@@ -424,19 +453,32 @@ export async function syncOnce(o: SyncOptions): Promise<SyncResult> {
       try {
         await cloud.connect();
         let copied = false;
-        if (cfg.copied_to !== fingerprint(cfg.cloud_url)) {
+        const copy = async () => {
           await initialCopy(local, cloud, {
             localUrl: o.localUrl,
-            cloudUrl: cfg.cloud_url,
-            installId: cfg.install_id,
+            cloudUrl: cfg.cloud_url!,
+            installId: cfg.install_id!,
             pgBin: o.pgBin,
           });
-          await writeConfig(local, { copied_to: fingerprint(cfg.cloud_url) });
+          await writeConfig(local, { copied_to: fingerprint(cfg.cloud_url!) });
           copied = true;
+        };
+        // The structure is checked on every run, not only remembered: a cloud database that was
+        // emptied, recreated under the same name or never finished its first copy gets a full copy
+        // (tables, keys, data), instead of changes it has no tables for.
+        if (
+          cfg.copied_to !== fingerprint(cfg.cloud_url) ||
+          !(await hasOurCopy(cloud, cfg.install_id))
+        ) {
+          await copy();
         } else {
           await installTriggers(local);
         }
         await migrateCloud(local, cloud, o.migrationsDir);
+        // After its database updates the copy must have every table, column and key the office
+        // has; anything still missing (changed by hand, a half-applied update) means a fresh copy.
+        // Safe: the cloud database only ever holds this installation's copy.
+        if (!copied && (await missingInCloud(local, cloud)).length > 0) await copy();
         const sent = await pushChanges(local, cloud);
         await writeConfig(local, { last_sync_at: new Date().toISOString(), last_error: null });
         return { status: "done", copied, sent };

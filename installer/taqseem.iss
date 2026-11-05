@@ -211,6 +211,15 @@ begin
     starts) goes to a file, shown when something fails and kept next to the log. }
   Output := DataDir() + '\logs\install-output.txt';
   ForceDirectories(DataDir() + '\logs');
+  { An earlier run's file can be left readable but not writable, even by administrators (its
+    inherited permissions were removed). The redirect below then fails before the script even
+    starts, and the old text is shown as if it were this run's. Deleting it is allowed (the folder
+    gives administrators full control), so every run starts with a new file. }
+  DeleteFile(Output);
+  if FileExists(Output) then
+    Exec(ExpandConstant('{sys}\cmd.exe'), '/c takeown /F "' + Output + '" /A >nul 2>&1 & icacls "' +
+      Output + '" /reset /Q >nul 2>&1 & del /F /Q "' + Output + '"', '', SW_HIDE,
+      ewWaitUntilTerminated, I);
   Exec(ExpandConstant('{cmd}'), '/c ""' + PowerShell() + '" -NoProfile -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{app}\setup\install.ps1') + '" ' + Params + ' > "' + Output + '" 2>&1"',
     '', SW_HIDE, ewWaitUntilTerminated, Code);

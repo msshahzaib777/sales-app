@@ -36,6 +36,10 @@ PostgreSQL, `pg`, pg_dump / pg_restore, our code.
 - Test: `src/server/sync/engine.int.test.ts`, two throwaway databases: full copy, inserts,
   updates, deletes, a two-column key, an append-only table, a database update before the changes
   needing it, refusing another installation, and catching up after no internet.
+- **The cloud structure is checked on every run**, not only remembered:
+  - a full copy (tables, keys, data) is made when the cloud database has no mark of this installation or no Taqseem tables (emptied, recreated under the same name, first copy never finished);
+  - after the cloud's database updates, `missingInCloud` compares every table, column and primary key with the office; anything missing means a fresh copy instead of failing inserts.
+  - Tested in the sync integration test (emptied database, dropped column).
 - **Restore from the cloud copy** (Settings → Cloud sync, owner, type RESTORE): for a new or
   repaired office computer. `restoreFromCloud` in the engine:
   - refuses a database without a Taqseem copy, and a copy made by a newer Taqseem (migrations this
