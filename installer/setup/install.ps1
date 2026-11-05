@@ -38,6 +38,26 @@ $DbService = "TaqseemDatabase"
 $WebService = "TaqseemWeb"
 $FirewallRule = "Taqseem website"
 
+# Error handling first: the trap is active from the first line, so Fail must exist before
+# anything can go wrong (else the only message is "The term 'Fail' is not recognized").
+# Anyone on this computer may read the logs, so a failed setup can be looked into without taking
+# over the folder (/C: carry on past a file that is in use).
+function Open-Logs { cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1" }
+
+function Step($text) { Write-Host "==> $text" }
+function Fail($text) {
+  Write-Host "FAILED: $text"
+  try { Stop-Transcript | Out-Null } catch {}
+  Open-Logs
+  exit 1
+}
+
+# Any error the script did not expect still ends with one clear FAILED line (shown by the setup
+# window), instead of a PowerShell error the window cuts off.
+trap {
+  Fail "$($_.Exception.Message) (install.ps1 line $($_.InvocationInfo.ScriptLineNumber))"
+}
+
 New-Item -ItemType Directory -Force -Path $DataDir, $LogDir, $BackupDir, $ServiceDir | Out-Null
 # Folder permissions first, before anything is written: only administrators and Windows itself may
 # read the data folder (it holds the passwords); anyone on this computer may read the logs (no
@@ -63,25 +83,10 @@ function Grant-DbAccess {
   cmd /c "icacls `"$DbDir\*`" /reset /T /C /Q >nul 2>&1"
 }
 Grant-DbAccess
-Start-Transcript -Path (Join-Path $LogDir "install-log.txt") -Append | Out-Null
+# A log that cannot be written is no reason to stop (the setup window still gets the output).
+try { Start-Transcript -Path (Join-Path $LogDir "install-log.txt") -Append | Out-Null } catch { Write-Host "    (No setup log: $($_.Exception.Message))" }
 
-# Anyone on this computer may read the logs, so a failed setup can be looked into without taking
-# over the folder (/C: carry on past a file that is in use).
-function Open-Logs { cmd /c "icacls `"$LogDir`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1" }
 
-function Step($text) { Write-Host "==> $text" }
-function Fail($text) {
-  Write-Host "FAILED: $text"
-  try { Stop-Transcript | Out-Null } catch {}
-  Open-Logs
-  exit 1
-}
-
-# Any error the script did not expect still ends with one clear FAILED line (shown by the setup
-# window), instead of a PowerShell error the window cuts off.
-trap {
-  Fail "$($_.Exception.Message) (install.ps1 line $($_.InvocationInfo.ScriptLineNumber))"
-}
 
 # Runs a program, returns its output and exit code (stderr warnings are not failures).
 function Capture([scriptblock]$command) {
