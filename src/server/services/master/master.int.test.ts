@@ -11,6 +11,7 @@ import { deleteRecord, setRecordActive, type ServiceCtx } from "./common";
 import { createCompany, getCompany, listCompanies, updateCompany } from "./companies";
 import { createCustomer, getCustomer, listCustomers, updateCustomer } from "./customers";
 import { createProduct, getProduct, listProducts, updateProduct } from "./products";
+import { getRateSheet, RateSheetError, saveRateSheet } from "./rate-sheet";
 import { createStaff, updateStaff } from "./staff";
 import { createWarehouse, updateWarehouse } from "./warehouses";
 import { createArea } from "./areas";
@@ -149,6 +150,115 @@ describe("products and price history", () => {
       await expect(createCustomer(t.as(role), { name: "X", type: "RETAILER" })).rejects.toThrow(
         ForbiddenError,
       );
+    }
+  });
+});
+
+describe("rates sheet (Products → Edit rates)", () => {
+  it("shows each product as cells, and saves changed cells with history and audit", async () => {
+    const a = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "AA1", name: "Chips AA1" }),
+    );
+    const b = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "BB1", name: "Chips BB1" }),
+    );
+    const sheet = await getRateSheet(t.ctx);
+    expect(sheet.showCost).toBe(true);
+    expect(sheet.rows.find((r) => r.id === a.id)).toMatchObject({
+      purchaseRate: "1200",
+      saleRate: "1320",
+      discount: "200",
+      slabs: "25=250",
+      minStock: "10",
+    });
+
+    const result = await saveRateSheet(t.ctx, {
+      changes: [
+        { productId: a.id, saleRate: "1400", discount: "5%", slabs: "25=6, 50=8" },
+        { productId: b.id, minStock: "20" },
+      ],
+    });
+    expect(result.saved).toBe(2);
+    const fa = await getProduct(t.ctx, a.id);
+    expect([fa.saleRate.toFixed(2), fa.discountType, fa.discountValue.toFixed(2)]).toEqual([
+      "1400.00",
+      "PERCENT",
+      "5.00",
+    ]);
+    expect(
+      fa.discountTiers.map((s) => [s.minQuantity, s.discountType, s.discountValue.toFixed(2)]),
+    ).toEqual([
+      [300, "PERCENT", "6.00"],
+      [600, "PERCENT", "8.00"],
+    ]);
+    // A rate change adds a price-history row; a minimum-stock change does not.
+    expect(fa.priceHistory).toHaveLength(2);
+    const fb = await getProduct(t.ctx, b.id);
+    expect(fb.minStockLevel).toBe(240);
+    expect(fb.priceHistory).toHaveLength(1);
+    expect(
+      await prisma.auditLog.count({ where: { entityId: { in: [a.id, b.id] }, action: "UPDATE" } }),
+    ).toBe(2);
+  });
+
+  it("saves nothing when a cell is wrong, and says which", async () => {
+    const a = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "AA2", name: "Chips AA2" }),
+    );
+    const b = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "BB2", name: "Chips BB2" }),
+    );
+    const attempt = saveRateSheet(t.ctx, {
+      changes: [
+        { productId: a.id, saleRate: "1500", discount: "five" },
+        { productId: b.id, discount: "5%", slabs: "25=150" },
+      ],
+    });
+    await expect(attempt).rejects.toBeInstanceOf(RateSheetError);
+    const error = (await attempt.catch((e) => e)) as RateSheetError;
+    expect(Object.keys(error.cells).sort()).toEqual([`${a.id}.discount`, `${b.id}.slabs`].sort());
+    expect((await getProduct(t.ctx, a.id)).saleRate.toFixed(2)).toBe("1320.00");
+  });
+
+  it("asks to retype slabs when the discount switches between Rs and %", async () => {
+    // productInput: Rs 200 per dozen, slab from 25 dozen Rs 250.
+    const a = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "AA4", name: "Chips AA4" }),
+    );
+    const attempt = saveRateSheet(t.ctx, { changes: [{ productId: a.id, discount: "5%" }] });
+    await expect(attempt).rejects.toBeInstanceOf(RateSheetError);
+    const error = (await attempt.catch((e) => e)) as RateSheetError;
+    expect(error.cells[`${a.id}.slabs`]).toMatch(/retype them in %/);
+    // Retyped in %: saved.
+    await saveRateSheet(t.ctx, { changes: [{ productId: a.id, discount: "5%", slabs: "25=7" }] });
+    const fa = await getProduct(t.ctx, a.id);
+    expect(fa.discountTiers.map((s) => [s.discountType, s.discountValue.toFixed(2)])).toEqual([
+      ["PERCENT", "7.00"],
+    ]);
+    // Same unit (Rs to Rs): no retyping needed.
+    const b = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "BB4", name: "Chips BB4" }),
+    );
+    await saveRateSheet(t.ctx, { changes: [{ productId: b.id, discount: "150" }] });
+    expect((await getProduct(t.ctx, b.id)).discountTiers).toHaveLength(1);
+  });
+
+  it("is for owners only", async () => {
+    const a = await createProduct(
+      t.ctx,
+      productInput(t.company.id, { code: "AA3", name: "Chips AA3" }),
+    );
+    for (const role of ["ACCOUNTANT", "STAFF"] as const) {
+      await expect(getRateSheet(t.as(role))).rejects.toThrow(ForbiddenError);
+      await expect(
+        saveRateSheet(t.as(role), { changes: [{ productId: a.id, saleRate: "1" }] }),
+      ).rejects.toThrow(ForbiddenError);
     }
   });
 });

@@ -21,6 +21,7 @@ import { createCustomer, updateCustomer } from "./services/master/customers";
 import { commitImport, type ImportPreview, previewImport } from "./services/master/import";
 import type { ImportKind } from "./services/master/import-rows";
 import { createProduct, updateProduct } from "./services/master/products";
+import { RateSheetError, saveRateSheet } from "./services/master/rate-sheet";
 import { createStaff, updateStaff } from "./services/master/staff";
 import { createWarehouse, updateWarehouse } from "./services/master/warehouses";
 import { ServiceError } from "./services/errors";
@@ -181,4 +182,42 @@ export async function importCommitAction(
   });
   if (result.status === "success") revalidatePath(IMPORT_PATHS[kind]);
   return result;
+}
+
+/**
+ * Products → Edit rates: saves the sheet's changed cells (JSON in `changes`). Problems come back
+ * per cell (field "productId.column") and nothing is saved until all are fixed.
+ */
+export async function saveRateSheetAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  let changes: unknown;
+  try {
+    changes = JSON.parse(String(formData.get("changes") ?? "[]"));
+  } catch {
+    return { status: "error", message: "Reload the sheet and try again." };
+  }
+  try {
+    const ctx = await requireTenantContext("rates.manage");
+    const { saved } = await saveRateSheet(ctx, { changes });
+    revalidatePath("/products");
+    revalidatePath("/products/rates");
+    return {
+      status: "success",
+      message: saved
+        ? `Saved: ${saved} ${saved === 1 ? "product" : "products"} updated. New rates apply from now on.`
+        : "Nothing changed.",
+    };
+  } catch (error) {
+    if (error instanceof RateSheetError)
+      return {
+        status: "error",
+        message: error.message,
+        fieldErrors: Object.fromEntries(Object.entries(error.cells).map(([k, v]) => [k, [v]])),
+      };
+    return runAction(async () => {
+      throw error;
+    });
+  }
 }

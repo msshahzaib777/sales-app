@@ -2,6 +2,24 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Rates sheet: quick and bulk edit of rates, discounts, slabs and minimum stock — done
+
+- **Products → Edit rates** (`/products/rates`, owner: `rates.manage`): every active product in one grid with purchase rate (only with `financials.view`), sale rate, discount, quantity slabs and minimum stock.
+  - Filter by company and search.
+  - Tab moves across; Enter, ↓ and ↑ move down and up the column.
+  - Changed cells are highlighted; "Save N changes" (Ctrl+Enter) or "Undo all". Plain Enter never saves.
+- **Cell formats** (`lib/rate-sheet.ts`, unit-tested):
+  - discount `5%` (percent), `5` or `Rs 5` (Rs per dozen), blank for none;
+  - slabs `25=3, 50=5` (from N dozen, in the discount's unit), blank for none.
+- **Bulk changes** on the selected rows (or all shown): sale or purchase rate up / down by Rs, set to Rs, and set a discount. They fill the cells, to check before saving.
+- **Saving** (`services/master/rate-sheet.ts`): every changed product goes through `updateProductTx` in one transaction (all or nothing), so it gets the same checks, audit row and price-history row (effective today) as editing the product itself.
+  - A wrong cell saves nothing; its problem is shown under it.
+  - Switching a discount between Rs and % with slabs left untouched asks for the slabs to be retyped. Before, Rs 15 slabs would silently have become 15%.
+- New rates apply to orders from now on; booked orders keep theirs (as on the product page).
+- Tests:
+  - `master.int.test.ts` "rates sheet": cells; save with history and audit; a wrong cell saves nothing; slab retyping; owner only.
+  - Browser: Enter / ↑; one company, select all, +10 and 5%, Ctrl+Enter saves 8 products; a wrong cell shows its message.
+
 ## Trip sheets: loading + driver sheet front and back, A4 sideways — done
 
 - **Delivery → trip → Loading + driver sheet** (`/delivery/[id]/trip-sheets`): one print for the two sides of one sheet.
