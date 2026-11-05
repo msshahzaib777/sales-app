@@ -49,6 +49,9 @@ Name: "{autodesktop}\Taqseem"; Filename: "{app}\Taqseem.url"; IconFilename: "{ap
 [InstallDelete]
 ; Older versions put a single Taqseem icon straight in the Start menu.
 Type: files; Name: "{autoprograms}\Taqseem.lnk"
+; The compiled website of the version being replaced: its files have new names in each version,
+; so copying over it would leave a mix of both. The data is in ProgramData, never here.
+Type: filesandordirs; Name: "{app}\app\.next-package"
 
 [Tasks]
 Name: "desktopicon"; Description: "Put a Taqseem icon on the desktop"

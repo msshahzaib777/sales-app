@@ -8,9 +8,10 @@ const nextConfig: NextConfig = {
     ? { output: "standalone" as const, distDir: ".next-package" }
     : {}),
   // The cloud sync looks up files at run time (migrations, pg_dump); never let the file tracing
-  // pull the build output, downloads or old installers into the package.
+  // pull downloads or old installers into the package. Never list .next or .next-package here:
+  // the build's own server chunks live there, and the package then misses them (ChunkLoadError).
   outputFileTracingExcludes: {
-    "*": ["dist/**", ".next/**", ".next-package/**", ".backups/**", "test/**", "docs/**"],
+    "*": ["dist/**", ".backups/**", "test/**", "docs/**"],
   },
   cacheComponents: true,
   partialPrefetching: true,
