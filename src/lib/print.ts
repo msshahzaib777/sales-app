@@ -175,6 +175,17 @@ export function statementPageCss(s: PrintSettings): string {
   ].join("\n");
 }
 
+/** The driver sheet: one continuous table on A4 turned sideways, in compact text. */
+export const DRIVER_SHEET_FONT_PT = 9;
+
+/** Print CSS for the driver sheet: A4 landscape, a 7 mm margin, compact text. */
+export function driverSheetCss(): string {
+  return [
+    `@page { size: ${mm(297)} ${mm(210)}; margin: ${mm(7)}; }`,
+    `.print-root { font-size: ${DRIVER_SHEET_FONT_PT}pt; }`,
+  ].join("\n");
+}
+
 /** The loading sheet's text: at least this size, read at arm's length while loading the bike. */
 export const LOADING_SHEET_FONT_PT = 13;
 
