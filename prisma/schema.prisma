@@ -247,6 +247,8 @@ model Tenant {
   printFontSizePt       Int       @default(10)
   /// Print two bills on one A4 sheet (each on a half), to save paper.
   twoBillsPerA4         Boolean   @default(false)
+  /// Print each bill twice on one A5 sheet (two A6 halves with a cut line): customer + office copy.
+  twoCopiesPerA5        Boolean   @default(false)
   /// Short bill layout for small paper (A6, receipt rolls): fewer lines, no company column.
   compactBills          Boolean   @default(false)
   timezone              String    @default("Asia/Karachi")

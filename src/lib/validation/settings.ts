@@ -31,11 +31,20 @@ export const businessSettingsSchema = z
     twoBillsPerA4: z
       .preprocess((v) => v === true || v === "on" || v === "true", z.boolean())
       .default(false),
+    twoCopiesPerA5: z
+      .preprocess((v) => v === true || v === "on" || v === "true", z.boolean())
+      .default(false),
     compactBills: z
       .preprocess((v) => v === true || v === "on" || v === "true", z.boolean())
       .default(false),
   })
   .superRefine((s, ctx) => {
+    if (s.twoBillsPerA4 && s.twoCopiesPerA5)
+      ctx.addIssue({
+        code: "custom",
+        path: ["twoCopiesPerA5"],
+        message: "Choose either 2 bills per A4 or 2 copies per A5, not both",
+      });
     if (s.billPaper === "CUSTOM") {
       if (s.billPaperWidthMm === null)
         ctx.addIssue({

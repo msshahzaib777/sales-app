@@ -72,6 +72,18 @@ PostgreSQL, `pg`, pg_dump / pg_restore, our code.
   - the old `taqseem.bat` route still uses the npm PostgreSQL without pg_dump, so its backup
     before updates fails with a clear message.
 
+## Two copies of each bill on one A5 sheet — done
+
+- **Setting** (Settings → Business & printing, `Tenant.twoCopiesPerA5`, migration
+  `20261107090000_two_copies_per_a5`): "Print 2 copies of each bill per A5 sheet". Each bill prints
+  twice on one A5 page (top and bottom halves, 148 × 105 mm each, dashed cut line between), e.g. a
+  customer copy and an office copy. 16 bills ticked on the orders list print as 16 A5 pages.
+  Overrides the paper size; it cannot be on together with "2 bills per A4" (the form says so).
+  Single bills and bulk printing both use it (`billLayout` / `toSheets` in `src/lib/print.ts`).
+- **Open:** each copy is A6-sized and cut off at the half like the two-per-A4 layout, so a bill
+  with many lines loses its last rows; compact bills fit more. No warning when a bill does not fit.
+  The print integration test for this setting was not run (no test database on this machine).
+
 ## Product short names and a compact bill for small paper — done
 
 - **Short name** (`Product.shortName`, optional, up to 24 letters, e.g. "Masala 10"): on the
