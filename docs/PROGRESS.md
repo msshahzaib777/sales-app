@@ -2,6 +2,11 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Cloud sync: record new tables before reaching the cloud — done
+
+- New tables from an update (e.g. `CustomerReturn`) get their change-recording trigger at the start of every sync run, before connecting to the cloud. Before, this happened only after a successful connection, so rows entered after an update while the internet was down were never sent.
+- Test: `engine.int.test.ts` "records a table added by an update while the internet is down, and sends it later" (fails without the fix).
+
 ## Day-end: returns of earlier goods (any product, or Other at a custom rate) — done
 
 - **Day-end (one order and whole trip)** has a new "Returns of earlier goods" part under the order's products, for goods the customer gives back from an earlier bill:
