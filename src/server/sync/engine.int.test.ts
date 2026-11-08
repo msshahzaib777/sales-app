@@ -83,6 +83,12 @@ async function migrate(db: pg.Client, dir: string) {
   }
 }
 
+/** A table a later update adds (sorts between the restore test's two updates). */
+const OFFLINE_NOTE = {
+  name: "29991231000000_u_offline_note",
+  sql: `CREATE TABLE "OfflineNote" (id TEXT PRIMARY KEY, body TEXT NOT NULL);`,
+};
+
 const rows = async (db: pg.Client, sql: string) => (await db.query(sql)).rows;
 
 describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () => {
@@ -212,6 +218,28 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
     ]);
   }, 120_000);
 
+  it("records a table added by an update while the internet is down, and sends it later", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "taqseem-migrations-"));
+    try {
+      cpSync(MIGRATIONS, dir, { recursive: true });
+      const name = OFFLINE_NOTE.name;
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "migration.sql"), OFFLINE_NOTE.sql);
+      await migrate(local, dir);
+      await writeConfig(local, { cloud_url: urlFor(CLOUD).replace(/:\d+\//, ":1/") });
+      // The program starts after the update without internet; work goes on.
+      expect((await sync(dir)).status).toBe("error");
+      await local.query(`INSERT INTO "OfflineNote" (id, body) VALUES ('n1', 'returned stock')`);
+      await writeConfig(local, { cloud_url: urlFor(CLOUD) });
+      expect(await sync(dir)).toMatchObject({ status: "done", sent: 1 });
+      expect(await rows(cloud, `SELECT body FROM "OfflineNote"`)).toEqual([
+        { body: "returned stock" },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("checks the cloud structure every run: an emptied or incomplete copy is copied again", async () => {
     // Emptied by hand (or recreated under the same name): no tables at all.
     await cloud.query(`DROP SCHEMA public CASCADE`);
@@ -328,6 +356,8 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
         join(dir, "29991231000000_test_warehouse_note", "migration.sql"),
         `ALTER TABLE "Warehouse" ADD COLUMN "note" TEXT;`,
       );
+      mkdirSync(join(dir, OFFLINE_NOTE.name));
+      writeFileSync(join(dir, OFFLINE_NOTE.name, "migration.sql"), OFFLINE_NOTE.sql);
       mkdirSync(join(dir, "29991231000001_test_warehouse_code"));
       writeFileSync(
         join(dir, "29991231000001_test_warehouse_code", "migration.sql"),
@@ -353,7 +383,7 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
           fresh,
           `SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE migration_name LIKE '2999%'`,
         ),
-      ).toEqual([{ n: 2 }]);
+      ).toEqual([{ n: 3 }]);
       expect(
         await rows(
           fresh,

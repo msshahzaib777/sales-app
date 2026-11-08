@@ -470,6 +470,9 @@ export async function syncOnce(o: SyncOptions): Promise<SyncResult> {
     try {
       const cfg = await readConfig(local);
       if (cfg.enabled !== "true" || !cfg.cloud_url || !cfg.install_id) return { status: "off" };
+      // Record changes on tables an update added before reaching the cloud, so work done while the
+      // internet is down is not missed. Harmless before a first copy, which starts the log afresh.
+      await installTriggers(local);
       const cloud = await connectCloud(cfg.cloud_url);
       try {
         let copied = false;
