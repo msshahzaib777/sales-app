@@ -226,6 +226,8 @@ enum LedgerEntryType {
   COMPANY_PAYMENT
   COMPANY_CLAIM
   ADJUSTMENT
+  /// Goods from an earlier sale taken back at day-end (credited to the customer).
+  CUSTOMER_RETURN
   REVERSAL
 }
 
@@ -299,6 +301,7 @@ model Tenant {
   expenseCategories    ExpenseCategory[]
   expenses             Expense[]
   ledgerEntries        LedgerEntry[]
+  customerReturns      CustomerReturn[]
 }
 
 /// A login. SUPER_ADMIN users are platform-level and have no tenant; everyone else has exactly one.
@@ -424,6 +427,7 @@ model Company {
   paymentAllocs   CompanyPaymentAllocation[]
   claims          CompanyClaim[]
   salesOrderLines SalesOrderLine[]
+  customerReturns CustomerReturn[]
   customerAllocs  PaymentAllocation[]
   ledgerEntries   LedgerEntry[]
   expenses        Expense[]
@@ -477,6 +481,7 @@ model Product {
   stockMovements     StockMovement[]
   stockAdjustments   StockAdjustment[]
   salesOrderLines    SalesOrderLine[]
+  customerReturns    CustomerReturn[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, requestId])
@@ -601,6 +606,7 @@ model Customer {
   bills         Bill[]
   payments      CustomerPayment[]
   oldBills      CustomerOldBill[]
+  returns       CustomerReturn[]
   ledgerEntries LedgerEntry[]
 
   @@unique([tenantId, id])
@@ -1133,6 +1139,7 @@ model SalesOrder {
   bill      Bill?
   claims    CompanyClaim[]
   payments  CustomerPayment[]
+  returns   CustomerReturn[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, number])
@@ -1184,6 +1191,44 @@ model SalesOrderLine {
   @@unique([tenantId, salesOrderId, productId])
   @@index([tenantId, productId])
   @@index([tenantId, companyId])
+}
+
+/// Goods from an EARLIER sale that the customer gave back at a day-end (not today's order, whose
+/// returns are on its lines). A product goes back into stock (saleable or damaged); "Other" is
+/// something not in the product list (e.g. discontinued): no stock, only the money. The amount is
+/// credited to the customer's ledger for the company (CLAUDE.md rule 3). Undoing the day-end
+/// reverses it (reversedAt set; the row is kept).
+model CustomerReturn {
+  id           String       @id @default(cuid())
+  tenantId     String
+  salesOrderId String
+  customerId   String
+  /// Null for "Other".
+  productId    String?
+  companyId    String
+  /// What it is, for "Other" (the product name otherwise).
+  description  String?
+  /// Base units (packets).
+  quantity     Int
+  /// Per dozen, as agreed for this return.
+  rate         Decimal      @db.Decimal(14, 2)
+  amount       Decimal      @db.Decimal(14, 2)
+  /// Where a product goes back to; null for "Other".
+  bucket       StockBucket?
+  returnDate   DateTime     @db.Date
+  reversedAt   DateTime?
+  createdById  String?
+  createdAt    DateTime     @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  salesOrder SalesOrder @relation(fields: [tenantId, salesOrderId], references: [tenantId, id], onDelete: Restrict)
+  customer   Customer   @relation(fields: [tenantId, customerId], references: [tenantId, id], onDelete: Restrict)
+  product    Product?   @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Restrict)
+  company    Company    @relation(fields: [tenantId, companyId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, salesOrderId])
+  @@index([tenantId, customerId, returnDate])
 }
 
 /// One bill per sales order, possibly spanning several companies, created when the order is booked.

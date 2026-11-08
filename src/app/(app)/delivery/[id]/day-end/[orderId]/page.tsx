@@ -17,6 +17,7 @@ import { can } from "@/server/auth/permissions";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveDayEndAction, undoDayEndAction } from "@/server/delivery-actions";
 import { getDayEndEntry } from "@/server/services/delivery/day-end";
+import { extraReturnOptions } from "@/server/services/delivery/extra-returns";
 
 export const metadata: Metadata = { title: "Day-end entry" };
 
@@ -31,6 +32,8 @@ export default async function DayEndPage({
   const order = await orNotFound(getDayEndEntry(ctx, orderId));
   if (order.trip.id !== id) notFound();
   const done = order.reconciledAt !== null;
+  const returnOptions =
+    order.status === "DISPATCHED" ? await extraReturnOptions(ctx, [order.customerId]) : null;
 
   return (
     <div className="space-y-6">
@@ -54,7 +57,7 @@ export default async function DayEndPage({
       </div>
       <Notice notice={sp.notice} />
 
-      {order.status === "DISPATCHED" ? (
+      {order.status === "DISPATCHED" && returnOptions ? (
         <DayEndForm
           key={order.id}
           action={saveDayEndAction}
@@ -63,6 +66,8 @@ export default async function DayEndPage({
           previous={order.bill!.previousBalance.toFixed(2)}
           billBefore={order.bill!.netAmount.toFixed(2)}
           creditLimit={order.customer.creditLimit?.toFixed(2) ?? null}
+          returnOptions={returnOptions}
+          lastRates={returnOptions.lastRates[order.customerId] ?? {}}
           lines={order.lines.map((l) => ({
             productId: l.productId,
             companyId: l.companyId,
@@ -112,6 +117,46 @@ export default async function DayEndPage({
               ))}
             </tbody>
           </DataTable>
+          {order.returns.length > 0 ? (
+            <section aria-labelledby="returns-heading">
+              <h2 id="returns-heading" className="mb-2 font-medium">
+                Returns of earlier goods
+              </h2>
+              <DataTable>
+                <thead>
+                  <tr>
+                    <Th>Item</Th>
+                    <Th className="text-right">Quantity</Th>
+                    <Th className="text-right">Rate / dz</Th>
+                    <Th>Went to</Th>
+                    <Th className="text-right">Credited</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.returns.map((r) => (
+                    <tr key={r.id}>
+                      <Td>
+                        {r.product
+                          ? `${r.product.code} ${r.product.name}`
+                          : `Other: ${r.description}`}
+                        <div className="text-muted-foreground">{r.company.name}</div>
+                      </Td>
+                      <Td className="text-right tabular-nums">{formatDozens(r.quantity)}</Td>
+                      <Td className="text-right tabular-nums">{formatMoney(r.rate)}</Td>
+                      <Td>
+                        {r.bucket === "DAMAGED"
+                          ? "Damaged stock"
+                          : r.bucket === "SALEABLE"
+                            ? "Saleable stock"
+                            : "No stock"}
+                      </Td>
+                      <Td className="text-right tabular-nums">{formatMoney(r.amount)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </section>
+          ) : null}
           <section aria-labelledby="paid-heading">
             <h2 id="paid-heading" className="mb-2 font-medium">
               Collected
@@ -143,7 +188,7 @@ export default async function DayEndPage({
             <ReasonAction
               action={undoDayEndAction.bind(null, order.id)}
               label="Undo day-end"
-              description="For a day-end entered wrongly. Returns and damage go back out of stock, the damage claims are cancelled, the bill goes back to what was dispatched and the payments collected are reversed. Then enter it again."
+              description="For a day-end entered wrongly. Returns and damage go back out of stock (with any earlier goods given back, whose credit is reversed), the damage claims are cancelled, the bill goes back to what was dispatched and the payments collected are reversed. Then enter it again."
             />
           ) : (
             <p className="text-muted-foreground text-sm">

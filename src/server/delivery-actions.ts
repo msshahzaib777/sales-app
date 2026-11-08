@@ -95,6 +95,26 @@ export async function dispatchTripAction(id: string): Promise<ActionState> {
   redirect(`/delivery/${id}?notice=dispatched`);
 }
 
+/** Returns of earlier goods from a day-end form: parallel fields `<prefix>extra.<field>`. */
+function extrasFrom(formData: FormData, prefix = "") {
+  const all = (field: string) => formData.getAll(`${prefix}extra.${field}`).map(String);
+  const kind = all("kind");
+  const productId = all("productId");
+  const companyId = all("companyId");
+  const description = all("description");
+  const quantity = all("quantity");
+  const rate = all("rate");
+  const damaged = all("damaged");
+  return kind.map((_, i) => ({
+    productId: productId[i] ?? "",
+    companyId: companyId[i] ?? "",
+    description: description[i] ?? "",
+    quantity: quantity[i] ?? "",
+    rate: rate[i] ?? "",
+    damaged: damaged[i] ?? "",
+  }));
+}
+
 /** Saves one order's day-end entry, then opens the trip's next order still to enter. */
 export async function saveDayEndAction(
   _prev: ActionState,
@@ -106,7 +126,12 @@ export async function saveDayEndAction(
     const ctx = await requireTenantContext("operations.manage");
     const fields: Record<string, string> = {};
     for (const [key, value] of formData)
-      if (typeof value === "string" && !key.startsWith("$ACTION") && !key.startsWith("line."))
+      if (
+        typeof value === "string" &&
+        !key.startsWith("$ACTION") &&
+        !key.startsWith("line.") &&
+        !key.startsWith("extra.")
+      )
         fields[key] = value;
     const productIds = formData.getAll("line.productId").map(String);
     const returned = formData.getAll("line.returned").map(String);
@@ -118,6 +143,7 @@ export async function saveDayEndAction(
         returned: returned[i] ?? "",
         damaged: damaged[i] ?? "",
       })),
+      extras: extrasFrom(formData),
     });
     tripId = saved.tripId ?? "";
     next = await nextOrderToReconcile(ctx, tripId);
@@ -174,6 +200,7 @@ export async function saveTripDayEndAction(
           returned: returned[i] ?? "",
           damaged: damaged[i] ?? "",
         })),
+        extras: extrasFrom(formData, `o:${id}:`),
         cash: get(id, "cash"),
         chequeAmount: get(id, "chequeAmount"),
         chequeNo: get(id, "chequeNo"),
