@@ -235,6 +235,66 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
     expect(await sync()).toMatchObject({ status: "done", copied: false, sent: 0 });
   }, 180_000);
 
+  it("sends a parent before its child, whatever order the transactions got their numbers", async () => {
+    // C gets the lowest transaction number, L the next and P the highest. P creates a warehouse
+    // and finishes; C then adds an area to that warehouse and finishes, while L is still running.
+    const client = async () => {
+      const c = new pg.Client({ connectionString: urlFor(LOCAL) });
+      await c.connect();
+      return c;
+    };
+    const [c, l, p] = await Promise.all([client(), client(), client()]);
+    try {
+      await c.query("BEGIN");
+      await c.query(
+        `INSERT INTO "Warehouse" (id, "tenantId", name, "updatedAt") VALUES ('wc', 't1', 'C store', now())`,
+      );
+      await l.query("BEGIN");
+      await l.query(
+        `INSERT INTO "Warehouse" (id, "tenantId", name, "updatedAt") VALUES ('wl', 't1', 'L store', now())`,
+      );
+      await p.query("BEGIN");
+      await p.query(
+        `INSERT INTO "Warehouse" (id, "tenantId", name, "updatedAt") VALUES ('wp', 't1', 'P store', now())`,
+      );
+      await p.query("COMMIT");
+      await c.query(
+        `INSERT INTO "Area" (id, "tenantId", "warehouseId", name, "updatedAt") VALUES ('ac', 't1', 'wp', 'Near P', now())`,
+      );
+      await c.query("COMMIT");
+
+      // L still running: everything finished goes, parent first.
+      expect(await sync()).toMatchObject({ status: "done" });
+      expect(await rows(cloud, `SELECT id FROM "Area" WHERE id = 'ac'`)).toEqual([{ id: "ac" }]);
+      expect(
+        await rows(cloud, `SELECT id FROM "Warehouse" WHERE id IN ('wc', 'wp', 'wl') ORDER BY id`),
+      ).toEqual([{ id: "wc" }, { id: "wp" }]);
+
+      await l.query("COMMIT");
+      expect(await sync()).toMatchObject({ status: "done", sent: 1 });
+      expect(await rows(cloud, `SELECT id FROM "Warehouse" WHERE id = 'wl'`)).toEqual([
+        { id: "wl" },
+      ]);
+    } finally {
+      await Promise.all([c.end(), l.end(), p.end()]);
+    }
+  }, 120_000);
+
+  it("makes the cloud copy again when it is missing a row a change refers to", async () => {
+    // Out of step by hand: the cloud lost an area's warehouse.
+    await cloud.query(`DELETE FROM "Area" WHERE id = 'ac'`);
+    await cloud.query(`DELETE FROM "Warehouse" WHERE id = 'wp'`);
+    await local.query(`UPDATE "Area" SET name = 'Near P, renamed' WHERE id = 'ac'`);
+    expect(await sync()).toMatchObject({ status: "done", copied: true });
+    expect(
+      await rows(
+        cloud,
+        `SELECT a.name, w.id AS warehouse FROM "Area" a JOIN "Warehouse" w ON w.id = a."warehouseId" WHERE a.id = 'ac'`,
+      ),
+    ).toEqual([{ name: "Near P, renamed", warehouse: "wp" }]);
+    expect(await sync()).toMatchObject({ status: "done", copied: false, sent: 0 });
+  }, 120_000);
+
   it("restores a new office computer from the cloud copy, then carries on syncing", async () => {
     await onServer(`CREATE DATABASE ${NEW}`);
     const fresh = new pg.Client({ connectionString: urlFor(NEW) });
@@ -279,12 +339,15 @@ describe.skipIf(!PG_BIN)("cloud sync (office → its own cloud database)", () =>
 
       // The cloud's data replaced this computer's, and the extra update is applied and recorded.
       expect(await rows(fresh, `SELECT id FROM "Tenant"`)).toEqual([{ id: "t1" }]);
-      expect(await rows(fresh, `SELECT id, name, note, code FROM "Warehouse" ORDER BY id`)).toEqual(
-        [
-          { id: "w1", name: "Main Warehouse", note: null, code: null },
-          { id: "w2", name: "Second Store", note: "cold store", code: null },
-        ],
-      );
+      expect(
+        await rows(
+          fresh,
+          `SELECT id, name, note, code FROM "Warehouse" WHERE id IN ('w1', 'w2') ORDER BY id`,
+        ),
+      ).toEqual([
+        { id: "w1", name: "Main Warehouse", note: null, code: null },
+        { id: "w2", name: "Second Store", note: "cold store", code: null },
+      ]);
       expect(
         await rows(
           fresh,

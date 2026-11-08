@@ -410,16 +410,17 @@ async function pushChanges(local: Db, cloud: Db): Promise<number> {
   const tables = await cloudTables(cloud);
   let sent = 0;
   for (;;) {
-    // Only changes of finished transactions: one still running may hold earlier ids.
+    // In the order the changes were written. A transaction still running is invisible here, and
+    // a change can only refer to rows already saved (with lower ids), so a parent always goes
+    // before its child. Not by transaction number: those are handed out when a transaction first
+    // writes, not when it finishes, so filtering on them could send a child (an order line) while
+    // holding back its parent (the order) and the cloud refused it ("violates foreign key").
     const { rows } = await local.query<{
       id: string;
       tbl: string;
       op: string;
       row: Record<string, unknown>;
-    }>(
-      `SELECT id::text, tbl, op, row FROM ${SYNC_SCHEMA}.outbox
-       WHERE xid < pg_snapshot_xmin(pg_current_snapshot()) ORDER BY id LIMIT ${BATCH}`,
-    );
+    }>(`SELECT id::text, tbl, op, row FROM ${SYNC_SCHEMA}.outbox ORDER BY id LIMIT ${BATCH}`);
     if (rows.length === 0) return sent;
     await cloud.query("BEGIN");
     try {
@@ -498,7 +499,16 @@ export async function syncOnce(o: SyncOptions): Promise<SyncResult> {
         // has; anything still missing (changed by hand, a half-applied update) means a fresh copy.
         // Safe: the cloud database only ever holds this installation's copy.
         if (!copied && (await missingInCloud(local, cloud)).length > 0) await copy();
-        const sent = await pushChanges(local, cloud);
+        let sent: number;
+        try {
+          sent = await pushChanges(local, cloud);
+        } catch (error) {
+          // The cloud copy is missing a row a change refers to (it got out of step): it is only a
+          // copy, so make it again from this computer's data instead of failing on every run.
+          if ((error as { code?: string }).code !== "23503" || copied) throw error;
+          await copy();
+          sent = await pushChanges(local, cloud);
+        }
         await writeConfig(local, { last_sync_at: new Date().toISOString(), last_error: null });
         return { status: "done", copied, sent };
       } finally {
