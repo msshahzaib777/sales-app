@@ -422,6 +422,22 @@ describe("order entry context", () => {
     expect(c.products[0]).toMatchObject({ available: 336, tiers: [{ minQuantity: 300 }] });
     expect(c.lastOrder?.lines).toEqual([{ productId: t.chips.id, quantity: 24 }]);
   });
+
+  it("remembers the rate typed for the customer last time, until an order goes back to normal", async () => {
+    const chipsRate = async () =>
+      (await orderEntryContext(t.ctx, t.customer.id)).products.find((p) => p.id === t.chips.id)!
+        .lastSpecialRate?.rate ?? null;
+    expect(await chipsRate()).toBeNull();
+    // A typed rate: the next order starts with it.
+    await createSalesOrder(
+      t.staff,
+      order([{ productId: t.chips.id, quantity: "1", rate: "200", rateNote: "old customer" }]),
+    );
+    expect(await chipsRate()).toBe("200.00");
+    // The next order at the normal rate: the normal rate again.
+    await createSalesOrder(t.staff, order([{ productId: t.chips.id, quantity: "1" }]));
+    expect(await chipsRate()).toBeNull();
+  });
 });
 
 describe("finding orders", () => {

@@ -2,6 +2,24 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Sync sends changes in written order; remembered customer rates; Alt+L repeat last order — done
+
+- **Cloud sync bug** ("insert or update on table SalesOrderLine violates foreign key constraint"):
+  - **Cause:** the outbox was filtered on `xid < pg_snapshot_xmin(...)`. Transaction numbers are handed out at a transaction's first write, not at commit. So with a transaction still running, a finished child (an order line) could go while its finished parent (the order), which had a higher number, was held back, and the cloud refused the child on every run.
+  - **Fix:** send in outbox id order with no xid filter. Running transactions are invisible, and a change can only refer to rows saved before it, with lower ids.
+  - **Safety net:** if the cloud still refuses a change for a missing row (FK violation 23503), the cloud copy is made again from this computer's data, once.
+  - Tests in `engine.int.test.ts`:
+    - the exact three-transaction case (failed before: "violates foreign key constraint");
+    - a cloud copy put out of step by hand is copied again.
+- **Remembered customer rates:** a new order for a customer starts each product at the rate typed for that customer last time.
+  - This uses the customer's most recent order of that product; if that order went back to the normal rate, so does the new one (`orderEntryContext` `lastSpecialRate`).
+  - Adding a product and repeating the last order both use it. The line shows "Special rate … as last time (date)".
+  - The reason box is skipped by Tab, so Tab Tab still reaches the next product.
+- **Alt+L** repeats the customer's last order (shown on the button, in the order key guide and in `?`).
+- Tested:
+  - `sales.int.test.ts`: the remembered rate, and normal again after a normal order;
+  - browser: CB07 at the remembered 558 with "as last time", Tab Tab to the next product, CB01 normal, Alt+L repeats with the remembered rate.
+
 ## Rates sheet: quick and bulk edit of rates, discounts, slabs and minimum stock — done
 
 - **Products → Edit rates** (`/products/rates`, owner: `rates.manage`): every active product in one grid with purchase rate (only with `financials.view`), sale rate, discount, quantity slabs and minimum stock.

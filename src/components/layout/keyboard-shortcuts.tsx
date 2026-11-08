@@ -300,6 +300,7 @@ const SHORTCUTS: [string, string][] = [
   ["Enter", "In an order: after the dozens, the next product"],
   ["Ctrl+Delete", "In an order: remove the line you are in"],
   ["Alt+R", "In an order: change the rate of the line you are in"],
+  ["Alt+L", "In an order: repeat the customer's last order"],
   ["?", "This list"],
 ];
 

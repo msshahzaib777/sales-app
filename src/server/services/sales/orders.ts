@@ -754,9 +754,10 @@ export async function orderEntryContext(
     });
     const [positions, specials] = await Promise.all([
       stockPositions(ctx.db, warehouseId, undefined, opts.excludeOrderId),
+      // The customer's most recent line of each product: its rate is used again when it was a
+      // typed (special) rate; if that last order went back to the normal rate, so does this one.
       ctx.db.salesOrderLine.findMany({
         where: {
-          standardRate: { not: null },
           salesOrder: {
             customerId,
             status: { not: "CANCELLED" },
@@ -765,10 +766,17 @@ export async function orderEntryContext(
         },
         orderBy: [{ salesOrder: { orderDate: "desc" } }, { salesOrder: { number: "desc" } }],
         distinct: ["productId"],
-        select: { productId: true, rate: true, salesOrder: { select: { orderDate: true } } },
+        select: {
+          productId: true,
+          rate: true,
+          standardRate: true,
+          salesOrder: { select: { orderDate: true } },
+        },
       }),
     ]);
-    const special = new Map(specials.map((s) => [s.productId, s]));
+    const special = new Map(
+      specials.filter((s) => s.standardRate !== null).map((s) => [s.productId, s]),
+    );
     products = rows.map((p) => ({
       id: p.id,
       code: p.code,

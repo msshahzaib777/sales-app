@@ -193,7 +193,8 @@ export function OrderEntry({
       return;
     }
     pendingFocus.current = p.id;
-    setLines((ls) => [...ls, { productId: p.id, qty: "" }]);
+    // The rate typed for this customer last time is used again (it can still be changed).
+    setLines((ls) => [...ls, { productId: p.id, qty: "", rate: p.lastSpecialRate?.rate }]);
   };
 
   const repeatLastOrder = () => {
@@ -201,7 +202,11 @@ export function OrderEntry({
     setLines(
       context.lastOrder.lines
         .filter((l) => productById.has(l.productId))
-        .map((l) => ({ productId: l.productId, qty: quantityText(l.quantity) })),
+        .map((l) => ({
+          productId: l.productId,
+          qty: quantityText(l.quantity),
+          rate: productById.get(l.productId)?.lastSpecialRate?.rate,
+        })),
     );
   };
 
@@ -226,6 +231,10 @@ export function OrderEntry({
         if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
           e.currentTarget.requestSubmit();
+        } else if (e.altKey && !e.ctrlKey && e.code === "KeyL") {
+          // Alt+L: repeat the customer's last order (its products and dozens).
+          e.preventDefault();
+          repeatLastOrder();
         } else if (
           e.key === "Enter" &&
           target instanceof HTMLInputElement &&
@@ -563,8 +572,13 @@ export function OrderEntry({
               />
             </div>
             {context.lastOrder ? (
-              <Button type="button" variant="outline" onClick={repeatLastOrder}>
-                Repeat last order (#{context.lastOrder.number})
+              <Button
+                type="button"
+                variant="outline"
+                onClick={repeatLastOrder}
+                aria-keyshortcuts="Alt+L"
+              >
+                Repeat last order (#{context.lastOrder.number}) <Kbd>Alt+L</Kbd>
               </Button>
             ) : null}
           </div>
@@ -581,6 +595,9 @@ export function OrderEntry({
             </span>
             <span>
               <Kbd>Ctrl+Delete</Kbd> remove line
+            </span>
+            <span>
+              <Kbd>Alt+L</Kbd> repeat last order
             </span>
             <span>
               <Kbd>Ctrl+Enter</Kbd> book
@@ -689,6 +706,7 @@ function RateCell({
 }) {
   const id = `rate-${product.id}`;
   const last = product.lastSpecialRate;
+  const asLastTime = Boolean(last && line.rate && Number(line.rate) === Number(last.rate));
   return (
     <div className="ml-auto w-32 space-y-1 text-left">
       <label htmlFor={id} className="sr-only">
@@ -715,12 +733,17 @@ function RateCell({
             <span className="text-muted-foreground line-through">
               {formatMoney(product.saleRate)}
             </span>
+            {asLastTime ? (
+              <span className="text-muted-foreground block">as last time ({last!.date})</span>
+            ) : null}
           </p>
           <Input
             name="rateNote"
             aria-label={`Reason for the rate of ${product.name}`}
             placeholder="Reason (optional)"
             maxLength={100}
+            // The customer's remembered rate needs no new reason: keep Tab Tab to the next product.
+            tabIndex={asLastTime ? -1 : undefined}
             className="h-7 text-xs"
             value={line.rateNote ?? ""}
             onChange={(e) => onChange({ rateNote: e.target.value })}
