@@ -2,6 +2,25 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Day-end: returns of earlier goods (any product, or Other at a custom rate) — done
+
+- **Day-end (one order and whole trip)** has a new "Returns of earlier goods" part under the order's products, for goods the customer gives back from an earlier bill:
+  - **Any product** (also inactive ones), picked by code or name. The rate per dozen starts at what this customer last paid for it (net of discount), or the product's normal rate, and can be changed. It goes back to saleable or damaged stock in its company's warehouse.
+  - **Other (not in the list)**, e.g. a discontinued product: a description, the company it is credited to, quantity and rate. No stock moves.
+  - The credit (quantity × rate) lowers "still owes" and the minimum payment as you type.
+- **Posting** (`services/delivery/extra-returns.ts`), in the day-end transaction:
+  - one new `CustomerReturn` row each;
+  - a `CUSTOMER_RETURN` stock movement for a product;
+  - a customer ledger credit of the new type `CUSTOMER_RETURN` ("Return") with the company (rule 3), posted before the cash is split by company.
+  - Today's bill, the order status, the driver's sheet and the loading sheet do not change.
+- **Undo day-end** reverses these too: stock back out (refused if already used), credit reversed, rows marked `reversedAt`.
+- The entered day-end page lists the returns (item, quantity, rate, where it went, credit).
+- Migration `20261108090000_day_end_other_returns`: the enum value, the table and CHECKs (a product has a stock bucket; Other has a description and no bucket). Cloud sync picks the new table up by itself.
+- Tested:
+  - `delivery.int.test.ts`: a product from another warehouse, damaged chips and an Other; credits per company, stock per warehouse and bucket, the picker's last rate; undo puts it all back;
+  - browser: trip day-end with a product (rate prefilled from last time) and an Other, saved, and shown on the entered order.
+- Open: a dashboard "sales" figure still counts only bills and bill revisions (returns of earlier goods are not taken off it).
+
 ## Sync sends changes in written order; remembered customer rates; Alt+L repeat last order — done
 
 - **Cloud sync bug** ("insert or update on table SalesOrderLine violates foreign key constraint"):

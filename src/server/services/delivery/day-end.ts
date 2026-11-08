@@ -27,6 +27,7 @@ import { found, reverseLedgerFor } from "../posting";
 import { logClaim } from "../purchasing/claims";
 import { customerPending } from "../sales/positions";
 import { writeBillRevision } from "../sales/orders";
+import { postExtraReturns, reverseExtraReturns } from "./extra-returns";
 
 // Day-end entry (SPEC §7): after the drivers return, staff enter each order from its signed bill.
 // One transaction per order:
@@ -36,6 +37,8 @@ import { writeBillRevision } from "../sales/orders";
 //    (at purchase cost, SPEC §17);
 //  - the bill is re-priced on what the customer kept, saved as a new revision, and the reduction
 //    is credited to each company's slice of the customer ledger;
+//  - goods from earlier sales the customer gave back (any product, or "Other") are credited at the
+//    rate agreed and products go back into stock (extra-returns.ts);
 //  - cash, cheque and online amounts collected become customer payments, split by company;
 //  - the order becomes Delivered, Partly delivered or Returned, and the trip is closed once every
 //    order on it is entered.
@@ -79,6 +82,14 @@ export async function getDayEndEntry(ctx: ServiceCtx, orderId: string) {
           where: { status: "POSTED" },
           include: { cheque: { select: { chequeNo: true, bankName: true } } },
           orderBy: { number: "asc" },
+        },
+        returns: {
+          where: { reversedAt: null },
+          include: {
+            product: { select: { code: true, name: true } },
+            company: { select: { name: true } },
+          },
+          orderBy: { createdAt: "asc" },
         },
       },
     }),
@@ -281,6 +292,9 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
         }
       }
 
+      // Goods from earlier sales given back at this stop (credited before the payments are split).
+      const extras = await postExtraReturns(tx, ctx, order, data.extras, date);
+
       // Payments collected by the driver.
       // An advance (the customer owes nothing) goes to this order's companies.
       const fallbackCompanies: [string, Prisma.Decimal][] =
@@ -338,6 +352,7 @@ export async function saveDayEnd(ctx: ServiceCtx, input: unknown) {
           results,
           bill: newTotals.total.netAmount,
           claims,
+          extraReturns: extras,
           payments: collected,
           note: data.note,
         },
@@ -372,6 +387,7 @@ export async function getTripDayEnd(ctx: ServiceCtx, tripId: string) {
             id: true,
             number: true,
             status: true,
+            customerId: true,
             customer: {
               select: {
                 name: true,
@@ -585,6 +601,9 @@ export async function undoDayEnd(ctx: ServiceCtx, input: unknown) {
         data: { returnedQuantity: 0, damagedQuantity: 0 },
       });
 
+      // Goods from earlier sales given back at this delivery.
+      const extraReturns = await reverseExtraReturns(tx, ctx, order.id, today, note);
+
       // Payments collected at this delivery.
       for (const p of order.payments) await reversePayment(tx, ctx, p.id, note, "REVERSAL");
 
@@ -619,6 +638,7 @@ export async function undoDayEnd(ctx: ServiceCtx, input: unknown) {
             .filter((c) => c.status === "PENDING" || c.status === "AWAITING")
             .map((c) => c.number),
           payments: order.payments.map((p) => ({ number: p.number, amount: p.amount })),
+          extraReturns,
         },
         newValue: { status: "DISPATCHED", bill: totals.netAmount, reason },
       });

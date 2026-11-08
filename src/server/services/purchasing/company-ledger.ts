@@ -26,6 +26,7 @@ export const LEDGER_TYPE_LABEL: Record<LedgerEntryType, string> = {
   COMPANY_PAYMENT: "Payment",
   COMPANY_CLAIM: "Claim",
   ADJUSTMENT: "Adjustment",
+  CUSTOMER_RETURN: "Return",
   REVERSAL: "Reversal",
 };
 

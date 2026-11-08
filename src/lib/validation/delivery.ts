@@ -5,6 +5,7 @@ import {
   blankToUndefined,
   dateSchema,
   idSchema,
+  moneySchema,
   optionalDateSchema,
   optionalMoneySchema,
   optionalText,
@@ -45,6 +46,30 @@ const packetsOrZero = (label: string) => blankAs(packetsSchema(label), 0);
 const amount = (label: string) =>
   optionalMoneySchema(label).transform((v) => (v === null || Number(v) === 0 ? null : v));
 
+/**
+ * Goods from an earlier sale given back at this delivery: a product (back to stock, saleable or
+ * damaged) or "Other" (not in the product list: a description and the company it is credited to).
+ * Credited at the rate per dozen agreed for this return.
+ */
+export const extraReturnSchema = z
+  .object({
+    productId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
+    companyId: z.preprocess(blankToUndefined, idSchema.optional()).transform((v) => v ?? null),
+    description: optionalText(120),
+    quantity: packetsSchema("quantity returned", { min: 1 }),
+    rate: moneySchema("rate per dozen"),
+    damaged: z
+      .preprocess((v) => v === true || v === "1" || v === "on" || v === "true", z.boolean())
+      .default(false),
+  })
+  .superRefine((r, ctx) => {
+    if (r.productId) return;
+    if (!r.description)
+      ctx.addIssue({ code: "custom", path: ["description"], message: "Write what it is" });
+    if (!r.companyId)
+      ctx.addIssue({ code: "custom", path: ["companyId"], message: "Choose the company" });
+  });
+
 /** One order's day-end entry from the signed bill. Returns and damage in packets, amounts in rupees. */
 export const dayEndSchema = z
   .object({
@@ -60,6 +85,7 @@ export const dayEndSchema = z
       )
       .max(200)
       .default([]),
+    extras: z.array(extraReturnSchema).max(100).default([]),
     cash: amount("cash"),
     chequeAmount: amount("cheque amount"),
     chequeNo: optionalText(30),
@@ -81,4 +107,5 @@ export const dayEndSchema = z
   });
 
 export type TripInput = z.infer<typeof tripSchema>;
+export type ExtraReturnInput = z.infer<typeof extraReturnSchema>;
 export type DayEndInput = z.infer<typeof dayEndSchema>;

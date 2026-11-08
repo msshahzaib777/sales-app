@@ -14,6 +14,7 @@ import { formatDozens, parseQuantity, quantityText } from "@/lib/units";
 import { cn } from "@/lib/utils";
 
 import type { DayEndLine } from "./day-end-form";
+import { type ExtraRow, ExtraReturns, extrasTotal, type ReturnOptions } from "./extra-returns";
 
 export type TripDayEndOrder = {
   id: string;
@@ -25,10 +26,13 @@ export type TripDayEndOrder = {
   billBefore: string;
   creditLimit: string | null;
   lines: DayEndLine[];
+  /** The customer's last rate per dozen by product (for returns of earlier goods). */
+  lastRates: Record<string, string>;
 };
 
 type Entry = {
   qty: Record<string, { returned: string; damaged: string }>;
+  extras: ExtraRow[];
   cash: string;
   online: string;
   onlineReference: string;
@@ -68,13 +72,15 @@ function figures(o: TripDayEndOrder, e: Entry) {
       );
   const billAfter = kept ? kept.reduce((s, l) => s.add(l.netAmount), new Decimal(0)) : null;
   const collected = money(e.cash).add(money(e.online)).add(money(e.cheque));
-  const due = billAfter ? billAfter.add(o.previous) : null;
+  const extra = extrasTotal(e.extras);
+  const due = billAfter ? billAfter.add(o.previous).sub(extra.credit) : null;
   const minimum = due
     ? minimumPayment({ previous: o.previous, totalDue: due, creditLimit: o.creditLimit })
     : null;
   return {
     results,
     bad,
+    extra,
     billAfter,
     collected,
     due,
@@ -90,10 +96,12 @@ export function TripDayEndForm({
   action,
   orders,
   tripDate,
+  returnOptions,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   orders: TripDayEndOrder[];
   tripDate: string;
+  returnOptions: ReturnOptions;
 }) {
   const [state, formAction, pending] = useActionState(action, idleState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -109,6 +117,7 @@ export function TripDayEndForm({
   };
   const blank = (): Entry => ({
     qty: {},
+    extras: [],
     cash: "",
     online: "",
     onlineReference: "",
@@ -133,19 +142,25 @@ export function TripDayEndForm({
     }),
     { cash: new Decimal(0), cheque: new Decimal(0), online: new Decimal(0) },
   );
-  const anyBad = all.some(({ o, e }) => figures(o, e).bad.some(Boolean));
+  const anyBad = all.some(({ o, e }) => {
+    const f = figures(o, e);
+    return f.bad.some(Boolean) || f.extra.bad;
+  });
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLFormElement>) => {
     if (event.key !== "Enter") return;
     const target = event.target as HTMLElement;
     if (target.tagName === "BUTTON" || target.tagName === "TEXTAREA") return;
+    // A pick list with something typed: Enter picks from it.
+    if (target.getAttribute("role") === "combobox" && (target as HTMLInputElement).value.trim())
+      return;
     event.preventDefault();
     if (event.ctrlKey || event.metaKey) {
       formRef.current?.requestSubmit();
       return;
     }
     const fields = [
-      ...(formRef.current?.querySelectorAll<HTMLElement>("input:not([type=hidden])") ?? []),
+      ...(formRef.current?.querySelectorAll<HTMLElement>("input:not([type=hidden]), select") ?? []),
     ];
     fields[fields.indexOf(target) + 1]?.focus();
   };
@@ -163,6 +178,7 @@ export function TripDayEndForm({
           entry={e}
           index={index}
           state={state}
+          returnOptions={returnOptions}
           onChange={(change) => update(o.id, change)}
         />
       ))}
@@ -188,7 +204,8 @@ export function TripDayEndForm({
         </div>
         {anyBad ? (
           <p className="text-destructive mx-auto mt-1 max-w-5xl text-xs" role="status">
-            A quantity can&apos;t be read or is more than was sent: check the boxes marked red.
+            A quantity or rate can&apos;t be read, is more than was sent, or an &ldquo;Other&rdquo;
+            return needs its description and company: check the boxes marked red.
           </p>
         ) : null}
         <div className="mx-auto max-w-5xl">
@@ -204,12 +221,14 @@ function OrderCard({
   entry: e,
   index,
   state,
+  returnOptions,
   onChange,
 }: {
   order: TripDayEndOrder;
   entry: Entry;
   index: number;
   state: ActionState;
+  returnOptions: ReturnOptions;
   onChange: (change: (e: Entry) => Entry) => void;
 }) {
   const f = figures(o, e);
@@ -353,6 +372,16 @@ function OrderCard({
         })}
       </ul>
 
+      <ExtraReturns
+        rows={e.extras}
+        onChange={(change) => onChange((x) => ({ ...x, extras: change(x.extras) }))}
+        options={returnOptions}
+        lastRates={o.lastRates}
+        prefix={name("")}
+        idPrefix={o.id}
+        error={err}
+      />
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {money("cash", "Cash", "cash")}
         {money("online", "Online", "onlineAmount")}
@@ -416,6 +445,12 @@ function OrderCard({
             <span className="text-muted-foreground"> (was {formatMoney(o.billBefore)})</span>
           ) : null}
         </span>
+        {e.extras.length > 0 ? (
+          <span>
+            Returns credit{" "}
+            <span className="tabular-nums">−{formatMoney(f.extra.credit.toFixed(2))}</span>
+          </span>
+        ) : null}
         <span>
           Owed before <span className="tabular-nums">{formatMoney(o.previous)}</span>
         </span>

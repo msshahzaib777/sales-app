@@ -33,6 +33,7 @@ import {
   saveDayEnd,
   undoDayEnd,
 } from "./day-end";
+import { extraReturnOptions } from "./extra-returns";
 import {
   addOrdersToTrip,
   bookedOrdersFor,
@@ -487,6 +488,90 @@ describe("day-end entry", () => {
     const entry = await getDayEndEntry(t.staff, a.id);
     expect(entry.lines).toHaveLength(2);
     expect(entry.trip.number).toBeGreaterThan(0);
+  });
+});
+
+describe("returns of earlier goods at day-end", () => {
+  it("credits any product or Other at the rate entered, puts products back in stock, and undoes", async () => {
+    const a = await book(t.ali.id, [
+      [t.chips.id, "10"],
+      [t.nimko.id, "2"],
+    ]);
+    const tr = await trip([a.id]);
+    await dispatchTrip(t.staff, { id: tr.id });
+
+    // The picker: the normal rate after discount, and what Ali last paid (chips: 200 − 4).
+    const options = await extraReturnOptions(t.staff, [t.ali.id]);
+    expect(options.products.find((p) => p.id === t.nimko.id)?.rate).toBe("150.00");
+    expect(options.lastRates[t.ali.id]).toMatchObject({ [t.chips.id]: "196.00" });
+    expect(options.companies.map((c) => c.name)).toContain("Golden");
+
+    // "Other" needs what it is and its company.
+    await expect(
+      saveDayEnd(t.staff, {
+        orderId: a.id,
+        extras: [{ productId: "", companyId: "", description: "", quantity: "1", rate: "50" }],
+      }),
+    ).rejects.toThrow(/Write what it is|Choose the company/);
+
+    const farBefore = (await stockPositions(t.ctx.db, t.other.id, [t.far.id])).get(t.far.id)!;
+    const result = await saveDayEnd(t.staff, {
+      requestId: randomUUID(),
+      orderId: a.id,
+      lines: [],
+      extras: [
+        // A product not on this order, from another company's warehouse, at an agreed rate.
+        { productId: t.far.id, quantity: "2", rate: "90" },
+        // Half a dozen chips from an earlier bill, damaged.
+        { productId: t.chips.id, quantity: "6pk", rate: "196", damaged: "1" },
+        // Something no longer in the list.
+        {
+          productId: "",
+          companyId: t.golden.id,
+          description: "Old masala pack",
+          quantity: "1",
+          rate: "50",
+        },
+      ],
+    });
+    expect(result.status).toBe("DELIVERED");
+
+    // Credited 180 + 98 + 50; the bill is as sent (2260) and the trip sheets are unchanged.
+    expect((await customerPending(t.ctx.db, t.ali.id)).total.toFixed(2)).toBe("5932.00");
+    const view = await getBillView(t.staff, a.id);
+    expect(view.bill.netAmount.toFixed(2)).toBe("2260.00");
+    const credits = await t.ctx.db.ledgerEntry.findMany({
+      where: { customerId: t.ali.id, type: "CUSTOMER_RETURN" },
+      orderBy: { credit: "asc" },
+    });
+    expect(credits.map((c) => [c.companyId, c.credit.toFixed(2)])).toEqual([
+      [t.golden.id, "50.00"],
+      [t.crunchy.id, "98.00"],
+      [t.far.companyId, "180.00"],
+    ]);
+    // Stock: Faraway's product back into its own warehouse; the chips into damaged stock.
+    const farAfter = (await stockPositions(t.ctx.db, t.other.id, [t.far.id])).get(t.far.id)!;
+    expect(farAfter.onHand - farBefore.onHand).toBe(24);
+    expect(await onHand(t.chips.id)).toBe(480);
+    const damaged = await t.ctx.db.stockMovement.aggregate({
+      where: { productId: t.chips.id, bucket: "DAMAGED" },
+      _sum: { quantity: true },
+    });
+    expect(damaged._sum.quantity).toBe(6);
+    const entry = await getDayEndEntry(t.staff, a.id);
+    expect(entry.returns.map((r) => [r.description, r.bucket, r.amount.toFixed(2)])).toEqual([
+      [null, "SALEABLE", "180.00"],
+      [null, "DAMAGED", "98.00"],
+      ["Old masala pack", null, "50.00"],
+    ]);
+
+    // Undo: the credit and the stock are reversed, and nothing is left on the order.
+    await undoDayEnd(t.ctx, { id: a.id, reason: "entered on the wrong order" });
+    expect((await customerPending(t.ctx.db, t.ali.id)).total.toFixed(2)).toBe("6260.00");
+    const farUndone = (await stockPositions(t.ctx.db, t.other.id, [t.far.id])).get(t.far.id)!;
+    expect(farUndone.onHand).toBe(farBefore.onHand);
+    expect((await getDayEndEntry(t.staff, a.id)).returns).toEqual([]);
+    expect(await t.ctx.db.customerReturn.count({ where: { reversedAt: null } })).toBe(0);
   });
 });
 

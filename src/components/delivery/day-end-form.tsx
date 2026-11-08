@@ -14,6 +14,8 @@ import { formatMoney } from "@/lib/format";
 import { minimumPayment } from "@/lib/sales";
 import { formatDozens, parseQuantity, quantityText } from "@/lib/units";
 
+import { type ExtraRow, ExtraReturns, extrasTotal, type ReturnOptions } from "./extra-returns";
+
 export type DayEndLine = BookedLine & { code: string; name: string; companyName: string };
 
 /** A quantity as typed ("2", "2dz 5pk", "5pk") in packets; blank → 0; unreadable → null. */
@@ -40,6 +42,8 @@ export function DayEndForm({
   previous,
   billBefore,
   creditLimit,
+  returnOptions,
+  lastRates,
 }: {
   action: (state: ActionState, formData: FormData) => Promise<ActionState>;
   orderId: string;
@@ -48,12 +52,17 @@ export function DayEndForm({
   previous: string;
   billBefore: string;
   creditLimit: string | null;
+  returnOptions: ReturnOptions;
+  /** The customer's last rate per dozen by product (for returns of earlier goods). */
+  lastRates: Record<string, string>;
 }) {
   const [state, formAction, pending] = useActionState(action, idleState);
   const withRequestId = useRequestId();
   const formRef = useRef<HTMLFormElement>(null);
   const [qty, setQty] = useState<Record<string, { returned: string; damaged: string }>>({});
   const [paid, setPaid] = useState({ cash: "", cheque: "", online: "" });
+  const [extras, setExtras] = useState<ExtraRow[]>([]);
+  const extra = extrasTotal(extras);
 
   const results = lines.map((l) => {
     const q = qty[l.productId] ?? { returned: "", damaged: "" };
@@ -81,7 +90,7 @@ export function DayEndForm({
   const money = (v: string) =>
     /^\d+(\.\d{1,2})?$/.test(v.trim()) ? new Decimal(v.trim()) : new Decimal(0);
   const collected = money(paid.cash).add(money(paid.cheque)).add(money(paid.online));
-  const due = billAfter ? billAfter.add(previous) : null;
+  const due = billAfter ? billAfter.add(previous).sub(extra.credit) : null;
   const minimum = due ? minimumPayment({ previous, totalDue: due, creditLimit }) : null;
   const short = minimum ? minimum.sub(collected) : null;
 
@@ -95,13 +104,16 @@ export function DayEndForm({
     if (e.key !== "Enter") return;
     const target = e.target as HTMLElement;
     if (target.tagName === "BUTTON") return;
+    // A pick list with something typed: Enter picks from it.
+    if (target.getAttribute("role") === "combobox" && (target as HTMLInputElement).value.trim())
+      return;
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
       formRef.current?.requestSubmit();
       return;
     }
     const fields = [
-      ...(formRef.current?.querySelectorAll<HTMLElement>("input:not([type=hidden])") ?? []),
+      ...(formRef.current?.querySelectorAll<HTMLElement>("input:not([type=hidden]), select") ?? []),
     ];
     const next = fields[fields.indexOf(target) + 1];
     if (next) next.focus();
@@ -216,6 +228,14 @@ export function DayEndForm({
           Returned goes back to stock. Damaged goes to damaged stock and is claimed from the
           company.
         </p>
+        <ExtraReturns
+          rows={extras}
+          onChange={setExtras}
+          options={returnOptions}
+          lastRates={lastRates}
+          idPrefix="de"
+          error={(field) => fieldError(state, field)}
+        />
       </section>
 
       <section aria-labelledby="money-heading" className="space-y-3">
@@ -267,6 +287,12 @@ export function DayEndForm({
         <dd className="text-right font-medium tabular-nums">
           {billAfter ? formatMoney(billAfter.toFixed(2)) : "—"}
         </dd>
+        {extras.length > 0 ? (
+          <>
+            <dt>Returns of earlier goods</dt>
+            <dd className="text-right tabular-nums">−{formatMoney(extra.credit.toFixed(2))}</dd>
+          </>
+        ) : null}
         <dt>Previous pending</dt>
         <dd className="text-right tabular-nums">{formatMoney(previous)}</dd>
         <dt className="font-semibold">Total due</dt>
@@ -291,7 +317,7 @@ export function DayEndForm({
       </dl>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={pending || invalid}>
+        <Button type="submit" disabled={pending || invalid || extra.bad}>
           {pending ? "Saving…" : "Save day-end"}
         </Button>
         <span className="text-muted-foreground text-xs">Enter: next box · Ctrl+Enter: save</span>

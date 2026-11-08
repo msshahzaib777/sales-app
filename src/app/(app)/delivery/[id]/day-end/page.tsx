@@ -12,6 +12,7 @@ import type { DiscountType } from "@/lib/pricing";
 import { requireTenantContext } from "@/server/auth/session";
 import { saveTripDayEndAction } from "@/server/delivery-actions";
 import { getTripDayEnd } from "@/server/services/delivery/day-end";
+import { extraReturnOptions } from "@/server/services/delivery/extra-returns";
 
 export const metadata: Metadata = { title: "Trip day-end" };
 
@@ -20,6 +21,10 @@ export default async function TripDayEndPage({ params }: PageProps<"/delivery/[i
   const { id } = await params;
   const ctx = await requireTenantContext("operations.manage");
   const trip = await orNotFound(getTripDayEnd(ctx, id));
+  const returnOptions = await extraReturnOptions(
+    ctx,
+    trip.pending.map((o) => o.customerId),
+  );
   // Money adds up as decimals, never floats (CLAUDE.md rule 5).
   const sum = (payments: { amount: Prisma.Decimal }[]) =>
     payments.reduce((s, p) => s.add(p.amount), new Prisma.Decimal(0));
@@ -50,6 +55,7 @@ export default async function TripDayEndPage({ params }: PageProps<"/delivery/[i
           key={trip.id}
           action={saveTripDayEndAction.bind(null, id)}
           tripDate={toDateInput(trip.tripDate)}
+          returnOptions={returnOptions}
           orders={trip.pending.map((o) => ({
             id: o.id,
             number: o.number,
@@ -61,6 +67,7 @@ export default async function TripDayEndPage({ params }: PageProps<"/delivery/[i
             previous: o.bill!.previousBalance.toFixed(2),
             billBefore: o.bill!.netAmount.toFixed(2),
             creditLimit: o.customer.creditLimit?.toFixed(2) ?? null,
+            lastRates: returnOptions.lastRates[o.customerId] ?? {},
             lines: o.lines.map((l) => ({
               productId: l.productId,
               companyId: l.companyId,
