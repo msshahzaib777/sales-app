@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import { beforeEach, describe, expect, it } from "vitest";
+import writeXlsxFile from "write-excel-file/node";
+
+import { listParamsSchema } from "@/lib/list-params";
 
 import { ForbiddenError } from "../../auth/permissions";
 import { prisma } from "../../db/client";
@@ -8,8 +11,9 @@ import { createTenantDb } from "../../db/tenant";
 import { createArea } from "./areas";
 import type { ServiceCtx } from "./common";
 import { createCompany } from "./companies";
-import { getCustomer } from "./customers";
+import { exportCustomers, getCustomer } from "./customers";
 import { commitImport, previewImport } from "./import";
+import { customerExportTable } from "./import-rows";
 import { createWarehouse } from "./warehouses";
 
 const file = (name: string, text: string) => ({ name, bytes: Buffer.from(text, "utf8") });
@@ -58,7 +62,7 @@ describe("product import", () => {
     expect(await ctx.db.product.count()).toBe(0);
 
     const result = await commitImport(ctx, "products", file("p.csv", PRODUCTS), randomUUID());
-    expect(result).toEqual({ created: 2, updated: 0, skipped: 1 });
+    expect(result).toMatchObject({ created: 2, updated: 0, skipped: 1 });
     const cb01 = await ctx.db.product.findUniqueOrThrow({
       where: { tenantId_code: { tenantId: ctx.user.tenantId, code: "CB01" } },
       include: { priceHistory: true },
@@ -76,7 +80,7 @@ describe("product import", () => {
     const preview = await previewImport(ctx, "products", file("p.csv", changed));
     expect(preview).toMatchObject({ newCount: 0, updateCount: 2, errorCount: 1 });
     const result = await commitImport(ctx, "products", file("p.csv", changed), randomUUID());
-    expect(result).toEqual({ created: 0, updated: 1, skipped: 1 });
+    expect(result).toMatchObject({ created: 0, updated: 1, skipped: 1 });
     const history = await ctx.db.productPriceHistory.findMany({
       where: { product: { code: "CB01" } },
     });
@@ -102,7 +106,7 @@ describe("company and area import", () => {
     const preview = await previewImport(ctx, "companies", file("c.csv", companies));
     expect(preview).toMatchObject({ totalRows: 2, newCount: 1, errorCount: 1 });
     const result = await commitImport(ctx, "companies", file("c.csv", companies), randomUUID());
-    expect(result).toEqual({ created: 1, updated: 0, skipped: 1 });
+    expect(result).toMatchObject({ created: 1, updated: 0, skipped: 1 });
     const golden = await ctx.db.company.findFirstOrThrow({
       where: { name: "Golden Crisp Snacks" },
     });
@@ -119,7 +123,7 @@ describe("company and area import", () => {
     const areas = ["Name,Warehouse,Visiting order", "Township,Main,2", "Shahdara Town,Main,1"].join(
       "\n",
     );
-    expect(await commitImport(ctx, "areas", file("a.csv", areas), randomUUID())).toEqual({
+    expect(await commitImport(ctx, "areas", file("a.csv", areas), randomUUID())).toMatchObject({
       created: 1,
       updated: 0,
       skipped: 1,
@@ -151,21 +155,108 @@ describe("customer import", () => {
     "Ali Khan,Khan Store,Retailer,0300-1234567,Shahdara Town,25000,5000",
     "Zubair,,Wholesaler,0301-7654321,,,",
     "Nobody,,Retailer,,Atlantis,,",
+    "Bad,,Supermarket,,,,",
   ].join("\n");
 
-  it("imports customers with opening balances as ledger entries", async () => {
+  it("imports customers with opening balances, makes new areas, and skips them the second time", async () => {
+    const preview = await previewImport(ctx, "customers", file("c.csv", CUSTOMERS));
+    expect(preview).toMatchObject({ newCount: 3, skipCount: 0, errorCount: 1 });
+    expect(preview.newAreas).toEqual(["Atlantis (Main)"]);
+    expect(await ctx.db.area.count()).toBe(1);
+
     const result = await commitImport(ctx, "customers", file("c.csv", CUSTOMERS), randomUUID());
-    expect(result).toEqual({ created: 2, updated: 0, skipped: 1 });
+    expect(result).toEqual({ created: 3, updated: 0, existing: 0, skipped: 1, areasCreated: 1 });
     const ali = await ctx.db.customer.findFirstOrThrow({ where: { name: "Ali Khan" } });
     expect((await getCustomer(ctx, ali.id)).openingBalances).toEqual({ [crunchyId]: "5000.00" });
     expect(ali.creditLimit?.toFixed(2)).toBe("25000.00");
+    const nobody = await ctx.db.customer.findFirstOrThrow({
+      where: { name: "Nobody" },
+      include: { area: true },
+    });
+    expect(nobody.area?.name).toBe("Atlantis");
 
-    // Importing the same file again finds the existing customers instead of duplicating them.
+    // Importing the same file again leaves the customers (and areas) as they are.
     const again = await previewImport(ctx, "customers", file("c.csv", CUSTOMERS));
-    expect(again).toMatchObject({ newCount: 0, errorCount: 3 });
+    expect(again).toMatchObject({ newCount: 0, skipCount: 3, errorCount: 1, newAreas: [] });
     await expect(
       commitImport(ctx, "customers", file("c.csv", CUSTOMERS), randomUUID()),
-    ).rejects.toThrow("no valid rows");
-    expect(await ctx.db.customer.count()).toBe(2);
+    ).rejects.toThrow("nothing new");
+    expect(await ctx.db.customer.count()).toBe(3);
+    expect(await ctx.db.area.count()).toBe(2);
+  });
+
+  it("moves customers to another Taqseem: export there, import here, areas matched or made", async () => {
+    const setup = [
+      "Name,Shop name,Type,Phone,WhatsApp,Address,Area,Visiting order,Credit limit",
+      "Ali Khan,Khan Store,Bike supplier,0300-1234567,0300-1234567,Shop 4,Shahdara Town,2,25000",
+      "Bilal,,Dealer,0301-1111111,,,Model Town,1,",
+      "Chand,,Retailer,,,,,,",
+    ].join("\n");
+    await commitImport(ctx, "customers", file("c.csv", setup), randomUUID());
+    const table = customerExportTable(await exportCustomers(ctx, listParamsSchema.parse({})));
+    expect(table.headers).toContain("Warehouse");
+    const xlsx = await writeXlsxFile([
+      table.headers.map((value) => ({ value })),
+      ...table.rows.map((row) =>
+        row.map((value) =>
+          value === null
+            ? null
+            : typeof value === "number"
+              ? { value, type: Number }
+              : { value, type: String },
+        ),
+      ),
+    ]).toBuffer();
+
+    // The other Taqseem: its warehouse has another name, and it has "shahdara town" already.
+    const suffix = randomUUID().slice(0, 8);
+    const tenant = await prisma.tenant.create({
+      data: { name: `J ${suffix}`, slug: `j-${suffix}` },
+    });
+    const other: ServiceCtx = {
+      db: createTenantDb(tenant.id),
+      user: { ...ctx.user, tenantId: tenant.id },
+    };
+    const godown = await createWarehouse(other, { name: "Godown 2" });
+    const shahdara = await createArea(other, { warehouseId: godown.id, name: "shahdara town" });
+
+    const preview = await previewImport(other, "customers", { name: "c.xlsx", bytes: xlsx });
+    expect(preview).toMatchObject({
+      newCount: 3,
+      errorCount: 0,
+      newAreas: ["Model Town (Godown 2)"],
+    });
+    await commitImport(other, "customers", { name: "c.xlsx", bytes: xlsx }, randomUUID());
+
+    const moved = await other.db.customer.findMany({
+      orderBy: { name: "asc" },
+      include: { area: { include: { warehouse: true } } },
+    });
+    expect(
+      moved.map((c) => [
+        c.name,
+        c.type,
+        c.phone,
+        c.whatsapp,
+        c.area?.name ?? null,
+        c.area?.warehouse.name ?? null,
+        c.routeSequence,
+        c.creditLimit?.toFixed(2) ?? null,
+      ]),
+    ).toEqual([
+      [
+        "Ali Khan",
+        "BIKE_SUPPLIER",
+        "+92 3001234567",
+        "+92 3001234567",
+        "shahdara town",
+        "Godown 2",
+        2,
+        "25000.00",
+      ],
+      ["Bilal", "DEALER", "+92 3011111111", null, "Model Town", "Godown 2", 1, null],
+      ["Chand", "RETAILER", null, null, null, null, null, null],
+    ]);
+    expect(moved[0]!.areaId).toBe(shahdara.id);
   });
 });

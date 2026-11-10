@@ -14,6 +14,7 @@ import {
   EXAMPLE_MARK,
   IMPORT_NOTES,
   type ImportKind,
+  type NewArea,
   type PreviewRow,
   readTable,
   validateAreaRows,
@@ -38,7 +39,11 @@ export type ImportPreview = {
   totalRows: number;
   newCount: number;
   updateCount: number;
+  /** Already there (customers with the same name and phone): left as they are. */
+  skipCount: number;
   errorCount: number;
+  /** Areas the import creates, as "Name (Warehouse)". */
+  newAreas: string[];
   rows: PreviewRow[];
 };
 
@@ -81,24 +86,31 @@ async function validate(ctx: ServiceCtx, kind: ImportKind, file: ImportFile) {
       today: toDateInput(businessToday()),
     });
   }
-  const [areas, customers] = await Promise.all([
-    ctx.db.area.findMany({ where: { isActive: true }, select: { id: true, name: true } }),
+  const [areas, warehouses, customers] = await Promise.all([
+    ctx.db.area.findMany({ select: { id: true, name: true, warehouseId: true, isActive: true } }),
+    ctx.db.warehouse.findMany({ where: { isActive: true }, select: { id: true, name: true } }),
     ctx.db.customer.findMany({ select: { name: true, phone: true } }),
   ]);
-  const areaMap = new Map<string, string>();
-  for (const a of areas) {
-    // The same area name in two warehouses is ambiguous; leave it out so the row reports it.
-    const key = nameKey(a.name);
-    if (areaMap.has(key)) areaMap.set(key, "");
-    else areaMap.set(key, a.id);
-  }
-  for (const [k, v] of areaMap) if (!v) areaMap.delete(k);
   return validateCustomerRows(table, {
-    areas: areaMap,
+    areas,
+    warehouses,
     companies: companyMap,
     existingKeys: new Set(customers.map((c) => customerKey(c.name, c.phone))),
   });
 }
+
+/** The areas the valid rows need created, once each (the first spelling in the file). */
+function newAreasOf(rows: ValidatedRow<unknown>[]) {
+  const areas = new Map<string, NewArea>();
+  for (const row of rows) {
+    if (row.status !== "new" || !row.newArea) continue;
+    const key = areaKey(row.newArea);
+    if (!areas.has(key)) areas.set(key, row.newArea);
+  }
+  return areas;
+}
+
+const areaKey = (a: NewArea) => `${a.warehouseId}|${nameKey(a.name)}`;
 
 function summarize(
   kind: ImportKind,
@@ -111,8 +123,16 @@ function summarize(
     totalRows: rows.length,
     newCount: rows.filter((r) => r.status === "new").length,
     updateCount: rows.filter((r) => r.status === "update").length,
+    skipCount: rows.filter((r) => r.status === "skip").length,
     errorCount: rows.filter((r) => r.status === "error").length,
-    rows: rows.map(({ line, values, status, errors }) => ({ line, values, status, errors })),
+    newAreas: [...newAreasOf(rows).values()].map((a) => `${a.name} (${a.warehouseName})`),
+    rows: rows.map(({ line, values, status, errors, note }) => ({
+      line,
+      values,
+      status,
+      errors,
+      ...(note ? { note } : {}),
+    })),
   };
 }
 
@@ -135,13 +155,30 @@ export async function commitImport(
   requestId: string,
 ) {
   const rows = await validate(ctx, kind, file);
-  const valid = rows.filter((r) => r.status !== "error");
-  if (valid.length === 0) throw new ServiceError("There are no valid rows to import.");
+  const valid = rows.filter((r) => r.status === "new" || r.status === "update");
+  if (valid.length === 0)
+    throw new ServiceError(
+      rows.some((r) => r.status === "skip")
+        ? "There is nothing new to import: every valid row is already there."
+        : "There are no valid rows to import.",
+    );
 
   let created = 0;
   let updated = 0;
   await ctx.db.$transaction(
     async (tx) => {
+      // New areas first, so the customers can be put in them.
+      const areaIds = new Map<string, string>();
+      let n = 0;
+      for (const [key, area] of newAreasOf(valid)) {
+        const made = await createAreaTx(tx, ctx, {
+          warehouseId: area.warehouseId,
+          name: area.name,
+          sortOrder: 0,
+          requestId: `${requestId}:area:${n++}`,
+        });
+        areaIds.set(key, made.id);
+      }
       for (const row of valid) {
         const rowRequestId = `${requestId}:${row.line}`;
         if (kind === "products") {
@@ -163,14 +200,22 @@ export async function commitImport(
           await createAreaTx(tx, ctx, { ...(row.input as AreaInput), requestId: rowRequestId });
           created++;
         } else {
-          await createCustomerTx(tx, ctx, row.input as CustomerInput, rowRequestId);
+          const input = row.input as CustomerInput;
+          const areaId = row.newArea ? areaIds.get(areaKey(row.newArea)) : input.areaId;
+          await createCustomerTx(tx, ctx, { ...input, areaId: areaId ?? null }, rowRequestId);
           created++;
         }
       }
     },
     { timeout: 120_000 },
   );
-  return { created, updated, skipped: rows.length - valid.length };
+  return {
+    created,
+    updated,
+    existing: rows.filter((r) => r.status === "skip").length,
+    skipped: rows.filter((r) => r.status === "error").length,
+    areasCreated: newAreasOf(valid).size,
+  };
 }
 
 const TITLES: Record<ImportKind, string> = {
@@ -210,6 +255,7 @@ export async function importSheetData(ctx: ServiceCtx, kind: ImportKind) {
       warehouse: warehouses[0]?.name,
       company: companies[0]?.name,
       area: areas[0]?.name,
+      areaWarehouse: areas[0]?.warehouse.name,
       companies: companyNames,
     }),
     notes: [

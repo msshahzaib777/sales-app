@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ServiceError } from "../errors";
 import {
   customerKey,
+  type CustomerLookups,
   EXAMPLE_MARK,
   IMPORT_KINDS,
   readTable,
@@ -215,8 +216,17 @@ describe("validateProductRows", () => {
 });
 
 describe("validateCustomerRows", () => {
-  const lookups = {
-    areas: new Map([["shahdara town", "a1"]]),
+  const lookups: CustomerLookups = {
+    areas: [
+      { id: "a1", name: "Shahdara Town", warehouseId: "w1", isActive: true },
+      { id: "a2", name: "Township", warehouseId: "w1", isActive: true },
+      { id: "a3", name: "Township", warehouseId: "w2", isActive: true },
+      { id: "a4", name: "Old Route", warehouseId: "w1", isActive: false },
+    ],
+    warehouses: [
+      { id: "w1", name: "Main" },
+      { id: "w2", name: "City Store" },
+    ],
     companies: new Map([
       ["crunchy bites foods", "c1"],
       ["golden crisp", "c2"],
@@ -224,9 +234,18 @@ describe("validateCustomerRows", () => {
     existingKeys: new Set([customerKey("Existing Shop", "0300-1111111")]),
   };
   const headers = [...templateHeaders("customers", ["Crunchy Bites Foods", "Golden Crisp"])];
+  /** A row with only name, phone, area and warehouse filled in. */
+  const row = (name: string, phone: string, area = "", warehouse = "") => {
+    const cells = headers.map(() => "");
+    cells[headers.indexOf("Name")] = name;
+    cells[headers.indexOf("Phone")] = phone;
+    cells[headers.indexOf("Area")] = area;
+    cells[headers.indexOf("Warehouse")] = warehouse;
+    return cells;
+  };
 
   it("reads types, areas and per-company opening balances", () => {
-    const [row] = validateCustomerRows(
+    const [read] = validateCustomerRows(
       {
         headers,
         rows: [
@@ -237,7 +256,8 @@ describe("validateCustomerRows", () => {
             "0300-1234567",
             "",
             "Shop 4",
-            "Shahdara Town",
+            "shahdara  town",
+            "",
             "3",
             "",
             "5,000",
@@ -247,8 +267,9 @@ describe("validateCustomerRows", () => {
       },
       lookups,
     );
-    expect(row!.status).toBe("new");
-    expect(row!.input).toMatchObject({
+    expect(read!.status).toBe("new");
+    expect(read!.newArea).toBeUndefined();
+    expect(read!.input).toMatchObject({
       type: "BIKE_SUPPLIER",
       areaId: "a1",
       routeSequence: 3,
@@ -257,26 +278,86 @@ describe("validateCustomerRows", () => {
     });
   });
 
-  it("reports unknown areas, companies and types, and duplicates", () => {
+  it("matches an area by warehouse, and by name alone when the warehouse is unknown here", () => {
     const rows = validateCustomerRows(
       {
-        headers: [...headers, "Opening: Ghost Foods"],
+        headers,
         rows: [
-          ["Bad", "", "supermarket", "", "", "", "Nowhere", "", "", "", "", "100"],
-          ["existing shop", "", "", "03001111111", "", "", "", "", "", "", "", ""],
-          ["Twin", "", "", "0311-2222222", "", "", "", "", "", "", "", ""],
-          ["Twin", "", "", "0311 2222222", "", "", "", "", "", "", "", ""],
+          row("A", "0300-0000001", "Township", "city store"),
+          row("B", "0300-0000002", "Shahdara Town", "Lahore Godown"),
+          row("C", "0300-0000003", "Township"),
+          row("D", "0300-0000004", "Township", "Lahore Godown"),
+          row("E", "0300-0000005", "Old Route"),
         ],
       },
       lookups,
     );
-    expect(rows.map((r) => r.status)).toEqual(["error", "error", "new", "error"]);
+    expect(rows.map((r) => r.input?.areaId ?? r.errors[0])).toEqual([
+      "a3",
+      "a1",
+      'Area: "Township" is in more than one warehouse; fill in the Warehouse column',
+      'Area: "Township" is in more than one warehouse; fill in the Warehouse column',
+      'Area: "Old Route" is turned off; turn it on under Areas first',
+    ]);
+  });
+
+  it("makes an area this business does not have, in the named or only warehouse", () => {
+    const rows = validateCustomerRows(
+      {
+        headers,
+        rows: [
+          row("A", "0300-0000001", " Model  Town ", "City Store"),
+          row("B", "0300-0000002", "Model Town"),
+          row("C", "0300-0000003", "Model Town", "Lahore Godown"),
+        ],
+      },
+      lookups,
+    );
+    expect(rows[0]).toMatchObject({
+      status: "new",
+      newArea: { warehouseId: "w2", warehouseName: "City Store", name: "Model Town" },
+      note: "New area: Model Town (City Store)",
+    });
+    expect(rows[0]!.input!.areaId).toBeNull();
+    expect(rows[1]!.errors).toEqual([
+      'Area: "Model Town" is new; fill in the Warehouse column so it can be created',
+    ]);
+    expect(rows[2]!.errors).toEqual([
+      'Warehouse: "Lahore Godown" is not an active warehouse, so the new area "Model Town" has no home',
+    ]);
+
+    // With one warehouse, a new area needs no Warehouse column.
+    // Rows naming the same new area (any spelling) share one, spelt as the first row has it.
+    const [only, same] = validateCustomerRows(
+      {
+        headers,
+        rows: [row("B", "0300-0000002", "Model Town"), row("F", "0300-0000006", "model  town")],
+      },
+      { ...lookups, warehouses: [{ id: "w1", name: "Main" }] },
+    );
+    expect(only!.newArea).toEqual({ warehouseId: "w1", warehouseName: "Main", name: "Model Town" });
+    expect(same).toMatchObject({ newArea: only!.newArea, note: "New area: Model Town (Main)" });
+  });
+
+  it("skips customers already there, and reports unknown companies, types and duplicates", () => {
+    const rows = validateCustomerRows(
+      {
+        headers: [...headers, "Opening: Ghost Foods"],
+        rows: [
+          ["Bad", "", "supermarket", "", "", "", "", "", "", "", "", "", "100"],
+          [...row("existing shop", "03001111111", "Nowhere"), ""],
+          [...row("Twin", "0311-2222222"), ""],
+          [...row("Twin", "0311 2222222"), ""],
+        ],
+      },
+      lookups,
+    );
+    expect(rows.map((r) => r.status)).toEqual(["error", "skip", "new", "error"]);
     expect(rows[0]!.errors).toEqual([
       "Type: use Retailer, Wholesaler, Dealer or Bike supplier",
-      'Area: "Nowhere" is not an active area',
       'Opening: Ghost Foods: "Ghost Foods" is not an active company',
     ]);
-    expect(rows[1]!.errors).toEqual(["A customer with this name and phone already exists"]);
+    expect(rows[1]).toMatchObject({ errors: [], note: "Already there" });
     expect(rows[3]!.errors).toEqual(["This customer appears more than once in the file"]);
   });
 });
