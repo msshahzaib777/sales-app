@@ -2,6 +2,14 @@
 
 Running log of what has been built, decisions taken, and open items. Newest first.
 
+## Customer export (to move customers to another Taqseem) — done
+
+- **Customers → Export** downloads the customers the list shows (same search, area, type and status filters) as Excel, in the customer import's own columns plus **Warehouse** (the area's warehouse). No balances: money is not moved between installations. Owners only (`masterData.manage`).
+- **Customer import, areas** (`matchArea` in `import-rows.ts`): an area is matched by name (any case/spacing) in the named warehouse, or in any warehouse when that warehouse name is unknown here. An area this business does not have is **created** on import, in the named warehouse or the only warehouse; rows naming it in another spelling share it. The check screen lists the areas that will be made. Errors only when it cannot tell: the same name in two warehouses with no usable Warehouse, a new area with several warehouses and none named, or a turned-off area.
+- **Customers already there** (same name and phone) are now **skipped** (shown as "Skipped · Already there"), not errors, so an export can be imported again safely.
+- Tests: row rules in `import-rows.test.ts`; export from one tenant → xlsx → import into another (different warehouse name, area in other case) in `import.int.test.ts`.
+- Open: no update of customers already there (skipped by choice); turned-off areas are not reactivated automatically.
+
 ## Cloud sync: record new tables before reaching the cloud — done
 
 - New tables from an update (e.g. `CustomerReturn`) get their change-recording trigger at the start of every sync run, before connecting to the cloud. Before, this happened only after a successful connection, so rows entered after an update while the internet was down were never sent.

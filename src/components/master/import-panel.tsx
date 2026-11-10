@@ -132,8 +132,27 @@ export function ImportPanel({ kind, notes }: { kind: ImportKind; notes: string[]
                 , <strong>{data.updateCount} update existing codes</strong>
               </>
             ) : null}
+            {data.skipCount > 0 ? (
+              <>
+                , <strong>{data.skipCount} already there</strong> (left as they are)
+              </>
+            ) : null}
             , <strong>{data.errorCount} with errors</strong> (skipped). Nothing has been saved yet.
           </p>
+          {data.newAreas.length > 0 ? (
+            <div className="rounded-lg border p-3 text-sm">
+              <p className="font-medium">
+                {data.newAreas.length === 1
+                  ? "1 new area will be made:"
+                  : `${data.newAreas.length} new areas will be made:`}
+              </p>
+              <p className="text-muted-foreground mt-1">{data.newAreas.join(", ")}</p>
+              <p className="text-muted-foreground mt-1 text-xs">
+                If one of these is the same as an area you already have under another name, rename
+                it in the file (or rename your area) and check the file again.
+              </p>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={commit} disabled={importing || importable === 0 || done}>
               {importing
@@ -173,9 +192,18 @@ export function ImportPanel({ kind, notes }: { kind: ImportKind; notes: string[]
                         </ul>
                       </>
                     ) : (
-                      <Badge variant={row.status === "new" ? "secondary" : "outline"}>
-                        {row.status === "new" ? "New" : "Update"}
-                      </Badge>
+                      <>
+                        <Badge variant={row.status === "new" ? "secondary" : "outline"}>
+                          {row.status === "new"
+                            ? "New"
+                            : row.status === "skip"
+                              ? "Skipped"
+                              : "Update"}
+                        </Badge>
+                        {row.note ? (
+                          <p className="text-muted-foreground mt-1 text-xs">{row.note}</p>
+                        ) : null}
+                      </>
                     )}
                   </Td>
                   {Object.entries(row.values).map(([c, v]) => (

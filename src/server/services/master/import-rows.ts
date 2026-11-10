@@ -100,11 +100,17 @@ export type PreviewRow = {
   /** Spreadsheet row number (header is row 1). */
   line: number;
   values: Record<string, string>;
-  status: "new" | "update" | "error";
+  /** `skip`: already there (e.g. a customer with the same name and phone); left as it is. */
+  status: "new" | "update" | "skip" | "error";
   errors: string[];
+  /** Shown with the status, e.g. "Already there" or "New area: Township (Main)". */
+  note?: string;
 };
 
-export type ValidatedRow<T> = PreviewRow & { input?: T; existingId?: string };
+/** An area the import creates, for customers whose area this business does not have yet. */
+export type NewArea = { warehouseId: string; warehouseName: string; name: string };
+
+export type ValidatedRow<T> = PreviewRow & { input?: T; existingId?: string; newArea?: NewArea };
 
 /** Column definition: the label in the template and accepted header spellings. */
 type Column = { key: string; label: string; required?: boolean; aliases?: string[] };
@@ -243,9 +249,18 @@ export const CUSTOMER_COLUMNS: Column[] = [
   { key: "whatsapp", label: "WhatsApp", aliases: ["whatsapp number"] },
   { key: "address", label: "Address" },
   { key: "area", label: "Area", aliases: ["route", "area route"] },
+  { key: "warehouse", label: "Warehouse", aliases: ["area warehouse"] },
   { key: "routeSequence", label: "Visiting order", aliases: ["sequence", "route order"] },
   { key: "creditLimit", label: "Credit limit" },
 ];
+
+/** The Type column's words, as the export writes them and the import reads them back. */
+export const CUSTOMER_TYPE_TEXT: Record<(typeof CUSTOMER_TYPES)[number], string> = {
+  RETAILER: "Retailer",
+  WHOLESALER: "Wholesaler",
+  DEALER: "Dealer",
+  BIKE_SUPPLIER: "Bike supplier",
+};
 
 const CUSTOMER_LABELS: Record<string, string> = {
   name: "Name",
@@ -279,8 +294,10 @@ const TYPE_ALIASES: Record<string, (typeof CUSTOMER_TYPES)[number]> = {
 };
 
 export type CustomerLookups = {
-  /** Lower-cased area name → id (active areas). */
-  areas: Map<string, string>;
+  /** Every area, also turned-off ones (a name in use cannot be created again). */
+  areas: { id: string; name: string; warehouseId: string; isActive: boolean }[];
+  /** Active warehouses. */
+  warehouses: { id: string; name: string }[];
   /** Lower-cased company name → id (active companies). */
   companies: Map<string, string>;
   /** `name|phone` keys of existing customers, for duplicate detection. */
@@ -291,6 +308,48 @@ export type CustomerLookups = {
 export const customerKey = (name: string, phone: string | null | undefined) =>
   `${nameKey(name)}|${(normalizePkPhone(phone ?? "") ?? phone ?? "").replace(/\D/g, "")}`;
 
+type AreaMatch = { areaId?: string; newArea?: NewArea; error?: string };
+
+/**
+ * A customer's area, for files from another Taqseem (or typed by hand): the same name (any case
+ * or spacing) in the named warehouse, or in any warehouse when that name is unknown here. An area
+ * this business does not have is created in that warehouse, or in its only warehouse.
+ */
+function matchArea(areaName: string, warehouseName: string, lookups: CustomerLookups): AreaMatch {
+  if (!areaName) return {};
+  const key = nameKey(areaName);
+  const warehouse = warehouseName
+    ? lookups.warehouses.find((w) => nameKey(w.name) === nameKey(warehouseName))
+    : undefined;
+  const same = lookups.areas.filter(
+    (a) => nameKey(a.name) === key && (!warehouse || a.warehouseId === warehouse.id),
+  );
+  if (same.length > 1)
+    return {
+      error: `Area: "${areaName}" is in more than one warehouse; fill in the Warehouse column`,
+    };
+  const area = same[0];
+  if (area)
+    return area.isActive
+      ? { areaId: area.id }
+      : { error: `Area: "${areaName}" is turned off; turn it on under Areas first` };
+
+  const home = warehouse ?? (lookups.warehouses.length === 1 ? lookups.warehouses[0] : undefined);
+  if (!home)
+    return {
+      error: warehouseName
+        ? `Warehouse: "${warehouseName}" is not an active warehouse, so the new area "${areaName}" has no home`
+        : `Area: "${areaName}" is new; fill in the Warehouse column so it can be created`,
+    };
+  return {
+    newArea: {
+      warehouseId: home.id,
+      warehouseName: home.name,
+      name: areaName.trim().replace(/\s+/g, " "),
+    },
+  };
+}
+
 export function validateCustomerRows(
   table: Table,
   lookups: CustomerLookups,
@@ -300,6 +359,7 @@ export function validateCustomerRows(
     .map((header, i) => ({ header, i, company: openingColumnCompany(header) }))
     .filter((c): c is { header: string; i: number; company: string } => c.company !== null);
   const seen = new Set<string>();
+  const newAreas = new Map<string, NewArea>();
 
   return table.rows.map((row, r) => {
     const get = (key: string) => (index[key] === undefined ? "" : (row[index[key]!] ?? ""));
@@ -308,14 +368,26 @@ export function validateCustomerRows(
       ...openingColumns.map((c) => [c.header, row[c.i] ?? ""]),
     ]);
     const errors: string[] = [];
+    const line = r + 2;
+
+    // Already here (same name and phone): left as it is, so a file can be imported again.
+    if (get("name") && lookups.existingKeys.has(customerKey(get("name"), get("phone"))))
+      return { line, values, status: "skip", errors, note: "Already there" };
 
     const typeText = nameKey(get("type").replace(/_/g, " "));
     const type = typeText === "" ? "RETAILER" : TYPE_ALIASES[typeText];
     if (!type) errors.push(`Type: use Retailer, Wholesaler, Dealer or Bike supplier`);
 
-    const areaName = get("area");
-    const areaId = areaName ? lookups.areas.get(nameKey(areaName)) : undefined;
-    if (areaName && !areaId) errors.push(`Area: "${areaName}" is not an active area`);
+    const area = matchArea(get("area"), get("warehouse"), lookups);
+    const { areaId, error: areaError } = area;
+    if (areaError) errors.push(areaError);
+    // One new area per name and warehouse, spelt as its first row has it.
+    let newArea = area.newArea;
+    if (newArea) {
+      const key = `${newArea.warehouseId}|${nameKey(newArea.name)}`;
+      newArea = newAreas.get(key) ?? newArea;
+      newAreas.set(key, newArea);
+    }
 
     const openingBalances: Record<string, string> = {};
     for (const col of openingColumns) {
@@ -344,15 +416,19 @@ export function validateCustomerRows(
 
     if (parsed.success) {
       const key = customerKey(parsed.data.name, parsed.data.phone);
-      if (lookups.existingKeys.has(key))
-        errors.push("A customer with this name and phone already exists");
-      else if (seen.has(key)) errors.push("This customer appears more than once in the file");
+      if (seen.has(key)) errors.push("This customer appears more than once in the file");
       seen.add(key);
     }
 
-    const line = r + 2;
     if (errors.length > 0 || !parsed.success) return { line, values, status: "error", errors };
-    return { line, values, status: "new", errors, input: parsed.data };
+    return {
+      line,
+      values,
+      status: "new",
+      errors,
+      input: parsed.data,
+      ...(newArea ? { newArea, note: `New area: ${newArea.name} (${newArea.warehouseName})` } : {}),
+    };
   });
 }
 
@@ -493,6 +569,42 @@ export function validateAreaRows(table: Table, lookups: AreaLookups): ValidatedR
   });
 }
 
+/** What the customer export needs of each customer. */
+export type ExportCustomer = {
+  name: string;
+  shopName: string | null;
+  type: (typeof CUSTOMER_TYPES)[number];
+  phone: string | null;
+  whatsapp: string | null;
+  address: string | null;
+  routeSequence: number | null;
+  creditLimit: { toString(): string } | null;
+  area: { name: string; warehouse: { name: string } } | null;
+};
+
+/**
+ * The customer export: the customer import's columns, so another Taqseem can import the file.
+ * Visiting order and credit limit are numbers; everything else is text (phones keep their 0).
+ */
+export function customerExportTable(customers: ExportCustomer[]) {
+  const cell: Record<string, (c: ExportCustomer) => string | number | null> = {
+    name: (c) => c.name,
+    shopName: (c) => c.shopName,
+    type: (c) => CUSTOMER_TYPE_TEXT[c.type],
+    phone: (c) => c.phone,
+    whatsapp: (c) => c.whatsapp,
+    address: (c) => c.address,
+    area: (c) => c.area?.name ?? null,
+    warehouse: (c) => c.area?.warehouse.name ?? null,
+    routeSequence: (c) => c.routeSequence,
+    creditLimit: (c) => (c.creditLimit === null ? null : Number(c.creditLimit.toString())),
+  };
+  return {
+    headers: CUSTOMER_COLUMNS.map((col) => col.label),
+    rows: customers.map((c) => CUSTOMER_COLUMNS.map((col) => cell[col.key]?.(c) ?? null)),
+  };
+}
+
 /** Template header row for each import. */
 export function templateHeaders(kind: ImportKind, companyNames: string[] = []): string[] {
   if (kind === "products") return PRODUCT_COLUMNS.map((c) => c.label);
@@ -507,7 +619,14 @@ export function templateHeaders(kind: ImportKind, companyNames: string[] = []): 
  */
 export function templateExamples(
   kind: ImportKind,
-  names: { warehouse?: string; company?: string; area?: string; companies?: string[] },
+  names: {
+    warehouse?: string;
+    company?: string;
+    area?: string;
+    /** The warehouse of that area. */
+    areaWarehouse?: string;
+    companies?: string[];
+  },
 ): string[][] {
   const warehouse = names.warehouse ?? "Main Warehouse";
   const company = names.company ?? "Crunchy Bites Foods";
@@ -549,6 +668,7 @@ export function templateExamples(
       [`${EXAMPLE_MARK} Shahdara Town`, warehouse, "1"],
       [`${EXAMPLE_MARK} Township`, warehouse, "2"],
     ];
+  const areaWarehouse = names.areaWarehouse ?? warehouse;
   const openings = (names.companies ?? []).map((_, i) => (i === 0 ? "3500" : ""));
   return [
     [
@@ -559,6 +679,7 @@ export function templateExamples(
       "0300-1234567",
       "Shop 12, Main Bazaar",
       area,
+      areaWarehouse,
       "1",
       "25000",
       ...openings,
@@ -571,6 +692,7 @@ export function templateExamples(
       "",
       "",
       area,
+      areaWarehouse,
       "2",
       "",
       ...openings.map(() => ""),
@@ -598,7 +720,9 @@ export const IMPORT_NOTES: Record<ImportKind, string[]> = {
   ],
   customers: [
     "One row per customer. Type is Retailer, Wholesaler, Dealer or Bike supplier (blank = Retailer).",
-    "Area must match an existing area name. Leave Credit limit blank for no limit.",
+    "Area: an area you already have is matched by name (and by Warehouse, when filled in). A new area is created in that warehouse, or in your only warehouse.",
+    "A customer with the same name and phone as one you already have is skipped. Leave Credit limit blank for no limit.",
+    "Moving customers from another Taqseem: there, use Customers → Export, then import that file here.",
     "Opening balance columns are per company: what the customer owes for that company (negative = advance).",
     "In Excel, format the Phone and WhatsApp columns as Text so leading zeros are kept.",
   ],

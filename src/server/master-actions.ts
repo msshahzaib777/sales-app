@@ -139,6 +139,8 @@ async function uploadedFile(formData: FormData) {
   return { name: file.name, bytes: Buffer.from(await file.arrayBuffer()) };
 }
 
+type ImportCounts = Awaited<ReturnType<typeof commitImport>>;
+
 const IMPORT_PATHS: Record<ImportKind, string> = {
   companies: "/companies",
   products: "/products",
@@ -161,9 +163,9 @@ export async function importPreviewAction(
 
 export async function importCommitAction(
   kind: ImportKind,
-  _prev: ActionState<{ created: number; updated: number; skipped: number }>,
+  _prev: ActionState<ImportCounts>,
   formData: FormData,
-): Promise<ActionState<{ created: number; updated: number; skipped: number }>> {
+): Promise<ActionState<ImportCounts>> {
   const result = await runAction(async () => {
     if (!IMPORT_KINDS.includes(kind)) throw new ServiceError("Unknown import.");
     const ctx = await requireTenantContext("masterData.manage");
@@ -174,13 +176,20 @@ export async function importCommitAction(
     const parts = [
       counts.created ? `${counts.created} added` : null,
       counts.updated ? `${counts.updated} updated` : null,
+      counts.areasCreated
+        ? `${counts.areasCreated} new ${counts.areasCreated === 1 ? "area" : "areas"} made`
+        : null,
+      counts.existing ? `${counts.existing} already there (left as they were)` : null,
       counts.skipped
         ? `${counts.skipped} ${counts.skipped === 1 ? "row" : "rows"} with errors skipped`
         : null,
     ].filter(Boolean);
     return { message: `Import finished: ${parts.join(", ") || "nothing changed"}.`, data: counts };
   });
-  if (result.status === "success") revalidatePath(IMPORT_PATHS[kind]);
+  if (result.status === "success") {
+    revalidatePath(IMPORT_PATHS[kind]);
+    if (result.data?.areasCreated) revalidatePath(IMPORT_PATHS.areas);
+  }
   return result;
 }
 

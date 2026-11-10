@@ -7,6 +7,7 @@ import { Pagination } from "@/components/list/pagination";
 import { PageHeader } from "@/components/layout/page-header";
 import { Notice } from "@/components/master/notice";
 import { EditLink, LinkButton, StatusBadge } from "@/components/master/page-helpers";
+import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { filterParam, listParamsSchema } from "@/lib/list-params";
 import { can } from "@/server/auth/permissions";
@@ -25,6 +26,13 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
   const [list, areas] = await Promise.all([listCustomers(ctx, params, sp), areaOptions(ctx)]);
   const canEdit = can(ctx.user.role, "masterData.manage");
   const canSeeLedger = can(ctx.user.role, "ledgers.view");
+  // The export takes the list's search and filters (not the page).
+  const exportQuery = new URLSearchParams(
+    (["q", "status", "areaId", "type"] as const).flatMap((k) => {
+      const v = filterParam(sp, k);
+      return v ? [[k, v]] : [];
+    }),
+  ).toString();
 
   return (
     <>
@@ -34,6 +42,14 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
         actions={
           canEdit ? (
             <>
+              <Button asChild variant="outline">
+                <a
+                  href={`/customers/export?${exportQuery}`}
+                  title="Excel file of the customers listed (with this search and filters), for importing into another Taqseem"
+                >
+                  Export
+                </a>
+              </Button>
               <LinkButton href="/import/customers" variant="outline">
                 Import
               </LinkButton>

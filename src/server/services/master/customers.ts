@@ -23,15 +23,14 @@ import {
   setOpeningBalance,
 } from "./opening-balances";
 
-/** Customer list with each customer's current pending balance (everyone can see it: order entry). */
-export async function listCustomers(
-  ctx: ServiceCtx,
-  params: ListParams,
-  filters: Record<string, unknown> = {},
-) {
+/** The customer list's search and filters (also used by the export). */
+function customerWhere(
+  params: Pick<ListParams, "q" | "status">,
+  filters: Record<string, unknown>,
+): Prisma.CustomerWhereInput {
   const areaId = filterParam(filters, "areaId");
   const type = filterParam(filters, "type");
-  const where = {
+  return {
     ...statusWhere(params.status),
     ...matchEveryWord(params.q, (w): Prisma.CustomerWhereInput[] => [
       ...["name", "shopName", "address"].map((field) => ({ [field]: icontains(w) })),
@@ -44,6 +43,15 @@ export async function listCustomers(
       ? { type: type as (typeof CUSTOMER_TYPES)[number] }
       : {}),
   };
+}
+
+/** Customer list with each customer's current pending balance (everyone can see it: order entry). */
+export async function listCustomers(
+  ctx: ServiceCtx,
+  params: ListParams,
+  filters: Record<string, unknown> = {},
+) {
+  const where = customerWhere(params, filters);
   const [rows, total] = await Promise.all([
     ctx.db.customer.findMany({
       where,
@@ -63,6 +71,24 @@ export async function listCustomers(
     total,
     params.page,
   );
+}
+
+/**
+ * Every customer the list's search and filters match, in list order, with the area's warehouse:
+ * the rows of the customer export, which the customer import of another Taqseem reads. No
+ * balances: money is not moved between installations.
+ */
+export async function exportCustomers(
+  ctx: ServiceCtx,
+  params: Pick<ListParams, "q" | "status">,
+  filters: Record<string, unknown> = {},
+) {
+  assertCan(ctx.user.role, "masterData.manage");
+  return ctx.db.customer.findMany({
+    where: customerWhere(params, filters),
+    orderBy: [{ area: { sortOrder: "asc" } }, { routeSequence: "asc" }, { name: "asc" }],
+    include: { area: { select: { name: true, warehouse: { select: { name: true } } } } },
+  });
 }
 
 export async function getCustomer(ctx: ServiceCtx, id: string) {
