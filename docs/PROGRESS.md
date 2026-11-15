@@ -4,8 +4,9 @@ Running log of what has been built, decisions taken, and open items. Newest firs
 
 ## Vercel deployment fix — done
 
-- On Vercel every request failed at start: `Cannot find module 'next/dist/server/node-environment'`. Vercel's launcher loads that file before the server, but Next 16.4's minimal server trace (`.next/next-minimal-server.js.nft.json`) leaves it out (only its helpers are in).
-- `next.config.ts` now adds it, and the files it loads, to every route through `outputFileTracingIncludes`, at the real pnpm path (`node_modules/.pnpm/next@*/node_modules/next/...`), which is where the launcher resolves it from. Checked: all 104 route traces carry it.
+- On Vercel every request failed at start: `Cannot find module 'next/dist/server/node-environment'`, then `'../patch-error-inspect'`. Every Node function starts with `next/setup-node-env`, which loads `node-environment`, `require-hook` and `node-polyfill-crypto` (about 55 files with what they load). Next 16.4's Vercel adapter (`next/dist/build/adapter/build-complete.js`) adds those itself only for webpack builds ("Turbopack traces these itself"), but Turbopack leaves them out of the route traces.
+- `next.config.ts` (now an async config) traces that startup file with Next's own tracer (`@vercel/nft`) during `next build` and adds the result to every route through `outputFileTracingIncludes`: no hand-kept list. Checked against the build: all 104 page/API routes and the proxy have every file (the proxy's trace already had them; instrumentation's files are shared into every function).
+- Also: `prisma.config.ts` reads `process.env.DATABASE_URL` instead of `env()`, so `pnpm install` (postinstall `prisma generate`) works without the variable (Vercel preview builds failed at install).
 - Also (PR #45): the tracing excludes are keyed `"/**"` and `instrumentation` instead of `"*"`, because Next applies a `"*"` list to its own server files and matches anywhere in a path (`dist/**` would hit `next/dist`). That alone did not fix the crash.
 - Windows setup file not affected (standalone output, its own launcher).
 - **Vercel setup:** `DATABASE_URL` (Neon pooled string) and `AUTH_SECRET` as environment variables; `pnpm db:deploy` with the direct string for each release with database updates. Cloud sync and backups are for the Windows install only.
